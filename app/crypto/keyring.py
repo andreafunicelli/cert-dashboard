@@ -37,10 +37,12 @@ def load_keyring(raw: bytes) -> Keyring:
         active, keys = data["active"], data["keys"]
         if type(active) is not int or active < 1 or not isinstance(keys, dict):
             raise ValueError
-        if not 1 <= len(keys) <= 16:
+        if not keys:
             raise ValueError
+        if len(keys) > 16:
+            raise ConfigurationError("master_key: hard limit of 16 parsed versions exceeded; remove excess versions")
         if len(keys) > 2:
-            raise ValueError
+            raise ConfigurationError("master_key: live limit of 2 versions exceeded; complete rotation and retire old versions")
         decoded = {}
         for version, encoded in keys.items():
             if not version.isascii() or not version.isdecimal() or str(int(version)) != version:
@@ -52,7 +54,7 @@ def load_keyring(raw: bytes) -> Keyring:
             if len(key) != 32:
                 raise ValueError
             decoded[number] = key
-        if active not in decoded or active != max(decoded):
+        if active not in decoded:
             raise ValueError
         return Keyring(active=active, keys=decoded)
     except ConfigurationError:

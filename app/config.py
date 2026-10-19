@@ -76,7 +76,7 @@ def _secret(
         raise ConfigurationError(f"{name}: required secret missing; mount /run/secrets/{name}")
     if not value.strip():
         raise ConfigurationError(f"{name}: secret is empty; supply a non-empty secret file")
-    return value if name in {"master_key", "session_secret"} else value.rstrip(b"\r\n")
+    return value if name == "master_key" else value.rstrip(b"\r\n")
 
 
 def _positive_int(environ: Mapping[str, str], name: str, default: int, maximum: int | None = None) -> int:
@@ -118,7 +118,8 @@ def load_settings(
                 serialization.load_ssh_private_key(ssh_key, password=None)
             else:
                 serialization.load_pem_private_key(ssh_key, password=None)
-        except (ValueError, TypeError):
+        except Exception:  # noqa: BLE001 - normalize all third-party key parser failures
+            # Parser/backend failures must not expose key material or internals.
             raise ConfigurationError("ansible_ssh_key: expected an unencrypted SSH private key") from None
     return Settings(
         profile=profile, keyring=ring, keyring_sha256=hashlib.sha256(master).hexdigest(),

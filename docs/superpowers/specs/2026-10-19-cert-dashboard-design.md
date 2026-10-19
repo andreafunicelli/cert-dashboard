@@ -224,7 +224,7 @@ Rules:
 4. `web` does not mount `ansible_ssh_key` at all.
 5. Start-up logs print secret *presence and fingerprint metadata only* (e.g. keyring version and SHA-256 of the file), never contents.
 6. Compose file-backed secrets are read-only bind mounts preserving host ownership/modes; do not specify ignored mode/uid/gid remapping. `/etc/cert-dashboard/secrets` is root:root 0711. App/worker secret files are 10001:10001 0400; db_owner_password is 999:999 0400; shared db_password is 10001:999 0440. `scripts/install-secrets.sh` applies these permissions to existing canonical files without reading/copying values. Verify postgres UID/GID 999 in the pinned Debian image.
-7. The one-shot migration override runs as 999:999 with DB-only settings and the owner password mapped to db_password; inherited app-owned secret mounts remain unreadable to that UID. Runtime app_role owns no schema/tables and cannot assume the owner role.
+7. The dedicated one-shot migrate service runs as 999:999 with DB-only settings and only db_owner_password mapped to /run/secrets/db_password; it inherits no web configuration or application secrets. Runtime app_role owns no schema/tables and cannot assume the owner role.
 
 ### 3.5 Code layout
 
@@ -1379,7 +1379,7 @@ Scenarios:
 
 1. Clone the private repo onto the host (deploy key).
 2. Provision secret files under `/etc/cert-dashboard/secrets/` (`db_password`, distinct `db_owner_password`, `master_key`, `session_secret`, and optional worker SSH/vault/Git/SMTP credentials). An administrator runs `sh scripts/install-secrets.sh /etc/cert-dashboard/secrets` as root: directory root:root 0711; app secrets 10001:10001 0400; owner password 999:999 0400; shared db_password 10001:999 0440. No runtime copies are created. Generate `master_key` with `docker run --rm cert-dashboard python -m app.cli generate-master-key --version 1` and **immediately** follow 11.6.
-3. `docker compose up -d db`, then `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm web alembic upgrade head`.
+3. `docker compose up -d db`, then `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`.
 4. `docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal` (prompts for the password with confirmation, enforces the 12-character minimum).
 5. `docker compose up -d web worker`.
 6. Log in, enroll 2FA, configure SMTP, alert recipients, and the inventory repo; press "Test pull" and "Send test email".
@@ -1391,7 +1391,7 @@ Scenarios:
 
 | Task | Procedure |
 | --- | --- |
-| Upgrade | Pull the image tag, `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm web alembic upgrade head`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
+| Upgrade | Pull the image tag, `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
 | Roll back an app upgrade | Re-pin the previous image tag and restart. If the migration is not backward compatible, restore the DB backup taken before the upgrade (documented per release in the release notes) |
 | Add a server | Add it to the inventory repo, wait for the nightly discovery or press "Discover now"; confirm the server appears and its bindings are matched |
 | Remove a server | Remove it from the inventory; the next discovery marks it inactive (history preserved) |

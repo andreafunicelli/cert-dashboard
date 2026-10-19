@@ -1,4 +1,5 @@
 import json
+import posixpath
 import shutil
 import subprocess
 from pathlib import Path
@@ -58,7 +59,9 @@ def test_owner_secret_only_reaches_db_or_one_shot_migration():
     assert secret_targets(cfg["services"]["db"]) == {"db_password", "db_owner_password"}
     for name in ("web", "worker"):
         assert "db_owner_password" not in secret_targets(cfg["services"][name])
-    migrate = compose("docker-compose.migrate.yml")["services"]["web"]
+    migration_services = compose("docker-compose.migrate.yml")["services"]
+    assert set(migration_services) == {"migrate"}
+    migrate = migration_services["migrate"]
     assert migrate["environment"]["DB_USER"] == "db_owner"
     assert {x["source"] for x in migrate["secrets"]} == {"db_owner_password"}
     assert {x["target"] for x in migrate["secrets"]} == {"db_password"}
@@ -75,7 +78,7 @@ def test_compose_never_promises_unsupported_secret_permission_remapping():
     for name in ("docker-compose.yml", "docker-compose.credentials.yml", "docker-compose.migrate.yml", "docker-compose.test.yml"):
         for svc in compose(name)["services"].values():
             assert all("mode" not in secret for secret in svc.get("secrets", []) if isinstance(secret, dict))
-    migration = compose("docker-compose.migrate.yml")["services"]["web"]
+    migration = compose("docker-compose.migrate.yml")["services"]["migrate"]
     assert migration["user"] == "999:999"
 
 
@@ -118,12 +121,62 @@ def test_htmx_is_packaged_for_offline_runtime():
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI required; run authoritative suite in Linux")
 def test_rendered_migration_has_exactly_one_password_source():
     result = subprocess.run(
-        ["docker", "compose", "-f", "docker-compose.yml", "-f", "docker-compose.migrate.yml", "config", "--format", "json"],
+        ["docker", "compose", "--profile", "*", "-f", "docker-compose.yml", "-f", "docker-compose.migrate.yml", "config", "--format", "json"],
         cwd=ROOT, capture_output=True, text=True, check=True,
     )
     cfg = json.loads(result.stdout)
-    passwords = [s["source"] for s in cfg["services"]["web"]["secrets"] if s["target"] == "db_password"]
-    assert passwords == ["db_owner_password"]
+    migrate = cfg["services"].get("migrate")
+    assert migrate is not None, "Migrations require their own service"
+    assert [(secret_path(s["target"]), s["source"]) for s in migrate["secrets"]] == [
+        ("/run/secrets/db_password", "db_owner_password")
+    ]
+    assert migrate["image"] == cfg["services"]["web"]["image"]
+    assert migrate["user"] == "999:999" and migrate["read_only"] is True
+    assert migrate["cap_drop"] == ["ALL"]
+    assert "no-new-privileges:true" in migrate["security_opt"]
+    assert not migrate.get("ports")
+    assert migrate["command"] == ["alembic", "upgrade", "head"]
+    assert migrate["environment"]["DB_USER"] == "db_owner"
+
+
+def secret_path(target):
+    return posixpath.normpath(target if target.startswith("/") else "/run/secrets/" + target)
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI required; run authoritative suite in Linux")
+@pytest.mark.parametrize("files", [
+    ["docker-compose.yml"],
+    ["docker-compose.yml", "docker-compose.credentials.yml"],
+    ["docker-compose.yml", "docker-compose.migrate.yml"],
+    ["docker-compose.yml", "docker-compose.credentials.yml", "docker-compose.migrate.yml"],
+    ["docker-compose.test.yml"],
+])
+def test_rendered_services_never_mount_two_secrets_at_the_same_path(files):
+    command = ["docker", "compose", "--profile", "*"]
+    for name in files:
+        command.extend(["-f", name])
+    result = subprocess.run(command + ["config", "--format", "json"], cwd=ROOT,
+                            capture_output=True, text=True, check=True)
+    for name, service in json.loads(result.stdout)["services"].items():
+        targets = [secret_path(s.get("target", s["source"])) for s in service.get("secrets", [])]
+        assert len(targets) == len(set(targets)), f"Duplicate secret path in {files}: {name}: {targets}"
+
+
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="Git mode checked in the host checkout")
+def test_postgres_initializer_is_executable_in_git():
+    result = subprocess.run(["git", "ls-files", "--stage", "--", "app/migrations/init_roles.sh"],
+                            cwd=ROOT, capture_output=True, text=True, check=True)
+    assert result.stdout.split()[0] == "100755"
+
+
+def test_ci_container_smoke_runs_only_unit_tests():
+    path = ROOT / ".github/workflows/ci.yml"
+    if not path.exists():
+        pytest.skip("CI workflow checked in the host checkout")
+    workflow = yaml.safe_load(path.read_text())
+    commands = [step.get("run", "") for step in workflow["jobs"]["verify"]["steps"]]
+    smoke = [command for command in commands if command.startswith("docker run ")]
+    assert smoke == ["docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider"]
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI required; run authoritative suite in Linux")

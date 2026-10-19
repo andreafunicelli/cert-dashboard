@@ -11,7 +11,7 @@ uv run pytest -q --cov=app --cov-report=term-missing --cov-report=json
 uv run coverage report --fail-under=85 --include='app/crypto/*'
 uv run pip-audit
 docker compose -f docker-compose.test.yml config --quiet
-docker run --rm cert-dashboard:test
+docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider
 docker build -t cert-dashboard:local .
 ```
 
@@ -24,9 +24,10 @@ UV_PROJECT_ENVIRONMENT="$HOME/.venvs/cert-dashboard" uv run pytest -q
 ```
 
 Host tests exercise Docker Compose rendering and isolated container permissions;
-they require the test image built above. Those four Docker-CLI tests skip inside
-the application test image, which has no host Docker socket or CLI. Unit tests do
-not contact network services. Prepare images/dependencies before running tests.
+they require the test image built above. Docker-CLI checks skip inside
+the application test image, which has no host Docker socket or CLI. Its CI smoke
+command runs only tests/unit; the full suite runs on the Docker-enabled host.
+Unit tests do not contact network services. Prepare images/dependencies before running tests.
 
 This scaffold does not yet implement `app.main` or the worker loop. Application
 startup and database schema validation arrive in later reviewed plan tasks.
@@ -58,16 +59,17 @@ The installer changes ownership/modes only, reads no values, and creates no copi
 The directory permits traversal of known filenames, but not listing. Compose file
 secrets are read-only bind mounts preserving these numeric owners/modes; `mode:`
 does not remap them outside Swarm. The pinned Debian PostgreSQL 16 image uses
-postgres UID/GID 999. The application runs as 10001; its one-shot migration override
-runs as 999 with only DB configuration needed. Inherited app-owned secret files
-remain unreadable to that migration UID. Normal web/worker never mount the owner
-password. Rotate a secret by replacing it, reapplying the installer, then restarting
+postgres UID/GID 999. The application runs as 10001; the dedicated one-shot
+`migrate` service runs as 999 with DB-only configuration. Its sole secret is
+`db_owner_password`, mounted at `/run/secrets/db_password`; no application secrets
+are mounted. Normal web/worker never mount the owner password. Rotate a secret by
+replacing it, reapplying the installer, then restarting
 the affected service. Keep the master-key backup copies separate from DB backups.
 
 After the schema task is implemented, migrations use:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm web alembic upgrade head
+docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate
 ```
 
 Use the credentials override only after provisioning its entries and

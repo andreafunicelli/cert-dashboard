@@ -25,5 +25,5 @@ jobs:
           fi
       - run: uv run pip-audit
       - run: docker compose -f docker-compose.test.yml config --quiet
-      - run: docker run --rm cert-dashboard:test
+      - run: docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider
       - run: docker build -t cert-dashboard:ci .

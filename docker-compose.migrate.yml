@@ -1,9 +1,25 @@
-# One-shot only: never start the normal web service with this override.
+# Dedicated one-shot service; never inherit application secrets from web.
 services:
-  web:
+  migrate:
+    image: cert-dashboard:local
+    build:
+      context: .
+      target: runtime
+    profiles: [migrate]
     user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    command: [alembic, upgrade, head]
     environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_NAME: cert_dashboard
       DB_USER: db_owner
+    depends_on:
+      db:
+        condition: service_healthy
     secrets:
       - source: db_owner_password
         target: db_password

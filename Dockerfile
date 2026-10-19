@@ -24,6 +24,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=postgres-tools /usr/lib/postgresql/16/bin/pg_dump /usr/lib/postgresql/16/bin/pg_restore /usr/lib/postgresql/16/bin/psql /usr/local/bin/
 COPY --chown=app:app app ./app
+COPY --chown=app:app --chmod=0755 app/migrations/init_roles.sh ./app/migrations/init_roles.sh
 USER 10001:10001
 
 FROM base AS test
