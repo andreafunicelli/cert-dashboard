@@ -97,7 +97,7 @@ One internal web application that is the source of truth for every non-ACME cert
 
 - The dashboard is not a CA and never signs anything.
 - The dashboard is not configuration management. It does not create vhosts, and a binding it cannot find is reported, not fixed.
-- The dashboard does not guarantee certificate validity with the CA beyond parsing and key matching. Revocation status is not checked in v1.
+- The dashboard validates certificate paths to configured trust anchors, but does not query the CA for issuance or revocation status. OCSP/CRL checks remain outside v1.
 
 ---
 
@@ -242,6 +242,7 @@ app/
     keys.py            RSA/ECDSA generation, public key fingerprints
     csr.py             CSR build and validation
     chain.py           chain ordering and validation, PEM assembly
+    trust.py           offline PolicyBuilder/Store path validation
     pfx.py             PKCS#12 build (and PKCS#12 import)
     parse.py           PEM/DER/PFX parsing, fingerprint, SAN extraction
   services/
@@ -252,6 +253,7 @@ app/
     scans.py           TLS scan engine
     alerts.py          expiry evaluation, digests, SMTP
     audit.py           append-only audit writer
+    trust_anchors.py   uploaded roots, in-memory public bundle, chain rechecks
   jobs/
     worker.py          scheduler tick, claim loop, reaper
     queue.py           enqueue/claim/complete primitives
@@ -339,6 +341,8 @@ certificate 1---* notification_log
 | Enum | Values |
 | --- | --- |
 | `certificate_status` | `active`, `superseded`, `revoked` |
+| `chain_status` | `trusted`, `incomplete`, `untrusted_root`, `unchecked` |
+| `trust_anchor_source` | `public_bundle`, `uploaded` |
 | `private_key_type` | `rsa`, `ecdsa` |
 | `renewal_state` | `draft`, `csr_generated`, `submitted`, `issued`, `deployed`, `done`, `cancelled` |
 | `webserver_type` | `nginx`, `apache` |
@@ -368,6 +372,7 @@ certificate 1---* notification_log
 | `sha256_fingerprint` | char(64) not null | SHA-256 of the DER encoding, lowercase hex |
 | `pem` | text not null | Leaf certificate PEM |
 | `chain_pem` | text not null default '' | Intermediates, root excluded, see 4.4 |
+| `chain_status` | `chain_status` not null default `unchecked` | Persisted offline path assessment, see 5.8 |
 | `key_id` | bigint null FK `private_key(id)` | Null for imported public-only certificates |
 | `owner_name` | text null | Human or team label |
 | `owner_email` | text null | Alert recipient for this certificate |
@@ -392,12 +397,13 @@ Indexes and constraints:
 
 ### 4.4 Chain storage
 
-`chain_pem` holds every intermediate required to build a path from the leaf up to (but excluding) a root, in leaf-to-root order, PEM-concatenated. Roots are never stored: they are trusted by the clients, and shipping one is redundant. Validation on ingest:
+`chain_pem` holds the supplied intermediates, root excluded, in leaf-to-root order where links can be established. Roots are excluded from certificate/chain/PFX downloads; uploaded trusted roots are separate `trust_anchor` rows, not part of `chain_pem`.
 
-1. Parse every block; reject non-certificate blocks.
-2. Verify each certificate signs the previous one (issuer/subject match and signature verify).
-3. Drop duplicate and self-signed root blocks with a note in the audit details.
-4. Store the ordered result; if the order cannot be resolved, reject the upload with an explicit message.
+1. Parse every block; reject non-certificate blocks and malformed data.
+2. Order known issuer/subject links and verify their signatures. Reject a supplied issuer claiming a link whose signature is invalid. Keep unresolved components in deterministic issuer-topological/fingerprint order with an incomplete-path diagnostic, rather than inventing a missing issuer.
+3. Drop duplicates and self-signed roots from `chain_pem` with audit notes. Retain roots temporarily in memory as untrusted diagnostic candidates; they do not become trusted merely because a bundle contains them.
+4. Assess the path using §5.8, the pinned certifi bundle when enabled, and uploaded anchors. Persist `certificate.chain_status`. Missing/untrusted/expired intermediate paths are warnings on both import and issued-certificate upload; they do not block inventory or renewal issuance. Malformed public material, wrong keys/CSR identity, or an invalid issued leaf validity window still block.
+5. A chain/anchor/public-bundle setting change recomputes affected statuses through the service in §5.8. No AIA, trust-store download, or other network fetching occurs.
 
 ### 4.5 `private_key`
 
@@ -452,7 +458,7 @@ Transition rules:
 
 - `draft -> csr_generated`: requires key generation; CN/SANs frozen afterwards.
 - `csr_generated -> submitted`: requires `ca_order_reference` (Assumption: an order reference is mandatory so the audit trail links to the CA).
-- `submitted -> issued`: the uploaded leaf must parse, must match `csr_pem` (public key and subject/SANs), must match `key_id` by public key hash, and must not be expired. A chain is optional if the leaf is self-signed or already chained.
+- `submitted -> issued`: the uploaded leaf must parse, must match `csr_pem` (public key and subject/SANs), must match `key_id` by public key hash, and must not be expired. A chain is optional. Path failures (including missing intermediates or an untrusted self-signed issuer) persist a non-trusted chain_status and show warnings; they do not block this transition. Parse/key/CSR/leaf-validity checks remain mandatory.
 - `issued -> deployed`: at least one successful deploy job covering the certificate; automatically advanced by the deploy handler.
 - `deployed -> done`: manual confirmation by an admin that the old certificate is no longer needed anywhere.
 - Any transition to `cancelled` keeps the row and the generated key (the key is not deleted; deleting keys is not exposed in the UI).
@@ -643,7 +649,7 @@ Sessions: idle timeout 8 hours, absolute lifetime 24 hours (`Assumption`), rotat
 | `updated_at` | timestamptz not null | |
 | `updated_by` | bigint null FK `user(id)` | |
 
-Known keys: `smtp.host`, `smtp.port`, `smtp.security` (`starttls`/`ssl`/`none`), `smtp.from`, `smtp.username`, `alert.thresholds_days` (default `[60,30,14,7,1,0]`), `alert.recipients` (team list), `alert.digest_enabled`, `inventory.repo_url`, `inventory.ref` (branch/tag), `inventory.path`, `inventory.webserver_var`, `deploy.batch_percent` (default 10), `deploy.pause_after_canary` (default true), `deploy.pause_timeout_hours` (default 24), `deploy.backup_retention_days` (default 30, `0` = keep forever), `deploy.concurrency` (default 5), `scan.timeout_seconds` (default 10), `scan.daily_at` (default `02:00`), `discovery.nightly_at` (default `03:00`), `digest.daily_at` (default `07:30`), `expiry_check.daily_at` (default `07:00`), `ui.timezone` (display default), `retention.days` (run/job retention, default 90).
+Known keys: `trust.include_public_bundle` (default `true`), `smtp.host`, `smtp.port`, `smtp.security` (`starttls`/`ssl`/`none`), `smtp.from`, `smtp.username`, `alert.thresholds_days` (default `[60,30,14,7,1,0]`), `alert.recipients` (team list), `alert.digest_enabled`, `inventory.repo_url`, `inventory.ref` (branch/tag), `inventory.path`, `inventory.webserver_var`, `deploy.batch_percent` (default 10), `deploy.pause_after_canary` (default true), `deploy.pause_timeout_hours` (default 24), `deploy.backup_retention_days` (default 30, `0` = keep forever), `deploy.concurrency` (default 5), `scan.timeout_seconds` (default 10), `scan.daily_at` (default `02:00`), `discovery.nightly_at` (default `03:00`), `digest.daily_at` (default `07:30`), `expiry_check.daily_at` (default `07:00`), `ui.timezone` (display default), `retention.days` (run/job retention, default 90).
 
 Secrets are never stored here: SMTP password comes from the `smtp_password` secret file.
 
@@ -688,13 +694,28 @@ CREATE RULE audit_log_no_delete AS ON DELETE TO audit_log DO INSTEAD NOTHING;
 
 The application role has `INSERT` and `SELECT` only. The audit list screen is read-only and paginated/filterable; there is no purge action in v1 (retention is a DBA task).
 
-Audited actions include: login success/failure, logout, 2FA enable/disable, user create/deactivate, certificate create/import/update/status change, chain/leaf upload, renewal transition, CSR generation, key export, PFX export, deploy start/cancel, rollback, discovery run, scan run, settings change, master key rotation, admin bootstrap.
+Audited actions include: login success/failure, logout, 2FA enable/disable, user create/deactivate, certificate create/import/update/status change, chain/leaf upload, renewal transition, CSR generation, key export, PFX export, deploy start/cancel, rollback, discovery run, scan run, settings change, master key rotation, admin bootstrap, `trust_anchor.add`, `trust_anchor.remove`, and `certificate.chain_check` (status/validation time only).
 
 ### 4.17 Migrations and seed data
 
 - Alembic, one revision per change, `upgrade` only in production (no destructive auto-migrations on start; a `migrate` step runs in the deploy pipeline).
 - Seed: nothing except a bootstrap admin created by `python -m app.cli bootstrap-admin --username ... --email ...` (prompts for the password, or reads `BOOTSTRAP_ADMIN_PASSWORD` once). Default settings rows are inserted by the first migration.
 - Every table has `created_at`; mutable tables have `updated_at` maintained by a trigger.
+
+### 4.18 `trust_anchor`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | bigserial PK | |
+| `subject` | text not null | RFC 4514 subject |
+| `sha256_fingerprint` | char(64) not null unique | Lowercase SHA-256 of DER |
+| `pem` | text not null | One internal root CA certificate |
+| `source` | `trust_anchor_source` not null default `uploaded` | Enum includes `public_bundle`/`uploaded`; only uploaded anchors are persisted |
+| `notes` | text null | Operator context |
+| `created_by` | bigint null FK `user(id)` | Uploading admin |
+| `created_at` | timestamptz not null default now() | Immutable; removal is audited |
+
+This table, its enum, `certificate.chain_status`, and the public-bundle setting are created by the single initial v1 migration. Certifi is pinned in the lock file and loaded into memory; its public roots are never copied into this table. Add rejects anything except a single PEM root with BasicConstraints `CA:TRUE`, matching issuer/subject, and a valid self-signature (and CA-signing usage if KeyUsage is present). Deduplicate by fingerprint. Delete removes the uploaded anchor and recomputes statuses in the same transaction; audit `trust_anchor.add/remove` records actor/fingerprint/subject/notes, not private material. Anchors contain public certificates only.
 
 ---
 
@@ -783,6 +804,21 @@ v1: all authenticated, active users are admins. There is no per-object permissio
 - Ansible connects over SSH with a dedicated key, dedicated user, and `StrictHostKeyChecking=yes` against a `known_hosts` file baked into the worker image at build time (or mounted). Host key changes fail the job rather than being accepted.
 - No outbound internet access is required except SMTP, the CA portals (browser side only), and the inventory Git remote.
 - `db` accepts connections only from the compose network, with a strong password from a secret.
+
+### 5.8 Offline trust-anchor path validation
+
+Use `cryptography.x509.verification.PolicyBuilder` and `Store`: build leaf → supplied/stored intermediates → a configured anchor at an explicit UTC `validation_time` (current time for import/recheck/deploy, never backdated to bypass expiry). Include the pinned certifi bundle only when `trust.include_public_bundle=true` (default); merge it in memory with uploaded roots. Verification enforces signatures, CA constraints, and the validity of the leaf and intermediates; choose the server identity from the certificate's DNS/IP SANs consistently. No network, AIA, OCSP, or CRL checks run.
+
+Persist one `certificate.chain_status`:
+
+- `trusted`: PolicyBuilder verifies a path to an enabled anchor at validation_time.
+- `untrusted_root`: no trusted path, but a cryptographically connected path reaches a supplied/known self-signed root not in the enabled anchor set. An uploaded bundle's root is diagnostic, not an automatic trust grant.
+- `incomplete`: no valid path (including a missing intermediate, an expired intermediate, or another policy failure); show the missing issuer/policy diagnostic. When no terminal root is available, do not guess it is a root: use incomplete.
+- `unchecked`: no assessment has run yet; never treat it as trusted.
+
+Import and issued upload display non-trusted results inline and on certificate detail but continue after their existing parse/key/CSR/leaf-validity gates pass. Recompute on chain changes, anchor add/remove, and public-bundle toggle through `recheck_chain_statuses(db, validation_time, diagnostic_roots=())`; when removing an anchor, retain the removed public root in memory for that recheck's untrusted-root diagnosis. The cached status reflects the last assessment; a later assessment may report incomplete if a formerly supplied untrusted root is no longer available. Each changed persisted status gets a metadata-only certificate.chain_check audit with validation_time.
+
+Plan 1 performs these rechecks synchronously (at most ~500 certificates). Plan 2 may move the same service into a registered background recheck action; no additional v1 job enum/table is required. Plan 3 revalidates at current time before deploy and requires trusted unless an admin explicitly supplies a required reason for an audited `deploy.chain_override` (certificate, previous status, actor, job, reason). A trust override never bypasses key/leaf-validity/drift/config-test guardrails.
 
 ---
 
@@ -906,6 +942,8 @@ Notes:
 Triggered from the Deploy screen with: certificate, optional server filter (groups/hosts), batch percent, pause-after-canary, and an optional deploy window.
 
 Planning (`services.deploy.plan`):
+
+Before resolving targets, revalidate the certificate path at current UTC time (§5.8). Require `chain_status=trusted` or an explicit, reasoned, audited deploy.chain_override; repeat at execution if trust changed after preview.
 
 1. Resolve target bindings: all active bindings whose `certificate_id` is the certificate being replaced (`renews_id` of the new certificate), or the explicit selection the operator made. Exclude bindings with `match_state` in `key_mismatch`, `missing_file`; include `unknown` only if the operator explicitly overrides, which is audited.
 2. Group bindings by `server_id`; a server appears once.
@@ -1069,7 +1107,7 @@ Filters: search (CN/SAN/serial/fingerprint), status, expiry bucket, issuer, team
 - Endpoints panel: expected vs observed certificate, last scan status and time, "Scan now" button.
 - History panel: renewal lineage timeline (each certificate and each state transition with actor and time) plus related audit entries.
 - Actions: edit owner/team/notes, mark `superseded`/`revoked` (with a required reason), start renewal, deploy this certificate, import a chain.
-- Validation panel when the chain is incomplete: lists the missing issuer CN so the operator knows exactly which intermediate to fetch.
+- Validation panel always shows chain_status and the last path-assessment diagnostics. Incomplete/untrusted_root/unchecked display a warning naming the missing issuer, expired intermediate, or untrusted root, with a link to Settings → Trust anchors. These warnings do not block import/issued upload; deploy requires trusted or an audited override.
 
 ### 8.5 Renewal wizard (`/renewals/new?from={cert_id}`, `/renewals/{id}`)
 
@@ -1078,7 +1116,7 @@ Steps, one screen each, state persisted so the operator can leave and come back:
 1. **Basics** — source certificate, CN and SANs prefilled and editable (read-only after CSR generation), key algorithm and size, CA name, notes.
 2. **CSR** — generated on submit; shows the CSR PEM, its SHA-256, and copy/download buttons plus a checklist for the CA portal ("order a certificate, paste this CSR, complete validation, download the certificate and any intermediate"). The CSR hash is displayed on later steps too, so the operator can prove they submitted the right request.
 3. **Submitted** — order reference (required), date; the state becomes `submitted` and the certificate detail shows "issued externally, awaiting upload".
-4. **Upload issued certificate** — paste or upload the leaf and optional chain (PEM/CRT; PFX is not accepted here because the key must be the one the app generated). Validation runs immediately: parse, public-key match against `key_id`, CSR subject/SAN match, validity window, chain completeness. Errors are shown per check, so the operator knows to re-download from the CA or fetch a missing intermediate. Valid files are stored as a `certificate` row with `renews_id = previous_certificate_id` only after all checks pass.
+4. **Upload issued certificate** — paste or upload the leaf and optional chain (PEM/CRT; PFX is not accepted here because the key must be the one the app generated). Validation runs immediately: parse, public-key match against `key_id`, CSR subject/SAN match, validity window, and trust-anchor path assessment. Trust warnings do not block issued upload; parse/key/CSR/leaf-validity errors do. Diagnostics are shown per check, so the operator knows to re-download from the CA or fetch a missing intermediate. Files passing the blocking checks are stored as a `certificate` row with `renews_id = previous_certificate_id` and their assessed chain_status, including non-trusted warnings.
 5. **Ready to deploy** — a summary plus a "Deploy" button that opens the Deploy screen preloaded with this certificate and the bindings of the previous one.
 6. **Done** — after a successful deploy: mark `done`; options to keep the previous certificate as `superseded` (default) or `revoked` if the CA revoked it.
 
@@ -1121,10 +1159,11 @@ Job screen (live, polls `/jobs/{id}/progress` every 2 s):
 
 ### 8.10 Users & settings (`/settings`, `/users`)
 
-- Settings tabs: SMTP (with test send), Alerts (thresholds, recipients, digest on/off), Inventory (repo URL, ref, path, webserver var, "Test pull" button), Deployment (default batch percent, concurrency, pause-after-canary, pause timeout, backup retention days, per-host timeout), Scanning (timeout, daily time), Schedule (daily times), General (display timezone, retention), Status (worker heartbeat, keyring version, DB size, queue depth, last runs).
+- Settings tabs: SMTP (with test send), Alerts (thresholds, recipients, digest on/off), Inventory (repo URL, ref, path, webserver var, "Test pull" button), Deployment (default batch percent, concurrency, pause-after-canary, pause timeout, backup retention days, per-host timeout), Scanning (timeout, daily time), Schedule (daily times), General (display timezone, retention), Trust anchors (include-public-bundle toggle, pinned certifi version, uploaded internal roots), Status (worker heartbeat, keyring version, DB size, queue depth, last runs).
 - Dangerous actions are isolated in a "Maintenance" panel with a typed confirmation: rotate master key instructions (the actual rotation is a CLI command, with the UI showing the current state and required steps), prune old jobs.
 - Users: list, create (local), edit email/display name, deactivate, reset password, reset 2FA, view last login. Deactivating the last active user is refused. The UI names the auth backend per user and disables password actions for non-local backends.
 - Every settings change is audited with the before/after values (excluding secrets, which are not settable here).
+- Trust anchors: upload a single PEM internal root (CA:TRUE and self-signed verification), view fingerprint/subject/source/notes, delete with confirmation; audit trust_anchor.add/remove and synchronously recheck stored chain statuses. Public roots are read-only in-memory bundle entries, never uploaded-anchor rows.
 
 ---
 
@@ -1155,7 +1194,7 @@ Job screen (live, polls `/jobs/{id}/progress` every 2 s):
 ### 9.3 Validation errors (user input)
 
 - All forms validate server-side and re-render with inline messages and the previous input preserved. htmx forms receive a `422` fragment that replaces the form.
-- Certificate uploads report *all* validation failures at once (parse error, key mismatch, CN/SAN mismatch, expired, incomplete chain), not just the first.
+- Certificate uploads report *all* validation failures at once (parse error, key mismatch, CN/SAN mismatch, expired), not just the first. Chain trust/completeness failures are separate non-blocking warnings with persisted chain_status.
 - Wrong file type (PFX uploaded where PEM is required), oversized files (limit 1 MB per uploaded object), and malformed base64 are explicit messages.
 - Importing a certificate whose fingerprint already exists offers "view existing" instead of creating a duplicate.
 - A name/path that would escape the artifacts or key-staging directory is rejected.
@@ -1234,7 +1273,7 @@ Ansible-level errors that are not host-related (playbook syntax, missing collect
 - Key matching: matching key/certificate accepted; a different-but-same-algorithm key rejected; RSA 2048 vs 3072 mismatch rejected; ECDSA curve mismatch rejected.
 - AES-256-GCM: encrypt/decrypt round trip; nonce uniqueness across N operations; tampered ciphertext, tampered nonce, wrong AAD, wrong key version all raise `KeyUnwrapError` (never return garbage); ciphertext of the same plaintext differs across calls.
 - Master keyring: parse valid/invalid JSON shapes, reject 16-byte keys, reject a missing `active`, round-trip rotation of a batch of rows (data encrypted with v1 decrypts after v2 becomes active; `master_key_version` updated).
-- Chain builder: leaf→intermediate→root order resolution; reversed input; missing intermediate (explicit error naming the issuer); duplicate root dropped; wrong issuer rejected.
+- Chain builder: reversed input and duplicate/root removal; unresolved intermediate order reports a diagnostic; a forged supplied issuer link is rejected. Trust: internal root uploaded → trusted; same supplied root absent from anchors → untrusted_root; missing/expired intermediate → incomplete; non-CA/invalid-self-signature anchor rejected. All fixtures are local; certifi access reads its pinned packaged file only.
 - PFX build: `pkcs12.load_key_and_certificates` returns the key, leaf, and full chain; the PFX requires the chosen password; the key's public hash matches the certificate after extraction.
 - Parsing: PEM/DER/PFX ingestion, fingerprint equals an independently computed SHA-256, SAN extraction with wildcards and IPs, expired certificate detection, self-signed handling, garbage input rejected with a typed error.
 
@@ -1242,7 +1281,7 @@ Ansible-level errors that are not host-related (playbook syntax, missing collect
 
 - Every legal transition succeeds and is audited exactly once.
 - Every illegal transition (e.g. `draft -> issued`, `done -> submitted`, `cancelled -> csr_generated`) raises a typed `InvalidTransition` and leaves the row unchanged.
-- Issued-upload validation: wrong key rejected, wrong CN rejected, wrong SAN set rejected, expired rejected, missing chain accepted only when the leaf is self-signed or already chains to the stored intermediates, duplicate fingerprint rejected.
+- Issued-upload validation: wrong key rejected, wrong CN rejected, wrong SAN set rejected, expired rejected, missing/untrusted/expired-intermediate chain accepted with warning and stored chain_status, duplicate fingerprint rejected. Leaf expiry still blocks issuance.
 - `issued -> deployed` only after a succeeded deploy job that included the certificate.
 
 **Rollout planning**
@@ -1461,7 +1500,7 @@ These are the decisions this spec makes where the approved input was silent. Eac
 | A3 | All timestamps stored in UTC; UI renders local; emails state the timezone | 4 |
 | A4 | Renewal states add `cancelled`; scan status adds `expired` | 4.2 |
 | A5 | `submitted` requires a CA order reference | 4.6 |
-| A6 | Chains exclude roots; leaf-to-root order enforced on ingest | 4.4 |
+| A6 | Chains exclude roots; offline PolicyBuilder/Store path validation uses pinned certifi plus uploaded roots, persists trusted/incomplete/untrusted_root/unchecked; import/issued upload warn, deploy requires trusted or audited override | 4.4, 4.18, 5.8 |
 | A7 | Endpoints created from bindings always get an expected certificate | 4.10 |
 | A8 | A host with several affected vhosts gets one `job_host` row per binding, executed as one Ansible run | 4.11 |
 | A9 | Session idle 8 h, absolute 24 h | 4.13 |
