@@ -189,7 +189,7 @@ Properties:
 
 | Service | Image | Volumes | Secrets |
 | --- | --- | --- | --- |
-| `db` | `postgres:16` | `pgdata:/var/lib/postgresql/data` | `db_password` |
+| `db` | pinned `postgres:16-bookworm` (UID/GID 999) | `pgdata:/var/lib/postgresql/data` | `db_owner_password`, `db_password` |
 | `web` | built from `./Dockerfile` | none | `master_key`, `db_password`, `session_secret` |
 | `worker` | same image, different command | `inventory:/srv/inventory`, `artifacts:/srv/artifacts`, tmpfs `/run/cert-keys` | `master_key`, `db_password`, `ansible_ssh_key`, `ansible_vault_password` (optional), `inventory_git_token` (optional), `smtp_password` (optional) |
 
@@ -208,7 +208,8 @@ Configuration is environment variables plus files under `/run/secrets/`. Precede
 | Secret file | Required | Used by | Content |
 | --- | --- | --- | --- |
 | `master_key` | yes | web, worker | JSON keyring, see 5.1 |
-| `db_password` | yes | web, worker, db | Postgres password |
+| `db_password` | yes | web, worker, db bootstrap | Runtime app_role password; shared file owner 10001:999, mode 0440 |
+| `db_owner_password` | yes | db, one-shot migration only | Distinct owner password; owner 999:999, mode 0400; never mounted into normal web/worker |
 | `session_secret` | yes | web | 32+ random bytes, HMAC for session-bound values |
 | `ansible_ssh_key` | yes (worker) | worker | Private SSH key for Ansible |
 | `ansible_vault_password` | no | worker | Password for the inventory's vaulted group_vars |
@@ -222,6 +223,8 @@ Rules:
 3. The app refuses to start if a required secret is missing, empty, or malformed, and prints a remediation hint (Section 9.2).
 4. `web` does not mount `ansible_ssh_key` at all.
 5. Start-up logs print secret *presence and fingerprint metadata only* (e.g. keyring version and SHA-256 of the file), never contents.
+6. Compose file-backed secrets are read-only bind mounts preserving host ownership/modes; do not specify ignored mode/uid/gid remapping. `/etc/cert-dashboard/secrets` is root:root 0711. App/worker secret files are 10001:10001 0400; db_owner_password is 999:999 0400; shared db_password is 10001:999 0440. `scripts/install-secrets.sh` applies these permissions to existing canonical files without reading/copying values. Verify postgres UID/GID 999 in the pinned Debian image.
+7. The one-shot migration override runs as 999:999 with DB-only settings and the owner password mapped to db_password; inherited app-owned secret mounts remain unreadable to that UID. Runtime app_role owns no schema/tables and cannot assume the owner role.
 
 ### 3.5 Code layout
 
@@ -1375,8 +1378,8 @@ Scenarios:
 ### 11.2 First installation
 
 1. Clone the private repo onto the host (deploy key).
-2. Create the secret files under `/etc/cert-dashboard/secrets/`, `chmod 0400`, `chown root:root` (`db_password`, `master_key`, `session_secret`, `ansible_ssh_key`, optional `ansible_vault_password`, `inventory_git_token`, `smtp_password`). Generate `master_key` with `docker run --rm cert-dashboard python -m app.cli generate-master-key --version 1` and **immediately** follow 11.6.
-3. `docker compose up -d db`, then `docker compose run --rm web alembic upgrade head`.
+2. Provision secret files under `/etc/cert-dashboard/secrets/` (`db_password`, distinct `db_owner_password`, `master_key`, `session_secret`, and optional worker SSH/vault/Git/SMTP credentials). An administrator runs `sh scripts/install-secrets.sh /etc/cert-dashboard/secrets` as root: directory root:root 0711; app secrets 10001:10001 0400; owner password 999:999 0400; shared db_password 10001:999 0440. No runtime copies are created. Generate `master_key` with `docker run --rm cert-dashboard python -m app.cli generate-master-key --version 1` and **immediately** follow 11.6.
+3. `docker compose up -d db`, then `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm web alembic upgrade head`.
 4. `docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal` (prompts for the password with confirmation, enforces the 12-character minimum).
 5. `docker compose up -d web worker`.
 6. Log in, enroll 2FA, configure SMTP, alert recipients, and the inventory repo; press "Test pull" and "Send test email".
@@ -1388,7 +1391,7 @@ Scenarios:
 
 | Task | Procedure |
 | --- | --- |
-| Upgrade | Pull the image tag, `docker compose run --rm web alembic upgrade head`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
+| Upgrade | Pull the image tag, `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm web alembic upgrade head`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
 | Roll back an app upgrade | Re-pin the previous image tag and restart. If the migration is not backward compatible, restore the DB backup taken before the upgrade (documented per release in the release notes) |
 | Add a server | Add it to the inventory repo, wait for the nightly discovery or press "Discover now"; confirm the server appears and its bindings are matched |
 | Remove a server | Remove it from the inventory; the next discovery marks it inactive (history preserved) |
@@ -1427,7 +1430,7 @@ Procedure:
 1. **Generate** the keyring on the dashboard host with the CLI (11.2 step 2). Do not generate it on a laptop and email it.
 2. **Fingerprint it.** Record the SHA-256 of the keyring file and the JSON's `active` version in the operations record (a ticket, not the same place as the key).
 3. **Store three copies in two physically separate, access-controlled locations:**
-   - Copy A: the Docker secret on the dashboard host (`/etc/cert-dashboard/secrets/master_key`, `0400 root:root`) — the working copy.
+   - Copy A: the Docker secret on the dashboard host (`/etc/cert-dashboard/secrets/master_key`, `0400`, owner `10001:10001`) — the working copy.
    - Copy B: the organization's secret manager (Vault/KeePass/1Password or a sealed envelope in a safe) held by custodian 1.
    - Copy C: a second sealed envelope or secret-manager entry in a different location, held by custodian 2.
    Custodians are named in the operations record; at least two people must be able to produce the key, and neither copy may be stored with the database backups.
@@ -1447,7 +1450,7 @@ Procedure:
 - Containers run as non-root `app` (uid 10001), `read_only: true` with `tmpfs` for `/tmp` on `web`; `worker` keeps writable volumes only for `/srv/inventory` and `/srv/artifacts`.
 - Decrypted keys exist only on the worker's tmpfs mount `/run/cert-keys` (`mode=0700`, `uid=10001`, `noexec`, `nosuid`, `nodev`, `size=16m`), as `0600` files deleted in a `finally` block and wiped at worker startup. The artifacts volume and container filesystem never hold key material.
 - `no-new-privileges: true`, dropped capabilities, explicit memory limits.
-- Secrets mounted as files under `/run/secrets`, mode `0444` inside the container (the container is the security boundary).
+- Secrets under `/run/secrets` are read-only file bind mounts retaining host modes: app/worker 10001:10001 0400; db_owner_password 999:999 0400; shared db_password 10001:999 0440. Host directory root:root 0711. Run scripts/install-secrets.sh after provisioning/replacing files; Compose mode remapping is not used outside Swarm. The Debian Postgres image is digest-pinned and its postgres UID/GID 999 verified.
 - SSH `known_hosts` pinned; host key changes fail jobs.
 - Postgres not exposed; the app DB user is not a superuser and cannot `UPDATE`/`DELETE` on `audit_log`.
 - All dashboard access over TLS via the front proxy; HTTP redirects to HTTPS there.

@@ -1,0 +1,9 @@
+# One-shot only: never start the normal web service with this override.
+services:
+  web:
+    user: "999:999"
+    environment:
+      DB_USER: db_owner
+    secrets:
+      - source: db_owner_password
+        target: db_password

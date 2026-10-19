@@ -1,0 +1,104 @@
+name: cert-dashboard
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "5"
+
+x-app: &app
+  image: cert-dashboard:local
+  build:
+    context: .
+    target: runtime
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  restart: unless-stopped
+  logging: *logging
+  environment: &app-env
+    DB_HOST: db
+    DB_PORT: "5432"
+    DB_NAME: cert_dashboard
+    DB_USER: app_role
+  depends_on:
+    db:
+      condition: service_healthy
+
+services:
+  db:
+    image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
+    restart: unless-stopped
+    mem_limit: 2g
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+    environment:
+      POSTGRES_USER: db_owner
+      POSTGRES_DB: cert_dashboard
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_owner_password
+    secrets:
+      - source: db_owner_password
+      - source: db_password
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./app/migrations/init_roles.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U db_owner -d cert_dashboard"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  web:
+    <<: *app
+    mem_limit: 1g
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000"]
+    ports: ["127.0.0.1:8000:8000"]
+    tmpfs: [/tmp:noexec,nosuid,nodev,size=64m,mode=1777]
+    secrets:
+      - source: master_key
+      - source: db_password
+      - source: session_secret
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 6s
+      retries: 3
+  worker:
+    <<: *app
+    mem_limit: 2g
+    command: [python, -m, app.jobs.worker]
+    environment:
+      <<: *app-env
+      WORKER_CONCURRENCY: "4"
+      MAX_PARALLEL_JOBS: "2"
+    volumes: [inventory:/srv/inventory, artifacts:/srv/artifacts]
+    tmpfs:
+      - /tmp:noexec,nosuid,nodev,size=64m,mode=1777
+      - /run/cert-keys:size=16m,mode=0700,uid=10001,gid=10001,noexec,nosuid,nodev
+    secrets:
+      - source: master_key
+      - source: db_password
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import os,sys; from pathlib import Path; import psycopg; from app.config import load_settings; s=load_settings('worker',os.environ,Path('/run/secrets')); c=psycopg.connect(host=s.db_host,dbname=s.db_name,user=s.db_user,password=s.db_password.decode()); sys.exit(0 if c.execute(\"SELECT EXISTS(SELECT 1 FROM worker_heartbeat WHERE last_seen_at > now() - interval '5 minutes')\").fetchone()[0] else 1)"
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pgdata:
+  inventory:
+  artifacts:
+
+secrets:
+  master_key:
+    file: /etc/cert-dashboard/secrets/master_key
+  db_password:
+    file: /etc/cert-dashboard/secrets/db_password
+  db_owner_password:
+    file: /etc/cert-dashboard/secrets/db_owner_password
+  session_secret:
+    file: /etc/cert-dashboard/secrets/session_secret
