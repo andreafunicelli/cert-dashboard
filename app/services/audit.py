@@ -1,7 +1,8 @@
 """Explicit audit metadata and a shared second barrier against secret leakage.
 
-Callers must allowlist metadata and must never submit request/form bodies. Shape
-redaction cannot distinguish arbitrary short secrets from ordinary text.
+Only labeled secrets, PEM, Bearer/Basic credentials, URL credentials and long
+base64 runs are caught. Unlabeled secrets are not: call sites must pass explicit
+allowlisted metadata and must never submit request/form bodies.
 """
 
 import logging
@@ -15,6 +16,8 @@ from sqlalchemy.orm import Session
 from app.models import AuditLog, JSONValue
 
 _REDACTED = "[REDACTED]"
+_TEXT_LIMIT = 65_536
+_TRUNCATED = "…[TRUNCATED]"
 _SAFE_METADATA = {
     "sha256fingerprint",
     "publickeysha256",
@@ -45,7 +48,6 @@ _SENSITIVE_PARTS = (
 )
 _SENSITIVE_NAMES = {
     "pwd",
-    "key",
     "keys",
     "pem",
     "pfx",
@@ -62,14 +64,15 @@ _SENSITIVE_NAMES = {
     "requestform",
 }
 _PEM = re.compile(
-    r"-----BEGIN [A-Z0-9 ][A-Z0-9 -]*-----.*?(?:-----END [A-Z0-9 ][A-Z0-9 -]*-----|$)", re.DOTALL
+    r"-----BEGIN [A-Z0-9 ][A-Z0-9 -]*-----.*?(?:-----END [A-Z0-9 ][A-Z0-9 -]*-----|$)",
+    re.DOTALL | re.IGNORECASE,
 )
 _BASE64 = re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{64,}={0,2}(?![A-Za-z0-9+/_=-])")
 _HEX_SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 _INLINE = re.compile(
-    r"\b(?P<key>[A-Za-z0-9_.-]*(?:password|passwd|passphrase|pwd|secret|token|authorization|cookie|"
+    r"\b(?P<key>[A-Za-z0-9_.-]{0,128}(?:password|passwd|passphrase|pwd|secret|token|authorization|cookie|"
     r"api[_-]?key|keyring|master[_-]?key|private[_-]?key|recovery[_-]?codes?|totp|ciphertext|session[_-]?id|pem)"
-    r"[A-Za-z0-9_.-]*)(?P<separator>['\"]?\s*[:=]\s*)"
+    r"[A-Za-z0-9_.-]{0,128})(?P<separator>['\"]?\s*[:=]\s*)"
     r"""(?P<value>\[REDACTED\]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|.+?(?=\s+[A-Za-z_][\w.-]*\s*[:=]|[,;\r\n}\]]|$))""",
     re.IGNORECASE,
 )
@@ -95,11 +98,15 @@ def _sensitive(key: str, value: object) -> bool:
 
 
 def _text(value: str) -> str:
+    # Bound every regex's input, including unstructured logging/tracebacks.
+    suffix = _TRUNCATED if len(value) > _TEXT_LIMIT else ""
+    value = value[:_TEXT_LIMIT]
     # Raw bodies may contain unlabeled secrets; discard that whole text event.
     # Already-redacted structured fields do not hide adjacent safe metadata.
     if _BODY_ASSIGNMENT.search(value):
-        return _REDACTED
+        return _REDACTED + suffix
     value = _PEM.sub(_REDACTED, value)
+    value = _BASE64.sub(lambda match: match[0] if _HEX_SHA256.fullmatch(match[0]) else _REDACTED, value)
     value = _INLINE.sub(
         lambda match: (
             match["key"] + match["separator"] + _REDACTED
@@ -110,7 +117,7 @@ def _text(value: str) -> str:
     )
     value = _AUTH.sub(_REDACTED, value)
     value = _URL_PASSWORD.sub(lambda match: match["prefix"] + _REDACTED, value)
-    return _BASE64.sub(lambda match: match[0] if _HEX_SHA256.fullmatch(match[0]) else _REDACTED, value)
+    return value + suffix
 
 
 def redact(value: JSONValue) -> JSONValue:
@@ -120,10 +127,23 @@ def redact(value: JSONValue) -> JSONValue:
     remain visible. Short credentials require labeled fields.
     """
     if isinstance(value, dict):
-        return {key: _REDACTED if _sensitive(key, item) else redact(item) for key, item in value.items()}
-    if isinstance(value, list):
+        return {
+            str(key): _REDACTED if _sensitive(str(key), item) else redact(item) for key, item in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
         return [redact(item) for item in value]
     return _text(value) if isinstance(value, str) else value
+
+
+def _require_json(value: object) -> None:
+    if isinstance(value, dict):
+        for item in value.values():
+            _require_json(item)
+    elif isinstance(value, list):
+        for item in value:
+            _require_json(item)
+    elif value is not None and not isinstance(value, (str, int, float, bool)):
+        raise TypeError("audit details must contain only JSON-native values after redaction")
 
 
 @dataclass(frozen=True)
@@ -143,6 +163,8 @@ def record(
     details: Mapping[str, JSONValue],
 ) -> AuditLog:
     """Stage the audit alongside the caller's mutation; never flush or commit."""
+    clean_details = redact(dict(details))
+    _require_json(clean_details)
     row = AuditLog(
         actor_user_id=actor.user_id,
         actor_label=_text(actor.label),
@@ -151,7 +173,7 @@ def record(
         action=_text(action),
         target_type=_text(target_type),
         target_id=_text(target_id) if target_id is not None else None,
-        details=redact(dict(details)),
+        details=clean_details,
     )
     db.add(row)
     return row
@@ -163,7 +185,7 @@ def _log_value(value: object) -> JSONValue:
             str(key): _REDACTED if _sensitive(str(key), item) else _log_value(item)
             for key, item in value.items()
         }
-    if isinstance(value, (list, tuple)):
+    if isinstance(value, (list, tuple, set)):
         return [_log_value(item) for item in value]
     if isinstance(value, bytes):
         return _text(value.decode("utf-8", errors="replace"))
@@ -180,7 +202,9 @@ class SecretRedactionFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = _log_value(record.msg)
+        # String templates must remain intact until getMessage substitutes args.
+        if not isinstance(record.msg, str):
+            record.msg = _log_value(record.msg)
         if isinstance(record.args, Mapping):
             record.args = _log_value(record.args)
         else:

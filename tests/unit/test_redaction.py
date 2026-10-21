@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import logging
+import subprocess
 import sys
 
 import pytest
@@ -246,3 +247,123 @@ def test_logging_filter_accepts_none_args_and_replaces_cached_message():
     record.message = "password=fixture-cached-message"
     assert SecretRedactionFilter().filter(record) is True
     assert record.getMessage() == record.message == "safe event"
+
+
+@pytest.mark.parametrize("mixed", [False, True])
+def test_megabyte_text_is_bounded_and_scrubbed_in_under_half_a_second(mixed):
+    # Isolate the known ReDoS so a regression fails instead of hanging pytest.
+    script = """
+from time import perf_counter
+from app.services.audit import redact
+import sys
+mixed = sys.argv[1] == "True"
+value = ("password=fixture-start event=safe " + "ordinary text! " * 75_000
+         + " password=fixture-end") if mixed else "A" * 1_000_000
+assert len(value) >= 1_000_000
+start = perf_counter()
+clean = redact(value)
+elapsed = perf_counter() - start
+assert elapsed < 0.5, elapsed
+assert clean.endswith("…[TRUNCATED]")
+assert "fixture-start" not in clean and "fixture-end" not in clean
+assert "[REDACTED]" in clean
+assert len(clean) <= 65_536 + len("…[TRUNCATED]")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(mixed)], check=False, capture_output=True, text=True, timeout=3
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_text_limit_retains_exactly_64_kib_before_appending_marker():
+    from app.services.audit import redact
+
+    assert redact(" " * 65_536) == " " * 65_536
+    assert redact(" " * 65_536 + "discarded") == " " * 65_536 + "…[TRUNCATED]"
+
+
+def test_nested_tuples_and_sets_are_scrubbed_into_json_lists():
+    from app.services.audit import redact
+
+    source = {
+        "items": ({"password": "fixture-tuple"}, ({"token": "fixture-nested"},)),
+        "tags": {"password=fixture-set"},
+    }
+    assert redact(source) == {
+        "items": [{"password": "[REDACTED]"}, [{"token": "[REDACTED]"}]],
+        "tags": ["password=[REDACTED]"],
+    }
+    assert source["items"][0]["password"] == "fixture-tuple"
+
+
+@pytest.mark.parametrize(
+    "template,args",
+    [
+        ("user=%s password=%s", ("alice", "hunter2")),
+        ("user=%r password=%r", ("alice", "hunter2")),
+        ("user=%(user)s password=%(password)s", ({"user": "alice", "password": "hunter2"},)),
+        ("user=%(user)r password=%(password)r", ({"user": "alice", "password": "hunter2"},)),
+    ],
+)
+def test_log_secret_arguments_preserve_user_and_formatting(template, args):
+    output, _ = render_log(template, args)
+    assert "alice" in output and "password=[REDACTED]" in output
+    assert "hunter2" not in output and "invalid log formatting" not in output
+    if "%s" in template or ")s" in template:
+        assert "user=alice" in output
+    else:
+        assert "user='alice'" in output
+
+
+def test_bare_key_metadata_is_preserved():
+    from app.services.audit import redact
+
+    assert redact({"key": "smtp.host", "api_key": "fixture-api"}) == {
+        "key": "smtp.host",
+        "api_key": "[REDACTED]",
+    }
+
+
+def test_non_string_mapping_keys_are_normalized():
+    from app.services.audit import redact
+
+    assert redact({1: "v"}) == {"1": "v"}
+
+
+@pytest.mark.parametrize("value", [PRIVATE_PEM.lower(), CERT_PEM.swapcase()])
+def test_pem_matching_is_case_insensitive(value):
+    from app.services.audit import redact
+
+    assert redact("prefix " + value + " suffix") == "prefix [REDACTED] suffix"
+
+
+def test_record_rejects_non_json_values_before_staging_an_audit():
+    from sqlalchemy.orm import Session
+
+    from app.services.audit import Actor, record
+
+    with Session() as db:
+        with pytest.raises(TypeError, match="JSON"):
+            record(db, Actor(None, "fixture"), "fixture.event", "fixture", None, {"nested": [object()]})
+        assert not db.new
+
+
+def test_record_stages_normalized_and_redacted_nested_containers():
+    from sqlalchemy.orm import Session
+
+    from app.services.audit import Actor, record
+
+    with Session() as db:
+        row = record(
+            db,
+            Actor(None, "fixture"),
+            "fixture.event",
+            "fixture",
+            None,
+            {"nested": ({"password": "fixture-password"},), "tags": {"password=fixture-tag"}},
+        )
+        assert row.details == {
+            "nested": [{"password": "[REDACTED]"}],
+            "tags": ["password=[REDACTED]"],
+        }
+        assert list(db.new) == [row]
