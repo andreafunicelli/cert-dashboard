@@ -1,5 +1,6 @@
 """In-memory PKCS#12 import/export; chain ordering does not imply trust."""
 
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
@@ -59,14 +60,22 @@ def _validate_key(key: PrivateKeyObject, leaf: x509.Certificate) -> None:
         raise PFXError("key_mismatch", "PFX private key does not match the certificate's SPKI identity.")
 
 
+def _is_ca(cert: x509.Certificate) -> bool:
+    try:
+        return cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca
+    except x509.ExtensionNotFound:
+        return False
+
+
+def _end_entity(cert: x509.Certificate) -> None:
+    if _is_ca(cert):
+        raise PFXError("invalid_leaf", "PFX certificate must be an end-entity certificate.")
+
+
 def _unique_leaf(certificates: Sequence[x509.Certificate]) -> x509.Certificate:
     leaves = []
     for cert in certificates:
-        try:
-            is_ca = cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca
-        except x509.ExtensionNotFound:
-            is_ca = False
-        if not is_ca and cert not in leaves:
+        if not _is_ca(cert) and cert not in leaves:
             leaves.append(cert)
     if not leaves:
         raise PFXError("missing_certificate", "PFX contains no end-entity certificate.")
@@ -87,6 +96,9 @@ def _normalize(
         # Reuse public parsing validation before handing certificates to the chain walker.
         for cert in (leaf, *candidates):
             parse_certificates(cert.public_bytes(serialization.Encoding.DER))
+        for cert in candidates:
+            if cert != leaf and not _is_ca(cert):
+                raise PFXError("invalid_chain", "PFX intermediates must have BasicConstraints CA:TRUE.")
         ordered = order_chain(leaf, candidates)
         if ordered.truncated:
             raise PFXError(
@@ -107,11 +119,14 @@ def read_pfx(data: bytes, password: str | None) -> PFXMaterial:
     if len(data) > MAX_INPUT_BYTES:
         raise PFXError("too_large", "PFX input exceeds 1 MiB.")
     try:
-        key, leaf, additional = pkcs12.load_key_and_certificates(bytes(data), _password_bytes(password))
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            key, leaf, additional = pkcs12.load_key_and_certificates(bytes(data), _password_bytes(password))
         candidates = list(additional)
         if leaf is None:
             leaf = _unique_leaf(candidates)
             candidates.remove(leaf)
+        _end_entity(leaf)
         # The loader exposes only one key from multi-key bundles; always require its SPKI match.
         if key is not None:
             _validate_key(key, leaf)
@@ -132,11 +147,14 @@ def build_pfx(
     password: str,
     friendly_name: str,
 ) -> bytes:
-    if not isinstance(password, str) or len(password) < 12:
+    if not isinstance(password, str):
+        raise PFXError("invalid_password", "PFX password must be text.")
+    if len(password) < 12:
         raise PFXError("weak_password", "PFX export password must contain at least 12 characters.")
     if not isinstance(leaf, x509.Certificate):
         raise PFXError("missing_certificate", "PFX export requires a leaf certificate.")
     try:
+        _end_entity(leaf)
         parsed = parse_certificates(leaf.public_bytes(serialization.Encoding.DER))[0]
         if not isinstance(friendly_name, str) or not friendly_name or friendly_name != parsed.common_name:
             raise PFXError(

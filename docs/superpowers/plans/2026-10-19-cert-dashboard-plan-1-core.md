@@ -263,7 +263,7 @@ def test_expired_intermediate_and_non_ca_anchor(db, certs, actor, now):
 
 **Files:** Create: `app/crypto/pfx.py`. Test: `tests/unit/test_pfx.py`.
 
-**Implementation decisions:** Certificate-only PFX bundles remain valid. The cryptography loader exposes only one key from a multi-key bundle, so validate that selected key against the leaf SPKI; do not add a bag parser or OpenSSL subprocess preflight. Test a real two-key bundle and an in-memory legacy 3DES bundle. The pinned cryptography encryption builder cannot generate RC2 fixtures; cover the unsupported-encryption path with a typed backend exception instead.
+**Implementation decisions:** Certificate-only PFX bundles remain valid. The cryptography loader exposes only one key from a multi-key bundle, so validate that selected key against the leaf SPKI; do not add a bag parser or OpenSSL subprocess preflight. Test a real two-key bundle and an in-memory legacy 3DES bundle. Legacy RC2/3DES bundles can be imported on this backend; only RC2 fixture generation is unavailable in the pinned cryptography encryption builder. Use a real 3DES fixture and cover the unsupported-encryption path with a typed backend exception; never weaken export encryption. Reject CA certificates as leaves on import/export, and reject chain candidates without explicit BasicConstraints CA:TRUE (duplicate leaves are dropped). Suppress cryptography UserWarning messages only around PKCS#12 loading; malformed input still raises a sanitized PFXError.
 
 **Interfaces:** Consumes: `PrivateKeyObject`, `order_chain(leaf: x509.Certificate, candidates: Sequence[x509.Certificate]) -> ChainResult`. Produces: `PFXMaterial(key: PrivateKeyObject | None, leaf: x509.Certificate, chain: tuple[x509.Certificate,...])`; `read_pfx(data: bytes, password: str | None) -> PFXMaterial`; `build_pfx(key: PrivateKeyObject, leaf: x509.Certificate, chain: Sequence[x509.Certificate], password: str, friendly_name: str) -> bytes`; `PFXError(code: str, message: str)`.
 
@@ -463,6 +463,8 @@ def test_import_deduplicates(db, certs, actor):
 - [ ] Commit: `git add app/services/certificates.py tests/integration/test_certificates.py`; `git commit -m "feat: manage deduplicated certificate inventory and lineage"`.
 
 ### Task 15: Atomic upload import with inline validation
+
+**Known limitation / required mitigation:** The 1 MiB input cap does not bound PKCS#12 PBKDF2 iterations; a crafted small PFX can occupy native crypto code indefinitely. Task 7 intentionally adds no DER parser. In this task, run PFX parsing outside the request process in a killable subprocess or worker execution with enforced CPU and wall-clock budgets, terminating and reaping timed-out execution. A thread timeout alone must not leave unbounded KDF work running. Return a sanitized inline validation error and leave no partial DB rows. Add a deterministic timeout test using a deliberately stalled parser, asserting termination/reaping and unchanged inventory/key/audit state; never exercise huge real KDF counts in CI.
 
 **Files:** Modify: `app/services/certificates.py`, `app/main.py`. Create: `app/templates/import.html.j2`. Test: `tests/integration/test_upload_import.py`.
 

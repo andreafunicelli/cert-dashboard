@@ -1,4 +1,5 @@
 import logging
+import warnings
 from datetime import timedelta
 
 import pytest
@@ -285,3 +286,81 @@ def test_export_validation_failures_are_typed_and_never_log_secrets(certs, failu
         build_pfx(key, leaf, certs.intermediates, PASSWORD, name)
     assert PASSWORD not in caplog.text and "PRIVATE KEY" not in caplog.text
     assert "fixture-private" not in caplog.text
+
+
+@pytest.mark.parametrize("operation", ["import", "export"])
+def test_ca_certificate_with_private_key_is_never_a_pfx_leaf(certs, operation):
+    from app.crypto.pfx import PFXError, build_pfx, read_pfx
+
+    with pytest.raises(PFXError) as exc:
+        if operation == "import":
+            data = pkcs12.serialize_key_and_certificates(
+                None, certs.root_key, certs.root, [], serialization.NoEncryption()
+            )
+            read_pfx(data, None)
+        else:
+            build_pfx(certs.root_key, certs.root, [], PASSWORD, "Fixture Root")
+    assert exc.value.code == "invalid_leaf"
+    assert str(exc.value) == "PFX certificate must be an end-entity certificate."
+
+
+@pytest.mark.parametrize("operation", ["import", "export"])
+@pytest.mark.parametrize("constraints", ["ca_false", "absent"])
+def test_intermediate_must_explicitly_be_a_ca(certs, now, operation, constraints):
+    from app.crypto.pfx import PFXError, build_pfx, read_pfx
+
+    mid_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Fixture Invalid Mid")])
+    mid_builder = (
+        x509.CertificateBuilder()
+        .subject_name(mid_name)
+        .issuer_name(certs.root.subject)
+        .public_key(certs.intermediate1_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+    )
+    if constraints == "ca_false":
+        mid_builder = mid_builder.add_extension(x509.BasicConstraints(ca=False, path_length=None), True)
+    mid = mid_builder.sign(certs.root_key, hashes.SHA256())
+    leaf = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "fixture.example.test")]))
+        .issuer_name(mid.subject)
+        .public_key(certs.leaf_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=False, path_length=None), True)
+        .sign(certs.intermediate1_key, hashes.SHA256())
+    )
+    with pytest.raises(PFXError) as exc:
+        if operation == "import":
+            read_pfx(_raw_pfx([certs.leaf_key], [leaf, mid, certs.root]), None)
+        else:
+            build_pfx(certs.leaf_key, leaf, [mid, certs.root], PASSWORD, "fixture.example.test")
+    assert exc.value.code == "invalid_chain"
+
+
+@pytest.mark.parametrize("password", [None, b"fixture-password"])
+def test_export_nontext_password_has_invalid_password_error(certs, password):
+    from app.crypto.pfx import PFXError, build_pfx
+
+    with pytest.raises(PFXError) as exc:
+        build_pfx(certs.leaf_key, certs.leaf, [], password, "leaf.example.test")
+    assert exc.value.code == "invalid_password"
+
+
+def test_ber_fallback_warning_is_suppressed_and_error_stays_typed(monkeypatch):
+    from app.crypto.pfx import PFXError, read_pfx
+
+    def ber_fallback(*args):
+        warnings.warn("fixture-BER-fallback-backend-details", UserWarning, stacklevel=2)
+        raise ValueError("fixture-private-parse-error")
+
+    monkeypatch.setattr(pkcs12, "load_key_and_certificates", ber_fallback)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(PFXError) as exc:
+            read_pfx(b"fixture-malformed", None)
+    assert exc.value.code == "invalid_password_or_bundle"
+    assert not caught and "fixture-" not in str(exc.value)
