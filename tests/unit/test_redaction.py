@@ -270,7 +270,7 @@ assert "[REDACTED]" in clean
 assert len(clean) <= 65_536 + len("…[TRUNCATED]")
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(mixed)], check=False, capture_output=True, text=True, timeout=3
+        [sys.executable, "-c", script, str(mixed)], check=False, capture_output=True, text=True, timeout=10
     )
     assert result.returncode == 0, result.stderr
 
@@ -367,3 +367,85 @@ def test_record_stages_normalized_and_redacted_nested_containers():
             "tags": ["password=[REDACTED]"],
         }
         assert list(db.new) == [row]
+
+
+@pytest.mark.parametrize(
+    "shape",
+    ["a.", "password.", "a:", "a=", "a@", "x://", "-", "password=a.", "Bearer ", "αβЖé漢.", "A"],
+)
+def test_every_adversarial_shape_at_cap_is_fast_and_still_redacts_real_secrets(shape):
+    script = """
+from time import perf_counter
+from app.services.audit import redact
+import sys
+shape = sys.argv[1]
+prefix = "password=" if shape == "password=a." else ""
+shape = "a." if prefix else shape
+for tail in ["", "\\npassword=fixture-adversarial-secret event=safe"]:
+    size = 65_536 - len(prefix) - len(tail)
+    value = prefix + (shape * (size // len(shape) + 1))[:size] + tail
+    assert len(value) == 65_536
+    start = perf_counter()
+    clean = redact(value)
+    elapsed = perf_counter() - start
+    assert elapsed < 0.5, (sys.argv[1], elapsed)
+    assert "fixture-adversarial-secret" not in clean
+    if tail:
+        assert "password=[REDACTED]" in clean and "event=safe" in clean
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, shape],
+        check=False,
+        capture_output=True,
+        text=True,
+        # This watchdog includes interpreter/model imports from the Windows mount.
+        # The measured redact() call itself still has the strict 0.5s assertion.
+        timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("failure", ["mapping_key", "index", "message_str", "arg_str"])
+def test_log_rendering_exceptions_fail_closed_without_escaping(failure):
+    class BadString:
+        def __str__(self):
+            raise RuntimeError("fixture-secret-from-str")
+
+    class BadIndexRecord(logging.LogRecord):
+        def getMessage(self):
+            raise IndexError("fixture-secret-from-index")
+
+    from app.services.audit import SecretRedactionFilter
+
+    if failure == "mapping_key":
+        record = logging.LogRecord(
+            "fixture",
+            logging.ERROR,
+            __file__,
+            1,
+            "token %(password)s user %(user)s",
+            ({"user": "alice"},),
+            None,
+        )
+    elif failure == "index":
+        record = BadIndexRecord("fixture", logging.ERROR, __file__, 1, "fixture event", (), None)
+    elif failure == "message_str":
+        record = logging.LogRecord("fixture", logging.ERROR, __file__, 1, BadString(), (), None)
+    else:
+        record = logging.LogRecord("fixture", logging.ERROR, __file__, 1, "%s", (BadString(),), None)
+    assert SecretRedactionFilter().filter(record) is True
+    assert record.msg == "[REDACTED] invalid log formatting"
+    assert record.args == ()
+
+
+@pytest.mark.parametrize("secret", ["fixture=value", "fixture@token=value", "fixture:token=value"])
+def test_assignment_punctuation_inside_a_secret_cannot_end_redaction(secret):
+    from app.services.audit import redact
+
+    assert redact(f"password={secret} event=safe") == "password=[REDACTED] event=safe"
+
+
+def test_inline_label_after_a_message_prefix_is_still_redacted():
+    from app.services.audit import redact
+
+    assert redact("error:password=fixture-value event=safe") == "error:password=[REDACTED] event=safe"

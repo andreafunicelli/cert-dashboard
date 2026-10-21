@@ -69,15 +69,11 @@ _PEM = re.compile(
 )
 _BASE64 = re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{64,}={0,2}(?![A-Za-z0-9+/_=-])")
 _HEX_SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
-_INLINE = re.compile(
-    r"\b(?P<key>[A-Za-z0-9_.-]{0,128}(?:password|passwd|passphrase|pwd|secret|token|authorization|cookie|"
-    r"api[_-]?key|keyring|master[_-]?key|private[_-]?key|recovery[_-]?codes?|totp|ciphertext|session[_-]?id|pem)"
-    r"[A-Za-z0-9_.-]{0,128})(?P<separator>['\"]?\s*[:=]\s*)"
-    r"""(?P<value>\[REDACTED\]|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|.+?(?=\s+[A-Za-z_][\w.-]*\s*[:=]|[,;\r\n}\]]|$))""",
-    re.IGNORECASE,
-)
+_INLINE = re.compile(r"""(?<![\w.-])(?P<key>[A-Za-z0-9_.-]{1,256})(?P<separator>['"]?\s*+[:=]\s*+)""")
+_QUOTED_VALUE = re.compile(r""""(?:\\.|[^"\\])*+"|'(?:\\.|[^'\\])*+'""")
+_INLINE_VALUE = re.compile(r"[^,;\r\n}\]]*+")
 _AUTH = re.compile(r"\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*", re.IGNORECASE)
-_URL_PASSWORD = re.compile(r"(?P<prefix>[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^@\s/]+(?=@)", re.IGNORECASE)
+_URL_PASSWORD = re.compile(r"(?P<prefix>[a-z][a-z0-9+.-]{0,31}://[^/\s:@]+:)[^@\s/]+(?=@)", re.IGNORECASE)
 _STANDARD_LOG_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 _BODY_ASSIGNMENT = re.compile(
     r"\b(?:body|(?:request|response|raw)[_-]?body|form(?:[_-]?(?:data|body))?|request[_-]?form)"
@@ -97,6 +93,38 @@ def _sensitive(key: str, value: object) -> bool:
     )
 
 
+def _inline_text(value: str) -> str:
+    # Find assignments once; each value scan is limited to its own segment.
+    # Whole-token starts prevent retrying a dotted run at each internal word.
+    matches = list(_INLINE.finditer(value))
+    # Punctuation inside a credential is not a new field boundary, but labels
+    # after message prefixes (error:password=...) must still be found.
+    ends = [len(value)] * len(matches)
+    next_field = len(value)
+    for index in range(len(matches) - 1, -1, -1):
+        match = matches[index]
+        ends[index] = next_field
+        if match.start() == 0 or value[match.start() - 1].isspace():
+            next_field = match.start()
+    parts = []
+    cursor = 0
+    for index, match in enumerate(matches):
+        if match.start() < cursor or not _sensitive(match["key"], ""):
+            continue
+        start = match.end()
+        if value.startswith(_REDACTED, start):
+            end = start + len(_REDACTED)
+        elif quoted := _QUOTED_VALUE.match(value, start):
+            end = quoted.end()
+        else:
+            end = _INLINE_VALUE.match(value, start, ends[index]).end()
+            end = start + len(value[start:end].rstrip())
+        parts.extend((value[cursor:start], _REDACTED))
+        cursor = end
+    parts.append(value[cursor:])
+    return "".join(parts)
+
+
 def _text(value: str) -> str:
     # Bound every regex's input, including unstructured logging/tracebacks.
     suffix = _TRUNCATED if len(value) > _TEXT_LIMIT else ""
@@ -107,16 +135,10 @@ def _text(value: str) -> str:
         return _REDACTED + suffix
     value = _PEM.sub(_REDACTED, value)
     value = _BASE64.sub(lambda match: match[0] if _HEX_SHA256.fullmatch(match[0]) else _REDACTED, value)
-    value = _INLINE.sub(
-        lambda match: (
-            match["key"] + match["separator"] + _REDACTED
-            if _sensitive(match["key"], match["value"])
-            else match[0]
-        ),
-        value,
-    )
+    value = _inline_text(value)
     value = _AUTH.sub(_REDACTED, value)
-    value = _URL_PASSWORD.sub(lambda match: match["prefix"] + _REDACTED, value)
+    if "://" in value:
+        value = _URL_PASSWORD.sub(lambda match: match["prefix"] + _REDACTED, value)
     return value + suffix
 
 
@@ -202,16 +224,17 @@ class SecretRedactionFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
-        # String templates must remain intact until getMessage substitutes args.
-        if not isinstance(record.msg, str):
-            record.msg = _log_value(record.msg)
-        if isinstance(record.args, Mapping):
-            record.args = _log_value(record.args)
-        else:
-            record.args = tuple(_log_value(item) for item in record.args or ())
         try:
+            # String templates must remain intact until getMessage substitutes args.
+            if not isinstance(record.msg, str):
+                record.msg = _log_value(record.msg)
+            if isinstance(record.args, Mapping):
+                record.args = _log_value(record.args)
+            else:
+                record.args = tuple(_log_value(item) for item in record.args or ())
             record.msg = _text(record.getMessage())
-        except (TypeError, ValueError):
+        except Exception:  # noqa: BLE001 - logging must fail closed for arbitrary formatting hooks.
+            # Formatting and user-defined __str__ must not break the caller.
             record.msg = _REDACTED + " invalid log formatting"
         record.args = ()
         for name, value in vars(record).copy().items():
