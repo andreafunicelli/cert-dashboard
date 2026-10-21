@@ -263,6 +263,8 @@ def test_expired_intermediate_and_non_ca_anchor(db, certs, actor, now):
 
 **Files:** Create: `app/crypto/pfx.py`. Test: `tests/unit/test_pfx.py`.
 
+**Implementation decisions:** Certificate-only PFX bundles remain valid. The cryptography loader exposes only one key from a multi-key bundle, so validate that selected key against the leaf SPKI; do not add a bag parser or OpenSSL subprocess preflight. Test a real two-key bundle and an in-memory legacy 3DES bundle. The pinned cryptography encryption builder cannot generate RC2 fixtures; cover the unsupported-encryption path with a typed backend exception instead.
+
 **Interfaces:** Consumes: `PrivateKeyObject`, `order_chain(leaf: x509.Certificate, candidates: Sequence[x509.Certificate]) -> ChainResult`. Produces: `PFXMaterial(key: PrivateKeyObject | None, leaf: x509.Certificate, chain: tuple[x509.Certificate,...])`; `read_pfx(data: bytes, password: str | None) -> PFXMaterial`; `build_pfx(key: PrivateKeyObject, leaf: x509.Certificate, chain: Sequence[x509.Certificate], password: str, friendly_name: str) -> bytes`; `PFXError(code: str, message: str)`.
 
 - [ ] Write failing tests:
