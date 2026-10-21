@@ -35,9 +35,11 @@
 - Queue priority: deploy `300`, on-demand discovery/scan `200`, scheduled `100`, digest `50`, cleanup `10`; deploy max attempts `1`, never auto-retry.
 - UTC persistence (`timestamptz`); browser-local display with configured timezone fallback; append-only audit retained independently of job cleanup.
 - Tests use a real throwaway `postgres:16` **Testcontainers** container per pytest session, migrations applied with a separate owner role; app-role transactions roll back per test, queue/concurrency tests use isolated schemas/connections. Never substitute SQLite.
-- Fixtures generate root, two intermediates, RSA/ECDSA, wildcard/IP/email/URI SAN, expired and future certificates under `tests/fixtures/certificates/` at session start; generated keys/certificates are not committed. Tests never reach the Internet.
+- Fixtures generate root, two intermediates, RSA/ECDSA, wildcard/IP/email/URI SAN, expired and future certificates in memory through `tests/fixtures/certificates.py` at session scope; generated keys/certificates are not committed. Tests never reach the Internet.
 - CI: `ruff check`, `pytest -q` with coverage, `pip-audit`, `docker build`, `docker compose -f docker-compose.test.yml config`; `85%` coverage for crypto/renewals (and deploy/parsers when added), `70%` overall.
 - Force LF with `.gitattributes` for `*.py *.yml *.yaml *.sh *.j2 *.cfg Dockerfile`; Linux containers must receive LF even from this Windows checkout.
+
+- DNS canonicalization uses locked `idna` with non-transitional UTS #46/STD3; CSR CN is included once in the typed SAN set (1..100 identities), with DNS labels <=63 ASCII bytes and names <=253.
 
 ## Review Focus
 
@@ -168,7 +170,7 @@ def test_row_binding_and_tamper(keyring):
 
 ### Task 5: Key generation, SPKI matching, and CSR construction
 
-**Files:** Modify: `app/crypto/keys.py`. Create: `app/crypto/csr.py`. Test: `tests/fixtures/__init__.py`, `tests/fixtures/certificates.py`, `tests/unit/test_keys_csr.py`, `tests/conftest.py`.
+**Files:** Modify: `app/crypto/keys.py`, `pyproject.toml`, `uv.lock`, `docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`, `docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`. Create: `app/crypto/csr.py`. Test: `tests/fixtures/__init__.py`, `tests/fixtures/certificates.py`, `tests/unit/test_keys_csr.py`, `tests/conftest.py`.
 
 **Interfaces:** Consumes: `PrivateKeyObject`, `public_key_sha256(key: rsa.RSAPublicKey | ec.EllipticCurvePublicKey) -> str`. Produces: `KeySpec(kind: Literal['rsa','ecdsa'] = 'rsa', size: int = 2048, curve: str | None = None)`; `generate_key(spec: KeySpec) -> PrivateKeyObject`; `CSRMaterial(pem: str, sha256: str)`; `parse_san(value: str) -> x509.GeneralName`; `canonical_sans(values: Sequence[str]) -> tuple[str,...]`; `build_csr(key: PrivateKeyObject, common_name: str, sans: Sequence[str]) -> CSRMaterial`; `validate_csr(csr_pem: str, common_name: str, sans: Sequence[str], public_hash: str) -> list[str]`.
 
@@ -185,11 +187,11 @@ def test_rsa_csr(size):
     assert material.sha256 == hashlib.sha256(csr.public_bytes(serialization.Encoding.DER)).hexdigest()
 ```
 
-  Add P-256/P-384 curve tests, DNS/IP/email/URI SAN preservation (DNS lowercase; compare sets, no silent additions), CN-only subject, invalid size/curve, independent SPKI digest comparison, same-algorithm wrong-key and curve/size mismatch assertions. CSR fingerprint means SHA-256 of DER, explicitly resolving the spec's unspecified encoding.
+  Add P-256/P-384 curve tests, DNS/IP/email/URI SAN preservation (DNS lowercase and IDNA A-labels; compare typed sets; include CN once), CN-only subject, invalid size/curve, independent SPKI digest comparison, same-algorithm wrong-key and curve/size mismatch assertions. CSR fingerprint means SHA-256 of DER, explicitly resolving the spec's unspecified encoding.
 - [ ] Run `uv run pytest tests/unit/test_keys_csr.py -q`; expect FAIL, generation/CSR absent.
-- [ ] Implement the signatures in `keys.py`/`csr.py` using cryptography. Accept typed SAN prefixes `DNS:`, `IP:`, `email:`, `URI:`; infer unprefixed DNS/IP, normalize only DNS; include CN in SANs only if present in the supplied SAN list. Canonical storage uses unprefixed lowercase DNS/canonical IP and explicit email:/URI: prefixes; comparisons use the same typed canonical set throughout.
+- [ ] Implement the signatures in `keys.py`/`csr.py` using cryptography. Accept typed SAN prefixes `DNS:`, `IP:`, `email:`, `URI:`; infer unprefixed DNS/IP, normalize only DNS; append canonical CN to SANs if absent, deduplicating typed identities. Reject empty supplied SAN lists and more than 100 entries, and enforce the final 100-identity limit after CN inclusion. DNS uses the locked idna dependency with non-transitional UTS #46 and STD3 rules (preserve ß as its A-label, never silently map it to ss); reject empty labels, underscores, leading/trailing hyphens, trailing root dots, labels over 63 ASCII bytes, and names over 253 ASCII bytes. A wildcard must be the complete left-most label. CN must be DNS/IP and fit the X.509 64-byte limit; longer valid names remain usable as SANs. IPv4/IPv6 use IPAddress, including CN insertion; reject DNS-encoded IPs during validation, scoped addresses and malformed dotted quads. Email/absolute ASCII URI payloads retain case and type. KeySpec size=2048 is the RSA default; ECDSA derives its size from the curve (default P-256), accepts its matching explicit bit size, and rejects conflicts. Accept secp256r1/prime256v1/P-256 and secp384r1/P-384 aliases. Validate CSR signature, SHA-256 digest algorithm, CN-only subject, typed SAN set and SPKI identity, returning all fixed diagnostics without echoing input. Generated fixtures stay in memory at session scope. Canonical storage uses unprefixed lowercase DNS/canonical IP and explicit email:/URI: prefixes; comparisons use the same typed canonical set throughout.
 - [ ] Run `uv run pytest tests/unit/test_keys_csr.py -q`; expect PASS.
-- [ ] Commit: `git add app/crypto/keys.py app/crypto/csr.py tests/fixtures tests/conftest.py tests/unit/test_keys_csr.py`; `git commit -m "feat: generate supported keys and verifiable CSRs"`.
+- [ ] Commit: `git add app/crypto/keys.py app/crypto/csr.py tests/fixtures tests/conftest.py tests/unit/test_keys_csr.py pyproject.toml uv.lock docs/superpowers/specs/2026-10-19-cert-dashboard-design.md docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`; `git commit -m "feat: generate supported keys and verifiable CSRs"`.
 
 ### Task 6: Certificate parsing and chain normalization
 

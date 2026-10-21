@@ -763,7 +763,7 @@ The master key never lives in the database. It is supplied as the Docker secret 
 ### 5.3 Key generation, matching, and export
 
 - Generation: RSA 2048/3072/4096 (`public_exponent=65537`) or ECDSA P-256 (`secp256r1`/`prime256v1`) / P-384 (`secp384r1`). Default RSA 2048 for compatibility with the CA portals in use; the UI states the trade-off.
-- CSR: SANs from the renewal's CN/SANs, `subject` with CN only, SHA-256 signature. The CSR and its SHA-256 are displayed so the operator can compare them with the CA portal.
+- CSR: `subject` contains CN only, with a SHA-256 signature and fingerprint of DER CSR bytes. Canonical CN is always included once in SANs; reject an empty supplied SAN list and enforce at most 100 supplied entries and final unique identities after CN inclusion. DNS is lower-case IDNA using locked `idna` non-transitional UTS #46/STD3 (Unicode and A-label forms deduplicate; ß remains distinct from ss). Each DNS label is at most 63 ASCII bytes and the complete name at most 253; reject invalid/empty labels, underscores, leading/trailing hyphens and trailing root dots. Only a complete left-most wildcard label is allowed. CN is DNS/IP and must fit X.509's 64-byte CN limit; longer valid hostnames can remain SANs. IPv4/IPv6 SANs use IPAddress, including a CN added to SANs; numeric DNS-encoded IPs, scoped IPs and malformed dotted quads are rejected. Typed `DNS:`, `IP:`, `email:` and `URI:` inputs are accepted; email and absolute ASCII URI values preserve case/type. Canonical storage uses unprefixed DNS/IP and email:/URI: prefixes, with comparisons over typed canonical sets. The CSR PEM and its SHA-256 are displayed so the operator can compare them with the CA portal.
 - Key/certificate matching is always by `public_key_sha256` (SHA-256 of the DER `SubjectPublicKeyInfo`). Uploaded issued certificates whose public key does not match the renewal's key are rejected, with the two fingerprints shown.
 - Export:
   - PEM leaf, chain, full chain (leaf+chain), and PFX are offered from the certificate detail screen.
@@ -1284,7 +1284,7 @@ Ansible-level errors that are not host-related (playbook syntax, missing collect
 **Crypto (`app/crypto`)**
 
 - RSA 2048/3072/4096 and ECDSA P-256/P-384 key generation: correct type, size, curve, and non-exportable-format errors.
-- CSR: subject CN, all SAN types (DNS, IP, email), signature verifies against the generated key, SHA-256 of the CSR matches the stored value, SANs are preserved exactly.
+- CSR: subject CN, all SAN types (DNS, IP, email), signature verifies against the generated key, SHA-256 of DER CSR matches the stored value, SAN types are preserved, DNS/IDNA is canonical, and CN is included exactly once. Reject empty/overfull SAN lists, invalid names/wildcards and label/name length violations; compare public-key identity across PEM/DER/PKCS8 representations.
 - Key matching: matching key/certificate accepted; a different-but-same-algorithm key rejected; RSA 2048 vs 3072 mismatch rejected; ECDSA curve mismatch rejected.
 - AES-256-GCM: encrypt/decrypt round trip; nonce uniqueness across N operations; tampered ciphertext, tampered nonce, wrong AAD, wrong key version all raise `KeyUnwrapError` (never return garbage); ciphertext of the same plaintext differs across calls.
 - Master keyring: parse valid/invalid JSON shapes, reject 16-byte keys, reject a missing `active`, round-trip rotation of a batch of rows (data encrypted with v1 decrypts after v2 becomes active; `master_key_version` updated).
@@ -1359,7 +1359,7 @@ Scenarios:
 
 ### 10.3 Test data and environments
 
-- Fixtures generate a throwaway CA, a root, two intermediates, wildcard and IP-SAN leaves, RSA and ECDSA keys, an expired certificate, and a not-yet-valid certificate — all under `tests/fixtures/certificates/` (generated at session start, not committed).
+- Fixtures generate a throwaway CA, a root, two intermediates, wildcard and IP-SAN leaves, RSA and ECDSA keys, an expired certificate, and a not-yet-valid certificate — all generated in memory by `tests/fixtures/certificates.py` at session scope; no private-key fixture files are committed.
 - Database: a throwaway Postgres container per test session with migrations applied; each test runs in a transaction that is rolled back, except queue/concurrency tests, which use isolated schemas.
 - No test reaches the internet; the SMTP target is a local capture server; the Git inventory is a local bare repository created by the fixture.
 - CI: `ruff check`, `pytest -q` with coverage, `docker build`, and a `docker compose -f docker-compose.test.yml config` sanity check. Coverage gates: 85% on `app/crypto`, `app/services/renewals.py`, `app/services/deploy.py`, `app/ansible/parse_*`; 70% overall.

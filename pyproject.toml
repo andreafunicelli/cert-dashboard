@@ -6,7 +6,7 @@ requires-python = ">=3.12,<3.13"
 dependencies = [
   "fastapi", "uvicorn", "jinja2", "python-multipart", "sqlalchemy>=2,<3",
   "alembic", "psycopg[binary]", "cryptography", "certifi", "argon2-cffi",
-  "pyotp", "pyopenssl", "ansible-core", "ansible-runner",
+  "pyotp", "pyopenssl", "ansible-core", "ansible-runner", "idna",
 ]
 
 [dependency-groups]

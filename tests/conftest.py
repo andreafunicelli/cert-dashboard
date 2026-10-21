@@ -18,3 +18,12 @@ def now():
     from datetime import UTC, datetime
 
     return datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+
+
+@pytest.fixture(scope="session")
+def certs():
+    from datetime import UTC, datetime
+
+    from tests.fixtures.certificates import generate_certificates
+
+    return generate_certificates(datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
