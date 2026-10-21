@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from ipaddress import ip_address
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
@@ -24,6 +24,9 @@ class Certificates:
     not_yet_valid: x509.Certificate
     ecdsa_leaf: x509.Certificate
     ecdsa_key: ec.EllipticCurvePrivateKey = field(repr=False)
+    expired_intermediate: x509.Certificate
+    expired_intermediate_leaf: x509.Certificate
+    expired_intermediate_chain: tuple[x509.Certificate, ...]
 
     @property
     def intermediate1_fp(self):
@@ -32,6 +35,18 @@ class Certificates:
     @property
     def intermediate2_fp(self):
         return self.intermediate2.fingerprint(hashes.SHA256()).hex()
+
+    @property
+    def intermediates(self) -> tuple[x509.Certificate, ...]:
+        return (self.intermediate2, self.intermediate1)
+
+    @property
+    def leaf_pem(self) -> bytes:
+        return self.leaf.public_bytes(serialization.Encoding.PEM)
+
+    @property
+    def chain_pem(self) -> bytes:
+        return b"".join(cert.public_bytes(serialization.Encoding.PEM) for cert in self.intermediates)
 
 
 def generate_certificates(now: datetime) -> Certificates:
@@ -119,6 +134,23 @@ def generate_certificates(now: datetime) -> Certificates:
     ecdsa_leaf = issue(
         "ecdsa.example.test", ecdsa_key, two, two_key, sans=[x509.DNSName("ecdsa.example.test")]
     )
+    expired_intermediate_key = ec.generate_private_key(ec.SECP256R1())
+    expired_intermediate = issue(
+        "Fixture Expired Intermediate",
+        expired_intermediate_key,
+        root,
+        root_key,
+        ca=True,
+        before=now - timedelta(days=90),
+        after=now - timedelta(days=30),
+    )
+    expired_intermediate_leaf = issue(
+        "expired-intermediate.example.test",
+        leaf_key,
+        expired_intermediate,
+        expired_intermediate_key,
+        sans=[x509.DNSName("expired-intermediate.example.test")],
+    )
     return Certificates(
         root,
         root_key,
@@ -134,4 +166,7 @@ def generate_certificates(now: datetime) -> Certificates:
         future,
         ecdsa_leaf,
         ecdsa_key,
+        expired_intermediate,
+        expired_intermediate_leaf,
+        (expired_intermediate,),
     )
