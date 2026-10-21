@@ -72,8 +72,13 @@ _HEX_SHA256 = re.compile(r"[0-9a-fA-F]{64}\Z")
 _INLINE = re.compile(r"""(?<![\w.-])(?P<key>[A-Za-z0-9_.-]{1,256})(?P<separator>['"]?\s*+[:=]\s*+)""")
 _QUOTED_VALUE = re.compile(r""""(?:\\.|[^"\\])*+"|'(?:\\.|[^'\\])*+'""")
 _INLINE_VALUE = re.compile(r"[^\s]*+")
-_AUTH = re.compile(r"\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*", re.IGNORECASE)
-_URL_PASSWORD = re.compile(r"(?P<prefix>[a-z][a-z0-9+.-]{0,31}://[^/\s:@]+:)[^@\s/]+(?=@)", re.IGNORECASE)
+_AUTH = re.compile(
+    r"(?<![\w@:])(?:AWS4-HMAC-SHA256|Bearer|Basic|Digest|Token|Negotiate|NTLM)\b[^\r\n]*+",
+    re.IGNORECASE,
+)
+_LINE_VALUE = re.compile(r"[^\r\n]*+")
+_AUTHORIZATION_KEYS = {"authorization", "proxyauthorization", "wwwauthenticate"}
+_URL_PASSWORD = re.compile(r"(?P<prefix>[a-z][a-z0-9+.-]{0,31}://[^/\s:@]*:)[^@\s/]+(?=@)", re.IGNORECASE)
 _STANDARD_LOG_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 _BODY_ASSIGNMENT = re.compile(
     r"\b(?:body|(?:request|response|raw)[_-]?body|form(?:[_-]?(?:data|body))?|request[_-]?form)"
@@ -82,8 +87,12 @@ _BODY_ASSIGNMENT = re.compile(
 )
 
 
+def _normalized_key(key: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", key.casefold())
+
+
 def _sensitive(key: str, value: object) -> bool:
-    normalized = re.sub(r"[^a-z0-9]", "", key.casefold())
+    normalized = _normalized_key(key)
     if normalized in _SAFE_METADATA or (normalized.endswith("present") and isinstance(value, bool)):
         return False
     return (
@@ -116,6 +125,8 @@ def _inline_text(value: str) -> str:
             end = start + len(_REDACTED)
         elif quoted := _QUOTED_VALUE.match(value, start):
             end = quoted.end()
+        elif _normalized_key(match["key"]) in _AUTHORIZATION_KEYS or value[start : start + 1] in {"'", '"'}:
+            end = _LINE_VALUE.match(value, start).end()
         else:
             end = _INLINE_VALUE.match(value, start, ends[index]).end()
             end = start + len(value[start:end].rstrip())

@@ -487,3 +487,56 @@ def test_unrenderable_extra_fields_fail_closed_without_raising():
     good.details = {"count": 2, "password": "fixture-password"}
     assert SecretRedactionFilter().filter(good) is True
     assert good.details == {"count": 2, "password": "[REDACTED]"}
+
+
+@pytest.mark.parametrize(
+    "value,secret",
+    [
+        ("authorization: Bearer fixture-bearer", "fixture-bearer"),
+        ("authorization: Basic fixture-basic==", "fixture-basic"),
+        ('authorization: Digest username="u", response="fixture-response"', "fixture-response"),
+        ("authorization: Token ghp_fixtureToken", "ghp_fixtureToken"),
+        ("authorization: Negotiate fixtureNegotiateBlob==", "fixtureNegotiateBlob"),
+        ("authorization: NTLM fixture-ntlm", "fixture-ntlm"),
+        (
+            "authorization: AWS4-HMAC-SHA256 Credential=fixture/20260101, SignedHeaders=host",
+            "fixture/20260101",
+        ),
+        ("authorization: CustomScheme fixture-unknown", "fixture-unknown"),
+        ("proxy-authorization: Token fixture-proxy", "fixture-proxy"),
+        ('www-authenticate: Digest realm="fixture-realm", nonce="fixture-nonce"', "fixture-nonce"),
+    ],
+)
+def test_authorization_schemes_hide_credentials(value, secret):
+    from app.services.audit import redact
+
+    clean = redact(value)
+    assert secret not in clean
+    assert "[REDACTED]" in clean
+    assert redact(clean) == clean
+
+
+def test_bare_scheme_prose_fails_closed():
+    from app.services.audit import redact
+
+    # Without a header label a scheme word cannot be told apart from prose safely;
+    # the barrier redacts the rest of the line rather than risk a credential.
+    assert redact("Bearer token invalid for user alice") == "[REDACTED]"
+
+
+def test_url_password_with_empty_username_is_redacted():
+    from app.services.audit import redact
+
+    assert redact("redis://:s3cret@cache:6379") == "redis://:[REDACTED]@cache:6379"
+    assert redact("postgresql://:s3cret@db/app") == "postgresql://:[REDACTED]@db/app"
+    assert redact("http://host:8080/path") == "http://host:8080/path"
+
+
+@pytest.mark.parametrize(
+    "value",
+    ['password="s3cret hunter2', "password='s3cret hunter2", 'password="s3cret hunter2 user=alice'],
+)
+def test_unterminated_quoted_value_consumes_to_line_end(value):
+    from app.services.audit import redact
+
+    assert redact(value) == "password=[REDACTED]"
