@@ -85,3 +85,25 @@ The offline htmx asset is upstream v2.0.8 from
 `https://github.com/bigskysoftware/htmx/tree/v2.0.8`, with its upstream license in
 `app/static/htmx.LICENSE`; the bundled JS SHA-256 is
 `22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313`.
+
+
+## Key custody and rotation
+
+`python -m app.cli generate-master-key --version 1` needs no database or configured
+secrets. It writes canonical UTF-8 JSON plus LF to stdout and SHA-256 of those exact
+bytes to stderr. `--merge PATH` retains the previous version; the new version must
+exceed every merged version, with at most two live versions. It does not edit files.
+
+Follow spec section 11.5 for rotation: keep separate key backups, install the merged
+keyring with the documented owners/modes, then force-recreate web/worker to reread
+secrets. Run `docker compose run --rm web python -m app.cli rotate-master-key`.
+The CLI commits batches of 100 across keys and TOTP rows, prints remaining counts,
+and audits counts only. A failed batch rolls back; restart the same command to
+resume. `verify-key --certificate-id ID` checks the decrypted key against both its
+stored public hash and the certificate and emits metadata only. Keep the previous
+version until both stale-row counts are zero and a PFX export succeeds; the PFX
+export capability arrives in its later plan task.
+
+A missing referenced version is reported by `missing_master_key_versions` and
+blocks dependent unwrap/rotation operations. Public inventory remains readable.
+Rotation keeps plaintext in a one-row helper and never writes it to SQL or files.
