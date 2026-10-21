@@ -261,6 +261,8 @@ def test_expired_intermediate_and_non_ca_anchor(db, certs, actor, now):
 
 ### Task 7: PFX import and password-protected construction
 
+A v1 CA certificate without BasicConstraints is indistinguishable from a self-signed end-entity and is accepted as a leaf; accepted limitation.
+
 **Files:** Create: `app/crypto/pfx.py`. Test: `tests/unit/test_pfx.py`.
 
 **Implementation decisions:** Certificate-only PFX bundles remain valid. The cryptography loader exposes only one key from a multi-key bundle, so validate that selected key against the leaf SPKI; do not add a bag parser or OpenSSL subprocess preflight. Test a real two-key bundle and an in-memory legacy 3DES bundle. Legacy RC2/3DES bundles can be imported on this backend; only RC2 fixture generation is unavailable in the pinned cryptography encryption builder. Use a real 3DES fixture and cover the unsupported-encryption path with a typed backend exception; never weaken export encryption. Reject CA certificates as leaves on import/export, and reject chain candidates without explicit BasicConstraints CA:TRUE (duplicate leaves are dropped). Suppress cryptography UserWarning messages only around PKCS#12 loading; malformed input still raises a sanitized PFXError.
@@ -313,6 +315,8 @@ def test_lockout_and_hash_parameters(local_backend, local_user, clock):
 - [ ] Commit: `git add app/auth app/static/common-passwords.txt tests/integration/test_auth_backend.py`; `git commit -m "feat: add pluggable argon2 authentication and lockout"`.
 
 ### Task 9: Encrypted TOTP enrollment and single-use recovery
+
+**Implementation decisions:** Recovery codes contain 128 random bits, displayed once as four groups of eight uppercase hexadecimal characters; comparison removes dashes/whitespace and ignores case. All ten Argon2 slots are verified, with dummy padding after consumption. Factor input is bounded to 128 characters. MFA helpers own no commit: callers must commit False results to retain failure counters and audits, and roll back only actual errors. While TOTP is enabled or enrollment is pending, successful password authentication preserves the shared failure count; complete MFA/confirmation success resets it. Ten combined consecutive password/MFA failures lock for 15 minutes; blocked requests do not extend the deadline. Recovery hashes remain usable without decrypting the TOTP secret when a master-key version is unavailable. Enrollment/reset and disable require caller-enforced current-password reauthentication; enabled/disabled/restarted enrollment revokes existing sessions, and callers must rotate/reissue the current session as needed. No plaintext recovery codes or secret/URI are persisted, audited or logged.
 
 **Files:** Modify: `app/auth/local.py`. Test: `tests/integration/test_totp.py`.
 
