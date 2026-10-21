@@ -38,7 +38,7 @@ class JobHost(Timestamps, Base):
     rollback_error = mapped_column(Text, nullable=True)
     precheck = mapped_column(JSONB, nullable=True)
     __table_args__ = (
-        UniqueConstraint("job_id", "server_id", "binding_id"),
+        UniqueConstraint("job_id", "server_id", "binding_id", postgresql_nulls_not_distinct=True),
         Index("ix_job_host_status", "job_id", "status"),
         Index("ix_job_host_batch", "job_id", "batch_no"),
     )

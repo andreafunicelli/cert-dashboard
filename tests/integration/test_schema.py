@@ -22,7 +22,7 @@ COLUMNS = {
     "user": "id:bigint! username:citext! email:citext! display_name:text auth_backend:auth_backend! password_hash:text totp_secret_ciphertext:bytea totp_secret_nonce:bytea totp_secret_version:integer totp_enabled:boolean! totp_confirmed_at:timestamptz totp_last_used_step:bigint recovery_codes:text[]! is_active:boolean! failed_attempts:integer! locked_until:timestamptz last_login_at:timestamptz must_change_password:boolean!",
     "user_session": "id:char(64)! user_id:bigint! csrf_token:char(64)! last_seen_at:timestamptz! expires_at:timestamptz! ip:text user_agent:text revoked_at:timestamptz authenticated_at:timestamptz",
     "app_setting": "key:text! value:jsonb! updated_by:bigint",
-    "notification_log": "id:bigint! certificate_id:bigint kind:text! threshold_days:integer recipients:text[]! status:notification_status! error:text sent_at:timestamptz! dedupe_key:text! attempts:integer! next_attempt_at:timestamptz",
+    "notification_log": "id:bigint! certificate_id:bigint kind:text! threshold_days:integer recipients:text[]! status:notification_status! error:text sent_at:timestamptz dedupe_key:text! attempts:integer! next_attempt_at:timestamptz last_attempt_at:timestamptz",
     "audit_log": "id:uuid! actor_user_id:bigint actor_label:text! action:text! target_type:text! target_id:text details:jsonb! ip:inet user_agent:text",
     "worker_heartbeat": "worker_id:text! started_at:timestamptz! last_seen_at:timestamptz! current_job_id:uuid",
     "scheduler_state": "key:text! last_run_at:timestamptz",
@@ -61,7 +61,7 @@ DEFAULTS = {
         "failed_attempts": "0",
         "must_change_password": "false",
     },
-    "notification_log": {"attempts": "0", "sent_at": "now()"},
+    "notification_log": {"attempts": "0"},
     "scan_result": {"checked_at": "now()"},
     "audit_log": {"details": "{}"},
     "trust_anchor": {"source": "uploaded"},
@@ -132,7 +132,7 @@ UNIQUE = {
     "certificate": {("sha256_fingerprint",), ("issuer_dn", "serial")},
     "private_key": {("public_key_sha256",)},
     "server": {("hostname",)},
-    "binding": {("server_id", "cert_path")},
+    "binding": {("server_id", "webserver", "config_file", "port", "vhost_name", "cert_path")},
     "job_host": {("job_id", "server_id", "binding_id")},
     "user": {("username",)},
     "notification_log": {("dedupe_key",)},
@@ -671,3 +671,144 @@ def test_trust_anchor_uniqueness_defaults_and_session_cascade(db, now):
     db.flush()
     db.execute(text('DELETE FROM "user" WHERE id=:id'), {"id": user.id})
     assert db.scalar(text("SELECT count(*) FROM user_session WHERE id=:id"), {"id": "a" * 64}) == 0
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"vhost_name": "other.example.test"},
+        {"config_file": "/etc/nginx/other.conf"},
+        {"port": 8443},
+        {"webserver": "apache"},
+    ],
+)
+def test_binding_identity_keeps_distinct_directives_sharing_cert_path(db, now, changes):
+    from app.models import Binding, Server
+
+    server = Server(hostname="shared.example.test", inventory_source="fixture")
+    db.add(server)
+    db.flush()
+    fields = {
+        "server_id": server.id,
+        "webserver": "nginx",
+        "config_file": "/etc/nginx/shared.conf",
+        "port": 443,
+        "vhost_name": "first.example.test",
+        "vhost_names": ["first.example.test"],
+        "cert_path": "/etc/certs/shared.pem",
+        "key_path": "/etc/certs/shared.key",
+        "match_state": "unknown",
+        "last_seen_at": now,
+    }
+    first = Binding(**fields)
+    db.add(first)
+    db.flush()
+    other = Binding(**(fields | changes))
+    db.add(other)
+    db.flush()
+    assert first.id != other.id and first.cert_path == other.cert_path
+    with pytest.raises(IntegrityError) as exc, db.begin_nested():
+        db.add(Binding(**fields))
+        db.flush()
+    assert exc.value.orig.sqlstate == "23505"
+
+
+def test_job_host_null_binding_is_part_of_unique_identity(db, now):
+    from app.models import Job, JobHost, Server
+
+    server = Server(hostname="discovery.example.test", inventory_source="fixture")
+    job = Job(type="discover", priority=200, payload={}, run_after=now)
+    db.add_all([server, job])
+    db.flush()
+    fields = {"job_id": job.id, "server_id": server.id, "binding_id": None}
+    db.add(JobHost(**fields))
+    db.flush()
+    with pytest.raises(IntegrityError) as exc, db.begin_nested():
+        db.add(JobHost(**fields))
+        db.flush()
+    assert exc.value.orig.sqlstate == "23505"
+
+
+def test_failed_notification_records_attempt_without_claiming_send(db, now, engine):
+    from app.models import NotificationLog
+
+    row = NotificationLog(
+        kind="digest",
+        recipients=["fixture@example.test"],
+        status="failed",
+        attempts=1,
+        error="fixture SMTP failure",
+        dedupe_key="fixture:" + uuid.uuid4().hex,
+    )
+    db.add(row)
+    db.flush()
+    assert row.sent_at is None
+    row.last_attempt_at = now
+    db.flush()
+    saved = db.execute(
+        text("SELECT sent_at,last_attempt_at FROM notification_log WHERE id=:id"), {"id": row.id}
+    ).one()
+    assert saved == (None, now)
+    columns = {c["name"]: c for c in inspect(engine).get_columns("notification_log")}
+    assert columns["sent_at"]["nullable"] is True and columns["sent_at"]["default"] is None
+    assert columns["last_attempt_at"]["nullable"] is True and columns["last_attempt_at"]["default"] is None
+
+
+@pytest.mark.parametrize("table", ["job_host", "binding"])
+def test_nullable_uniqueness_is_explicit_in_postgres_catalog(engine, table):
+    with engine.connect() as conn:
+        assert (
+            conn.scalar(
+                text("""
+            SELECT i.indnullsnotdistinct FROM pg_constraint c
+            JOIN pg_index i ON i.indexrelid=c.conindid
+            WHERE c.conrelid=to_regclass(:table) AND c.contype='u'
+        """),
+                {"table": "public." + table},
+            )
+            is True
+        )
+
+
+def test_app_role_cannot_disable_owner_audit_triggers(db):
+    assert (
+        db.scalar(
+            text("SELECT tableowner FROM pg_tables WHERE schemaname='public' AND tablename='audit_log'")
+        )
+        == "db_owner"
+    )
+    with pytest.raises(DBAPIError) as exc, db.begin_nested():
+        db.execute(text("ALTER TABLE audit_log DISABLE TRIGGER ALL"))
+    assert exc.value.orig.sqlstate == "42501"
+    assert "must be owner" in str(exc.value.orig)
+
+
+MUTABLE_TABLES = sorted(set(COLUMNS) - IMMUTABLE)
+
+
+def test_updated_at_trigger_matrix_covers_every_catalog_table(engine):
+    with engine.connect() as conn:
+        catalog = conn.scalars(
+            text("""
+            SELECT table_name FROM information_schema.columns
+            WHERE table_schema='public' AND column_name='updated_at'
+            ORDER BY table_name
+        """)
+        ).all()
+    assert MUTABLE_TABLES == catalog
+
+
+@pytest.mark.parametrize("table", MUTABLE_TABLES)
+def test_every_mutable_table_has_enabled_before_update_timestamp_trigger(engine, table):
+    with engine.connect() as conn:
+        triggers = conn.execute(
+            text("""
+            SELECT t.tgenabled, (t.tgtype & 2)=2 AS is_before,
+                   (t.tgtype & 16)=16 AS is_update, (t.tgtype & 1)=1 AS is_row,
+                   p.proname
+            FROM pg_trigger t JOIN pg_proc p ON p.oid=t.tgfoid
+            WHERE t.tgrelid=to_regclass(:table) AND NOT t.tgisinternal
+        """),
+            {"table": "public." + table},
+        ).all()
+    assert ("O", True, True, True, "touch_updated_at") in triggers

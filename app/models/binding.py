@@ -43,7 +43,15 @@ class Binding(Timestamps, Base):
     is_active = mapped_column(Boolean, nullable=False, server_default=text("true"))
     notes = mapped_column(Text, nullable=True)
     __table_args__ = (
-        UniqueConstraint("server_id", "cert_path"),
+        UniqueConstraint(
+            "server_id",
+            "webserver",
+            "config_file",
+            "port",
+            "vhost_name",
+            "cert_path",
+            postgresql_nulls_not_distinct=True,
+        ),
         Index("ix_binding_certificate_id", "certificate_id"),
         Index("ix_binding_server_active", "server_id", "is_active"),
         Index("ix_binding_match_state", "match_state"),

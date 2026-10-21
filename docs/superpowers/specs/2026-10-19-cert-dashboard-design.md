@@ -485,7 +485,7 @@ Transition rules:
 
 ### 4.8 `binding`
 
-One row per certificate-consuming directive in a vhost.
+One row per certificate-consuming directive in a vhost. The same certificate path can appear in distinct server blocks; identity includes server, webserver, config file, listen `port`, vhost name, and certificate path. Deploy acts per binding, while each distinct file path is written once per host and restored once on rollback.
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -508,7 +508,7 @@ One row per certificate-consuming directive in a vhost.
 | `last_seen_at` | timestamptz not null | Last discovery that observed this binding |
 | `is_active` | boolean not null default true | False when a binding disappears from a config |
 
-Constraints: `unique (server_id, cert_path)`; `index (certificate_id)`; `index (server_id, is_active)`; `index (match_state)`.
+Constraints: `UNIQUE NULLS NOT DISTINCT (server_id, webserver, config_file, port, vhost_name, cert_path)`; `index (certificate_id)`; `index (server_id, is_active)`; `index (match_state)`.
 
 `key_mismatch` means the certificate at `cert_path` does not correspond to the key at `key_path` — a real misconfiguration that must be surfaced loudly and must block any deploy touching that vhost.
 
@@ -603,7 +603,9 @@ Indexes: `index (endpoint_id, checked_at desc)`, `index (status, checked_at desc
 | `rollback_error` | text null | |
 | `precheck` | jsonb null | Drift check, disk space, config test result |
 
-Constraints: `unique (job_id, server_id, binding_id)`; `index (job_id, status)`; `index (job_id, batch_no)`.
+Constraints: `UNIQUE NULLS NOT DISTINCT (job_id, server_id, binding_id)`; `index (job_id, status)`; `index (job_id, batch_no)`.
+
+NULL binding IDs represent non-binding host jobs and still participate in uniqueness: one job/server pair cannot have two NULL-binding rows.
 
 **Assumption:** `job_host` carries `binding_id`, so a single host with several affected vhosts gets several `job_host` rows (one per binding) that are executed as one Ansible run per host, updating all rows for that host together.
 
@@ -667,10 +669,13 @@ Secrets are never stored here: SMTP password comes from the `smtp_password` secr
 | `recipients` | text[] not null | Resolved at send time |
 | `status` | `notification_status` not null | |
 | `error` | text null | |
-| `sent_at` | timestamptz not null default now() | |
+| `sent_at` | timestamptz null, no default | Set only on a successful send; NULL for failed attempts |
+| `last_attempt_at` | timestamptz null, no default | Set on every send attempt, including failures |
+| `attempts` | int not null default 0 | Total attempts so far |
+| `next_attempt_at` | timestamptz null | Retry backoff target |
 | `dedupe_key` | text not null unique | e.g. `expiry:42:30:2026-11-01` |
 
-The `dedupe_key` makes alerting idempotent: one email per certificate, threshold, and day, regardless of how often the check runs. A failed send keeps its row and is retried on the next scheduler tick (row updated to `sent` on success), up to 3 attempts total; after that the row stays `failed`, the failure is shown in the digest and on the Settings Status panel, and the next day's key takes over.
+The `dedupe_key` makes alerting idempotent: one email per certificate, threshold, and day, regardless of how often the check runs. A failed send updates last_attempt_at but leaves sent_at NULL; a successful send sets both timestamps. A failed send keeps its row and is retried on the next scheduler tick (row updated to `sent` on success), up to 3 attempts total; after that the row stays `failed`, the failure is shown in the digest and on the Settings Status panel, and the next day's key takes over.
 
 ### 4.16 `audit_log`
 
