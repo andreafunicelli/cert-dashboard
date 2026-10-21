@@ -449,3 +449,41 @@ def test_inline_label_after_a_message_prefix_is_still_redacted():
     from app.services.audit import redact
 
     assert redact("error:password=fixture-value event=safe") == "error:password=[REDACTED] event=safe"
+
+
+def test_unquoted_secret_consumes_punctuation_until_whitespace():
+    from app.services.audit import redact
+
+    assert redact("password=a,b") == "password=[REDACTED]"
+    assert redact("password=a;b}c]d") == "password=[REDACTED]"
+    assert redact("password=x,user=alice") == "password=[REDACTED]"
+    assert redact("password=x user=alice") == "password=[REDACTED] user=alice"
+    assert redact("authorization: Bearer fixture.token") == "authorization: [REDACTED]"
+
+
+def test_json_quoted_value_keeps_following_fields():
+    from app.services.audit import redact
+
+    assert redact('{"password": "x", "user": "alice"}') == '{"password": [REDACTED], "user": "alice"}'
+    assert redact('{"password": "x,y", "user": "alice"}') == '{"password": [REDACTED], "user": "alice"}'
+
+
+def test_unrenderable_extra_fields_fail_closed_without_raising():
+    from app.services.audit import SecretRedactionFilter
+
+    class BadString:
+        def __str__(self):
+            raise RuntimeError("fixture-secret-detail")
+
+    record = logging.LogRecord("fixture", logging.ERROR, __file__, 1, "safe event", (), None)
+    record.direct = BadString()
+    record.nested = {"token": "fixture-token", "bad": BadString()}
+    assert SecretRedactionFilter().filter(record) is True
+    assert record.direct == "[REDACTED] unrenderable"
+    assert record.nested == "[REDACTED] unrenderable"
+    assert record.msg == "safe event"
+
+    good = logging.LogRecord("fixture", logging.ERROR, __file__, 1, "safe", (), None)
+    good.details = {"count": 2, "password": "fixture-password"}
+    assert SecretRedactionFilter().filter(good) is True
+    assert good.details == {"count": 2, "password": "[REDACTED]"}
