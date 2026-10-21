@@ -15,6 +15,28 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+  migrate:
+    image: cert-dashboard:local
+    build:
+      context: .
+      target: runtime
+    user: "999:999"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: [/tmp]
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: db_owner
+      DB_NAME: cert_dashboard
+    command: [alembic, upgrade, head]
+    secrets:
+      - source: db_owner_password
+        target: db_password
+    depends_on:
+      db:
+        condition: service_healthy
   app:
     image: cert-dashboard:test
     build:
@@ -25,10 +47,12 @@ services:
       DB_HOST: db
       DB_USER: app_role
       DB_NAME: cert_dashboard
-    command: [pytest, -q]
+    command: [pytest, -q, tests/unit, -p, "no:cacheprovider"]
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     secrets: [master_key, db_password, session_secret]
 
 secrets:

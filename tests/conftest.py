@@ -11,3 +11,10 @@ def secret_files(tmp_path):
     (tmp_path / "db_password").write_bytes(b"file-value\n")
     (tmp_path / "session_secret").write_bytes(b"session-test-only-32-random-bytes!!")
     return tmp_path
+
+
+@pytest.fixture
+def now():
+    from datetime import UTC, datetime
+
+    return datetime(2026, 10, 19, 12, 0, tzinfo=UTC)

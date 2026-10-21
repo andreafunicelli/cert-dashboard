@@ -34,5 +34,6 @@ COPY --chown=app:app pyproject.toml docker-compose*.yml .gitattributes .dockerig
 CMD ["pytest", "-q", "-p", "no:cacheprovider"]
 
 FROM base AS runtime
+COPY --chown=app:app alembic.ini ./
 COPY --from=build /opt/venv /opt/venv
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -691,11 +691,18 @@ Append-only enforcement, in the migration:
 
 ```sql
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM app_role;
-CREATE RULE audit_log_no_update AS ON UPDATE TO audit_log DO INSTEAD NOTHING;
-CREATE RULE audit_log_no_delete AS ON DELETE TO audit_log DO INSTEAD NOTHING;
+CREATE FUNCTION reject_audit_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log is append-only' USING ERRCODE = 'P0001';
+END
+$$;
+CREATE TRIGGER audit_log_no_mutation BEFORE UPDATE OR DELETE ON audit_log
+FOR EACH ROW EXECUTE FUNCTION reject_audit_mutation();
+CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON audit_log
+FOR EACH STATEMENT EXECUTE FUNCTION reject_audit_mutation();
 ```
 
-The application role has `INSERT` and `SELECT` only. The audit list screen is read-only and paginated/filterable; there is no purge action in v1 (retention is a DBA task).
+The application role has `INSERT` and `SELECT` only. REVOKE produces permission denial for app-role UPDATE/DELETE/TRUNCATE; append-only triggers raise a loud error for owner mutations too. Do not use unconditional no-op rules: PostgreSQL can rewrite those statements away before permission checks. A DBA must deliberately disable the triggers for exceptional retention work. The audit list screen is read-only and paginated/filterable; there is no purge action in v1 (retention is a DBA task).
 
 Audited actions include: login success/failure, logout, 2FA enable/disable, user create/deactivate, certificate create/import/update/status change, chain/leaf upload, renewal transition, CSR generation, key export, PFX export, deploy start/cancel, rollback, discovery run, scan run, settings change, master key rotation, admin bootstrap, `trust_anchor.add`, `trust_anchor.remove`, and `certificate.chain_check` (status/validation time only).
 
@@ -795,7 +802,7 @@ v1: all authenticated, active users are admins. There is no per-object permissio
 | Master key leaked without DB | No certificates to combine, keys useless alone | Key and DB backups are stored separately (Section 11) |
 | Web container compromised | Full admin session, but no SSH access | Web holds no Ansible SSH key, has no inventory checkout, and cannot run jobs directly |
 | Worker container compromised | SSH to managed servers, can decrypt keys | Worker has no public port; runs as non-root; plaintext key files live only on its private volume and are deleted after use |
-| Malicious insider | Mass deploy or key theft | Argon2id, optional TOTP, mandatory re-auth for PFX export, append-only audit, canary-first rollout |
+| Malicious insider | Mass deploy or key theft | Argon2id, optional TOTP, mandatory re-auth for PFX export, audit REVOKE + append-only triggers (including owner mutation errors), canary-first rollout |
 | Log exfiltration | Indirect secret leak | `no_log` on all key tasks, redaction logging filter, no secrets in payloads or error messages |
 | Wrong certificate deployed | Outage at the vhost | Key-match validation, drift precheck, configtest, live fingerprint verification, automatic rollback |
 | Replay/CSRF | Unauthorized state change on a logged-in admin | SameSite=Lax, per-session CSRF token, POST-only mutations |
@@ -1379,7 +1386,7 @@ Scenarios:
 
 1. Clone the private repo onto the host (deploy key).
 2. Provision secret files under `/etc/cert-dashboard/secrets/` (`db_password`, distinct `db_owner_password`, `master_key`, `session_secret`, and optional worker SSH/vault/Git/SMTP credentials). An administrator runs `sh scripts/install-secrets.sh /etc/cert-dashboard/secrets` as root: directory root:root 0711; app secrets 10001:10001 0400; owner password 999:999 0400; shared db_password 10001:999 0440. No runtime copies are created. Generate `master_key` with `docker run --rm cert-dashboard python -m app.cli generate-master-key --version 1` and **immediately** follow 11.6.
-3. `docker compose up -d db`, then `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`.
+3. `docker compose up -d db`, then `docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`.
 4. `docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal` (prompts for the password with confirmation, enforces the 12-character minimum).
 5. `docker compose up -d web worker`.
 6. Log in, enroll 2FA, configure SMTP, alert recipients, and the inventory repo; press "Test pull" and "Send test email".
@@ -1391,7 +1398,7 @@ Scenarios:
 
 | Task | Procedure |
 | --- | --- |
-| Upgrade | Pull the image tag, `docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
+| Upgrade | Pull the image tag, `docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
 | Roll back an app upgrade | Re-pin the previous image tag and restart. If the migration is not backward compatible, restore the DB backup taken before the upgrade (documented per release in the release notes) |
 | Add a server | Add it to the inventory repo, wait for the nightly discovery or press "Discover now"; confirm the server appears and its bindings are matched |
 | Remove a server | Remove it from the inventory; the next discovery marks it inactive (history preserved) |
@@ -1528,6 +1535,7 @@ These are the decisions this spec makes where the approved input was silent. Eac
 | A28 | Annual master key rotation by default | 11.5 |
 | A29 | JSON export for lists and audit; no CSV | 8.3, 8.9 |
 | A30 | SMTP TLS verification is on by default, with an explicitly unsafe opt-out | 7.6 |
+| A31 | Audit immutability uses REVOKE + append-only triggers; app-role mutations are denied, owner UPDATE/DELETE/TRUNCATE raise an exception unless a DBA deliberately disables the triggers | 4.16, 5.6 |
 
 ## Appendix B — Glossary
 

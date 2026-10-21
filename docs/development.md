@@ -7,12 +7,12 @@ uv sync --frozen
 uv run ruff check .
 docker compose -f docker-compose.test.yml pull db
 docker build --target test -t cert-dashboard:test .
+docker build -t cert-dashboard:local .
 uv run pytest -q --cov=app --cov-report=term-missing --cov-report=json
 uv run coverage report --fail-under=85 --include='app/crypto/*'
 uv run pip-audit
 docker compose -f docker-compose.test.yml config --quiet
 docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider
-docker build -t cert-dashboard:local .
 ```
 
 On Windows, use WSL's Linux Docker engine for authoritative tests. Keep its uv
@@ -24,13 +24,18 @@ UV_PROJECT_ENVIRONMENT="$HOME/.venvs/cert-dashboard" uv run pytest -q
 ```
 
 Host tests exercise Docker Compose rendering and isolated container permissions;
-they require the test image built above. Docker-CLI checks skip inside
-the application test image, which has no host Docker socket or CLI. Its CI smoke
+they require both images built above. Integration tests start one PostgreSQL 16
+Testcontainers instance, apply the single v1 migration as db_owner, and roll back
+app_role transactions per test. A separate isolated Compose project verifies the
+real migrate command and `alembic check`, then removes only its own DB volume.
+Docker-CLI checks skip inside the application test image, which has no host Docker socket or CLI. Its CI smoke
 command runs only tests/unit; the full suite runs on the Docker-enabled host.
 Unit tests do not contact network services. Prepare images/dependencies before running tests.
 
-This scaffold does not yet implement `app.main` or the worker loop. Application
-startup and database schema validation arrive in later reviewed plan tasks.
+The v1 database schema, owner migration path, and runtime readiness checker are
+implemented. `app.main` and the worker loop arrive in later reviewed plan tasks.
+The test Compose app runs unit smoke checks after its owner-only migrate service
+completes; the full integration suite runs on the Docker-enabled host.
 
 ## Linux deployment secrets
 
@@ -66,10 +71,10 @@ are mounted. Normal web/worker never mount the owner password. Rotate a secret b
 replacing it, reapplying the installer, then restarting
 the affected service. Keep the master-key backup copies separate from DB backups.
 
-After the schema task is implemented, migrations use:
+Migrations use:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate
+docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate
 ```
 
 Use the credentials override only after provisioning its entries and
