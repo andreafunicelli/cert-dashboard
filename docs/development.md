@@ -91,11 +91,16 @@ The offline htmx asset is upstream v2.0.8 from
 
 `python -m app.cli generate-master-key --version 1 --output /etc/cert-dashboard/secrets/master_key.v1.new`
 needs no database or configured secrets. It creates a new file exclusively with
-mode `0400`, writes canonical UTF-8 JSON plus LF, flushes and fsyncs it, and prints
+exact mode `0400` regardless of umask, writes canonical UTF-8 JSON plus LF, syncs
+the file and parent directory, and prints
 only its SHA-256 and path. Compare the reported hash with `sha256sum` of the file
 before installing it with `install -m 0400 -o 10001 -g 10001 SOURCE DESTINATION`.
 Run installation with host privileges that can set those owners. Existing output
-paths and realpath aliases of the merge source are refused.
+paths and realpath aliases of the merge source are refused; symlink loops produce
+configuration errors. A write/sync failure removes only the partial inode created
+by this command. Spec section 11.2 includes the container-only bootstrap using a
+0700 host directory owned by UID 10001, digest verification, installation and cleanup;
+it works with a read-only container filesystem.
 
 `--merge PATH` retains the previous version; the new version must exceed every
 merged version, within `1..2147483647`, with at most two live versions. Without

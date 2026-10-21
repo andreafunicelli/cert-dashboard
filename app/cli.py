@@ -7,6 +7,7 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from contextlib import suppress
 from pathlib import Path
 
 from cryptography import x509
@@ -43,8 +44,49 @@ def _version(value: str) -> int:
     return number
 
 
+def _write_keyring(output: Path, raw: bytes) -> None:
+    descriptor = None
+    try:
+        descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+        os.fchmod(descriptor, 0o400)
+        remaining = memoryview(raw)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            if written == 0:
+                raise OSError("output write made no progress")
+            remaining = remaining[written:]
+        os.fsync(descriptor)
+        parent = os.open(output.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(parent)
+        finally:
+            os.close(parent)
+    except OSError as exc:
+        if descriptor is not None:
+            # O_EXCL proves we created the inode; don't unlink a replacement.
+            with suppress(OSError):
+                if os.path.samestat(os.fstat(descriptor), output.lstat()):
+                    output.unlink()
+        if descriptor is None and isinstance(exc, FileExistsError):
+            raise ConfigurationError("master_key: output path already exists; choose a new file") from None
+        raise ConfigurationError(
+            "master_key: cannot create and sync output; check path and permissions"
+        ) from None
+    finally:
+        if descriptor is not None:
+            with suppress(OSError):
+                os.close(descriptor)
+
+
 def _generate(version: int, merge: Path | None, output: Path | None) -> None:
-    if output is not None and merge is not None and output.resolve() == merge.resolve():
+    try:
+        resolved_output = output.resolve() if output is not None else None
+        resolved_merge = merge.resolve() if merge is not None else None
+    except (OSError, RuntimeError):
+        raise ConfigurationError(
+            "master_key: cannot resolve output or merge path; check symlinks and permissions"
+        ) from None
+    if resolved_output is not None and resolved_output == resolved_merge:
         raise ConfigurationError("master_key: output must differ from the merge source")
     keys = {}
     if merge is not None:
@@ -65,18 +107,7 @@ def _generate(version: int, merge: Path | None, output: Path | None) -> None:
     raw = (json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
     digest = hashlib.sha256(raw).hexdigest()
     if output is not None:
-        try:
-            descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
-            with os.fdopen(descriptor, "wb") as stream:
-                stream.write(raw)
-                stream.flush()
-                os.fsync(stream.fileno())
-        except FileExistsError:
-            raise ConfigurationError("master_key: output path already exists; choose a new file") from None
-        except OSError:
-            raise ConfigurationError(
-                "master_key: cannot create and sync output; check path and permissions"
-            ) from None
+        _write_keyring(output, raw)
         print(f"sha256={digest} path={output}")
     else:
         print(

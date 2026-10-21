@@ -244,3 +244,115 @@ def test_generate_output_cannot_alias_merge_source(tmp_path, capsys):
         )
         out, err = capsys.readouterr()
         assert not out and "merge" in err and source.read_bytes() == raw
+
+
+@pytest.mark.parametrize("mask", [0o777, 0o077])
+def test_generate_output_mode_is_exact_under_restrictive_umask(tmp_path, mask, capsys):
+    from app.cli import main
+
+    output = tmp_path / "new"
+    previous = os.umask(mask)
+    try:
+        assert main(["generate-master-key", "--version", "1", "--output", str(output)]) == 0
+    finally:
+        os.umask(previous)
+    capsys.readouterr()
+    assert output.stat().st_mode & 0o777 == 0o400
+
+
+@pytest.mark.parametrize("failure", ["write", "fsync"])
+def test_generate_removes_its_partial_file_after_io_failure(tmp_path, monkeypatch, capsys, failure):
+    from app.cli import main
+
+    output = tmp_path / "partial"
+    original_write = os.write
+    calls = 0
+
+    def fail_write(fd, data):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original_write(fd, data[:7])
+        raise OSError("fixture-sensitive-write-error")
+
+    def fail_sync(fd):
+        raise OSError("fixture-sensitive-sync-error")
+
+    monkeypatch.setattr(
+        os, "write" if failure == "write" else "fsync", fail_write if failure == "write" else fail_sync
+    )
+    assert main(["generate-master-key", "--version", "1", "--output", str(output)]) == 1
+    out, err = capsys.readouterr()
+    assert not output.exists() and not out and "master_key" in err
+    assert "fixture-sensitive" not in err
+
+
+def test_generate_syncs_the_file_then_its_parent_directory(tmp_path, monkeypatch, capsys):
+    import stat
+
+    from app.cli import main
+
+    original = os.fsync
+    synced = []
+
+    def track(fd):
+        synced.append(stat.S_ISDIR(os.fstat(fd).st_mode))
+        return original(fd)
+
+    monkeypatch.setattr(os, "fsync", track)
+    assert main(["generate-master-key", "--version", "1", "--output", str(tmp_path / "new")]) == 0
+    capsys.readouterr()
+    assert synced == [False, True]
+
+
+@pytest.mark.parametrize("which", ["output", "merge"])
+def test_generate_symlink_loop_is_a_clean_configuration_error(tmp_path, capsys, which):
+    from app.cli import main
+
+    loop = tmp_path / "loop"
+    loop.symlink_to(loop)
+    args = [
+        "generate-master-key",
+        "--version",
+        "2",
+        "--output",
+        str(loop if which == "output" else tmp_path / "new"),
+    ]
+    if which == "merge":
+        args.extend(["--merge", str(loop)])
+    assert main(args) == 1
+    out, err = capsys.readouterr()
+    assert not out and "master_key" in err and "resolve" in err and "Traceback" not in err
+    assert not (tmp_path / "new").exists()
+
+
+def test_generate_refuses_a_hardlink_to_the_merge_source(tmp_path, capsys):
+    from app.cli import main
+
+    source = tmp_path / "source"
+    raw = json.dumps({"active": 1, "keys": {"1": base64.b64encode(bytes(range(32))).decode()}}).encode()
+    source.write_bytes(raw)
+    output = tmp_path / "hardlink"
+    output.hardlink_to(source)
+    assert (
+        main(["generate-master-key", "--version", "2", "--merge", str(source), "--output", str(output)]) == 1
+    )
+    out, err = capsys.readouterr()
+    assert not out and "exists" in err
+    assert source.read_bytes() == output.read_bytes() == raw
+
+
+def test_failed_output_cleanup_never_unlinks_a_replacement_file(tmp_path, monkeypatch, capsys):
+    from app.cli import main
+
+    output = tmp_path / "replaced"
+
+    def replace_then_fail(fd, data):
+        output.unlink()
+        output.write_bytes(b"fixture-unrelated-replacement")
+        raise OSError("fixture-write-failed")
+
+    monkeypatch.setattr(os, "write", replace_then_fail)
+    assert main(["generate-master-key", "--version", "1", "--output", str(output)]) == 1
+    capsys.readouterr()
+    assert output.read_bytes() == b"fixture-unrelated-replacement"

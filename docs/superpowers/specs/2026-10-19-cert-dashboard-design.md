@@ -1390,7 +1390,24 @@ Scenarios:
 ### 11.2 First installation
 
 1. Clone the private repo onto the host (deploy key).
-2. Provision secret files under `/etc/cert-dashboard/secrets/` (`db_password`, distinct `db_owner_password`, `master_key`, `session_secret`, and optional worker SSH/vault/Git/SMTP credentials). An administrator runs `sh scripts/install-secrets.sh /etc/cert-dashboard/secrets` as root: directory root:root 0711; app secrets 10001:10001 0400; owner password 999:999 0400; shared db_password 10001:999 0440. No runtime copies are created. Generate `master_key` with `docker run --rm cert-dashboard python -m app.cli generate-master-key --version 1` and **immediately** follow 11.6.
+2. Provision secret files under `/etc/cert-dashboard/secrets/` (`db_password`, distinct `db_owner_password`, `master_key`, `session_secret`, and optional worker SSH/vault/Git/SMTP credentials). Generate the first master key with the built runtime image as follows, running host provisioning commands as root. The temporary directory is writable only by UID 10001; stdout contains only the digest and path, never the keyring. The command also works with Docker's `--read-only` option: `/out` is the explicit writable bind mount.
+
+   ```sh
+   set -eu
+   install -d -m 0711 -o 0 -g 0 /etc/cert-dashboard/secrets
+   tmp="$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)"
+   install -d -m 0700 -o 10001 -g 10001 "$tmp"
+   metadata="$(docker run --rm -v "$tmp":/out cert-dashboard python -m app.cli generate-master-key --version 1 --output /out/master_key.new)"
+   printf '%s\n' "$metadata"
+   expected="${metadata%% *}"
+   expected="${expected#sha256=}"
+   printf '%s  %s\n' "$expected" "$tmp/master_key.new" | sha256sum --check -
+   install -m 0400 -o 10001 -g 10001 "$tmp/master_key.new" /etc/cert-dashboard/secrets/master_key
+   shred -u -- "$tmp/master_key.new"
+   rmdir -- "$tmp"
+   ```
+
+   Only install after the host digest check succeeds. Then run `sh scripts/install-secrets.sh /etc/cert-dashboard/secrets` as root: directory root:root 0711; app secrets 10001:10001 0400; owner password 999:999 0400; shared db_password 10001:999 0440. No runtime copies are created. **Immediately** follow 11.6. Never redirect onto a `--merge` source. `--output` sets exact 0400 mode independently of umask, syncs both file and parent directory, and removes only its own partial inode on write/sync failure. Symlink-resolution errors are reported as configuration errors.
 3. `docker compose up -d db`, then `docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`.
 4. `docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal` (prompts for the password with confirmation, enforces the 12-character minimum).
 5. `docker compose up -d web worker`.
