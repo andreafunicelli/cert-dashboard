@@ -18,7 +18,12 @@ from app.crypto.keys import public_key_sha256
 from app.db import assert_database_ready, create_session_factory, transaction
 from app.models import Certificate, PrivateKey
 from app.services.audit import Actor
-from app.services.certificates import missing_master_key_versions, rotate_master_key, unwrap_key
+from app.services.certificates import (
+    missing_master_key_versions,
+    rotate_master_key,
+    stale_master_key_rows,
+    unwrap_key,
+)
 
 
 def _positive(value: str) -> int:
@@ -31,7 +36,16 @@ def _positive(value: str) -> int:
     return number
 
 
-def _generate(version: int, merge: Path | None) -> None:
+def _version(value: str) -> int:
+    number = _positive(value)
+    if number > 2_147_483_647:
+        raise argparse.ArgumentTypeError("version must be in 1..2147483647")
+    return number
+
+
+def _generate(version: int, merge: Path | None, output: Path | None) -> None:
+    if output is not None and merge is not None and output.resolve() == merge.resolve():
+        raise ConfigurationError("master_key: output must differ from the merge source")
     keys = {}
     if merge is not None:
         try:
@@ -49,24 +63,45 @@ def _generate(version: int, merge: Path | None) -> None:
     keys[version] = os.urandom(32)
     data = {"active": version, "keys": {str(k): base64.b64encode(v).decode("ascii") for k, v in keys.items()}}
     raw = (json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
-    sys.stdout.buffer.write(raw)
-    sys.stdout.buffer.flush()
-    print("sha256=" + hashlib.sha256(raw).hexdigest(), file=sys.stderr)
+    digest = hashlib.sha256(raw).hexdigest()
+    if output is not None:
+        try:
+            descriptor = os.open(output, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o400)
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(raw)
+                stream.flush()
+                os.fsync(stream.fileno())
+        except FileExistsError:
+            raise ConfigurationError("master_key: output path already exists; choose a new file") from None
+        except OSError:
+            raise ConfigurationError(
+                "master_key: cannot create and sync output; check path and permissions"
+            ) from None
+        print(f"sha256={digest} path={output}")
+    else:
+        print(
+            "warning: use --output PATH to create a new 0400 file; never redirect onto the --merge path",
+            file=sys.stderr,
+        )
+        sys.stdout.buffer.write(raw)
+        sys.stdout.buffer.flush()
+        print("sha256=" + digest, file=sys.stderr)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     generate = commands.add_parser("generate-master-key")
-    generate.add_argument("--version", type=_positive, required=True)
+    generate.add_argument("--version", type=_version, required=True)
     generate.add_argument("--merge", type=Path)
+    generate.add_argument("--output", type=Path)
     commands.add_parser("rotate-master-key")
     verify = commands.add_parser("verify-key")
     verify.add_argument("--certificate-id", type=_positive, required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "generate-master-key":
-            _generate(args.version, args.merge)
+            _generate(args.version, args.merge, args.output)
             return 0
         settings = load_settings("cli", os.environ, Path(os.environ.get("SECRETS_DIR", "/run/secrets")))
         factory = create_session_factory(settings)
@@ -86,6 +121,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                     print(f"remaining={remaining}")
                     if remaining == 0:
                         break
+                # A writer using the old snapshot can commit after our last batch.
+                with transaction(factory) as db:
+                    missing = missing_master_key_versions(db, settings.keyring)
+                    remaining = stale_master_key_rows(db, settings.keyring)
+                if missing or remaining:
+                    versions = ",".join(map(str, sorted(missing))) or "none"
+                    raise ConfigurationError(
+                        f"master_key: rotation incomplete: remaining={remaining}; missing_versions={versions}; "
+                        "reload legacy writers and rerun rotation before retiring any version"
+                    )
             else:
                 with transaction(factory) as db:
                     cert = db.get(Certificate, args.certificate_id)

@@ -89,18 +89,36 @@ The offline htmx asset is upstream v2.0.8 from
 
 ## Key custody and rotation
 
-`python -m app.cli generate-master-key --version 1` needs no database or configured
-secrets. It writes canonical UTF-8 JSON plus LF to stdout and SHA-256 of those exact
-bytes to stderr. `--merge PATH` retains the previous version; the new version must
-exceed every merged version, with at most two live versions. It does not edit files.
+`python -m app.cli generate-master-key --version 1 --output /etc/cert-dashboard/secrets/master_key.v1.new`
+needs no database or configured secrets. It creates a new file exclusively with
+mode `0400`, writes canonical UTF-8 JSON plus LF, flushes and fsyncs it, and prints
+only its SHA-256 and path. Compare the reported hash with `sha256sum` of the file
+before installing it with `install -m 0400 -o 10001 -g 10001 SOURCE DESTINATION`.
+Run installation with host privileges that can set those owners. Existing output
+paths and realpath aliases of the merge source are refused.
 
-Follow spec section 11.5 for rotation: keep separate key backups, install the merged
-keyring with the documented owners/modes, then force-recreate web/worker to reread
-secrets. Run `docker compose run --rm web python -m app.cli rotate-master-key`.
+`--merge PATH` retains the previous version; the new version must exceed every
+merged version, within `1..2147483647`, with at most two live versions. Without
+`--output`, legacy stdout JSON remains available with a stderr warning; **never
+redirect onto the --merge path**, because the shell truncates it before Python
+can read it.
+
+Follow spec section 11.5 for rotation: keep separate key backups, then generate
+into a new file, verify the printed SHA-256 against `sha256sum`, and install it:
+
+```sh
+python -m app.cli generate-master-key --version 2 --merge /etc/cert-dashboard/secrets/master_key --output /etc/cert-dashboard/secrets/master_key.v2.new
+sha256sum /etc/cert-dashboard/secrets/master_key.v2.new
+install -m 0400 -o 10001 -g 10001 /etc/cert-dashboard/secrets/master_key.v2.new /etc/cert-dashboard/secrets/master_key
+```
+
+Force-recreate web/worker to reread secrets. Run `docker compose run --rm web python -m app.cli rotate-master-key`.
 The CLI commits batches of 100 across keys and TOTP rows, prints remaining counts,
 and audits counts only. A failed batch rolls back; restart the same command to
-resume. `verify-key --certificate-id ID` checks the decrypted key against both its
-stored public hash and the certificate and emits metadata only. Keep the previous
+resume. A fresh final transaction checks stale rows and missing versions; a late
+legacy writer makes the command fail with counts/versions only. Reload old writers
+and rerun before retiring any version. `verify-key --certificate-id ID` checks the
+decrypted key against both its stored public hash and the certificate and emits metadata only. Keep the previous
 version until both stale-row counts are zero and a PFX export succeeds; the PFX
 export capability arrives in its later plan task.
 

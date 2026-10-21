@@ -6,6 +6,7 @@ import subprocess
 import sys
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from datetime import timedelta
 from threading import Barrier
 
@@ -16,7 +17,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from cryptography.x509.oid import NameOID
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.db import transaction
@@ -379,3 +381,118 @@ def test_rotation_refuses_invalid_batch_size(db, keyrings, size):
 
     with pytest.raises(ValueError, match="batch_size"):
         rotate_master_key(db, keyrings[1], Actor(None, "system"), size)
+
+
+def test_two_rotators_and_legacy_writer_finish_without_deadlock(isolated_factory, keyrings):
+    from app.crypto.keyring import Keyring
+    from app.services.certificates import rotate_master_key, store_key, unwrap_key
+
+    actor = Actor(None, "system")
+    with transaction(isolated_factory) as db:
+        for _ in range(120):
+            store_key(db, keyrings[0], ec.generate_private_key(ec.SECP256R1()), "generated", actor)
+    start = Barrier(3)
+
+    def rotate():
+        start.wait(timeout=10)
+        for _ in range(20):
+            with transaction(isolated_factory) as db:
+                db.execute(text("SET LOCAL lock_timeout = '5s'"))
+                db.execute(text("SET LOCAL statement_timeout = '10s'"))
+                remaining = rotate_master_key(db, keyrings[1], actor, batch_size=25)
+            if remaining == 0:
+                return
+        raise AssertionError("rotation did not converge")
+
+    def legacy_write():
+        start.wait(timeout=10)
+        for _ in range(12):
+            with transaction(isolated_factory) as db:
+                db.execute(text("SET LOCAL statement_timeout = '10s'"))
+                store_key(db, keyrings[0], ec.generate_private_key(ec.SECP256R1()), "generated", actor)
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(rotate), pool.submit(rotate), pool.submit(legacy_write)]
+        for future in futures:
+            future.result(timeout=30)
+    # A legacy writer can finish after either rotator's snapshot; final pass is required.
+    for _ in range(10):
+        with transaction(isolated_factory) as db:
+            remaining = rotate_master_key(db, keyrings[1], actor, batch_size=25)
+        if remaining == 0:
+            break
+    assert remaining == 0
+    with transaction(isolated_factory) as db:
+        rows = db.scalars(select(PrivateKey)).all()
+        assert len(rows) == 132 and {row.master_key_version for row in rows} == {2}
+        for row in rows:
+            assert unwrap_key(row, Keyring(2, {2: keyrings[1].keys[2]})).key_size == 256
+
+
+def test_store_key_rollback_after_id_reservation_leaves_no_half_row(isolated_factory, keyrings, monkeypatch):
+    from app.services import certificates as service
+
+    actor = Actor(None, "system")
+    original = service.wrap
+
+    def fail_after_nextval(*args):
+        raise RuntimeError("fixture encryption failure")
+
+    with transaction(isolated_factory) as db:
+        before = db.scalar(text("SELECT last_value FROM private_key_id_seq"))
+    monkeypatch.setattr(service, "wrap", fail_after_nextval)
+    with pytest.raises(RuntimeError, match="fixture encryption failure"), transaction(isolated_factory) as db:
+        service.store_key(db, keyrings[0], ec.generate_private_key(ec.SECP256R1()), "generated", actor)
+    with transaction(isolated_factory) as db:
+        assert db.scalar(select(func.count()).select_from(PrivateKey)) == 0
+        assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
+    monkeypatch.setattr(service, "wrap", original)
+    with transaction(isolated_factory) as db:
+        row = service.store_key(db, keyrings[0], ec.generate_private_key(ec.SECP256R1()), "generated", actor)
+        assert row.id > before and row.ciphertext and len(row.nonce) == 12
+
+
+@pytest.mark.parametrize("late_version", [1, 3])
+def test_cli_rechecks_committed_late_legacy_rows(
+    isolated_factory, keyrings, monkeypatch, capsys, late_version
+):
+    from types import SimpleNamespace
+
+    from app import cli
+    from app.crypto.keyring import Keyring
+    from app.services.certificates import store_key
+
+    actor = Actor(None, "system")
+    with transaction(isolated_factory) as db:
+        store_key(db, keyrings[0], ec.generate_private_key(ec.SECP256R1()), "generated", actor)
+    monkeypatch.setattr(cli, "load_settings", lambda *args: SimpleNamespace(keyring=keyrings[1]))
+    monkeypatch.setattr(cli, "create_session_factory", lambda _: isolated_factory)
+    completed = 0
+
+    @contextmanager
+    def with_late_writer(factory):
+        nonlocal completed
+        with transaction(factory) as db:
+            yield db
+        completed += 1
+        if completed == 2:  # preflight, then last batch has committed.
+            ring = Keyring(late_version, {late_version: bytes([late_version]) * 32})
+            with transaction(isolated_factory) as writer:
+                store_key(writer, ring, ec.generate_private_key(ec.SECP256R1()), "generated", actor)
+
+    monkeypatch.setattr(cli, "transaction", with_late_writer)
+    assert cli.main(["rotate-master-key"]) == 1
+    out, err = capsys.readouterr()
+    assert "remaining=0" in out and "rotation incomplete" in err and "remaining=1" in err
+    if late_version == 3:
+        assert "missing_versions=3" in err
+    assert "PRIVATE KEY" not in out + err
+    assert completed == 3  # fresh final transaction, not a reused identity-map snapshot.
+
+
+def test_database_rejects_unknown_private_key_origin(db, actor, keyrings):
+    from app.services.certificates import store_key
+
+    with pytest.raises(IntegrityError) as exc, db.begin_nested():
+        store_key(db, keyrings[0], ec.generate_private_key(ec.SECP256R1()), "fixture-invalid-origin", actor)
+    assert exc.value.orig.sqlstate == "23514"

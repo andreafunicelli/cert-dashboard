@@ -153,6 +153,7 @@ DDL = (
         CONSTRAINT pk_private_key PRIMARY KEY (id),
         CONSTRAINT ck_private_key_nonce_length CHECK (octet_length(nonce) = 12),
         CONSTRAINT ck_private_key_master_key_version CHECK (master_key_version >= 1),
+        CONSTRAINT ck_private_key_origin CHECK (origin IN ('generated', 'imported_pfx', 'imported_pem')),
         CONSTRAINT uq_private_key_public_key_sha256 UNIQUE (public_key_sha256),
         CONSTRAINT fk_private_key_created_by_user FOREIGN KEY(created_by) REFERENCES "user" (id)
     )""",

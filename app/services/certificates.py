@@ -107,6 +107,19 @@ def missing_master_key_versions(db: Session, keyring: Keyring) -> set[int]:
     return versions - set(keyring.keys)
 
 
+def stale_master_key_rows(db: Session, keyring: Keyring) -> int:
+    return db.scalar(
+        select(func.count()).select_from(PrivateKey).where(PrivateKey.master_key_version != keyring.active)
+    ) + db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.totp_secret_ciphertext.is_not(None),
+            User.totp_secret_version.is_distinct_from(keyring.active),
+        )
+    )
+
+
 def _rewrap(keyring: Keyring, wrapped: WrappedSecret, old_aad: str, new_aad: str) -> WrappedSecret:
     # Keep raw bytes in this one-row helper, never in the batch's ORM collection.
     # Dropping references is not a claim of secure Python-heap zeroization.
@@ -159,16 +172,7 @@ def rotate_master_key(db: Session, keyring: Keyring, actor: Actor, batch_size: i
         user.totp_secret_ciphertext, user.totp_secret_nonce = encrypted.ciphertext, encrypted.nonce
         user.totp_secret_version = encrypted.version
     db.flush()
-    remaining = db.scalar(
-        select(func.count()).select_from(PrivateKey).where(PrivateKey.master_key_version != keyring.active)
-    ) + db.scalar(
-        select(func.count())
-        .select_from(User)
-        .where(
-            User.totp_secret_ciphertext.is_not(None),
-            User.totp_secret_version.is_distinct_from(keyring.active),
-        )
-    )
+    remaining = stale_master_key_rows(db, keyring)
     if keys or users:
         record(
             db,

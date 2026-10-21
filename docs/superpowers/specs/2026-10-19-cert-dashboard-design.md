@@ -423,9 +423,9 @@ Indexes and constraints:
 | `public_key_sha256` | char(64) not null | SHA-256 of the DER `SubjectPublicKeyInfo` — matching key to certificate |
 | `public_key_pem` | text not null | Safe to store and display |
 | `created_by` | bigint null FK `user(id)` | |
-| `origin` | text not null | `generated`, `imported_pfx`, `imported_pem` |
+| `origin` | text not null | CHECK IN (`generated`, `imported_pfx`, `imported_pem`) |
 
-Constraints: `unique (public_key_sha256)`, `index (master_key_version)`, `check (octet_length(nonce) = 12)`, `check (master_key_version >= 1)`.
+Constraints: `unique (public_key_sha256)`, `index (master_key_version)`, `check (octet_length(nonce) = 12)`, `check (master_key_version >= 1)`, `check (origin IN ('generated', 'imported_pfx', 'imported_pem'))`.
 
 `public_key_sha256` is how the app proves a key matches a certificate without decrypting it: the certificate's public key hashed the same way must be equal. It is also the fallback identity when a certificate is re-imported.
 
@@ -748,7 +748,7 @@ The master key never lives in the database. It is supplied as the Docker secret 
 - At most two versions are kept: the active one and the previous one, which exists only during a rotation window.
 - Startup validation: valid JSON, 32-byte decoded keys, `active` present in `keys`, max 16 versions parsed, no duplicate keys. Any failure aborts start-up.
 - Versions are monotonically increasing integers; the app never reuses a version number.
-- Generate with `python -m app.cli generate-master-key --version 1` (which calls `os.urandom(32)` and prints the JSON plus its SHA-256 for verification).
+- Generate with `python -m app.cli generate-master-key --version 1 --output /etc/cert-dashboard/secrets/master_key.v1.new` (which calls `os.urandom(32)`, exclusively creates a new `0400` file, fsyncs it, and prints only the SHA-256 plus path). Versions are `1..2147483647`. Existing paths and realpath aliases of the merge source are refused. Without `--output`, JSON goes to stdout with a stderr warning: never redirect onto the --merge path, because shell truncation occurs before Python reads it.
 
 ### 5.2 Encryption of private keys and TOTP secrets
 
@@ -1426,9 +1426,9 @@ Scenarios:
 
 The keyring supports two live versions so rotation needs no downtime window longer than a restart.
 
-1. Generate version N+1 with the existing keyring as input: `python -m app.cli generate-master-key --version 2 --merge /etc/cert-dashboard/secrets/master_key`. It prints the new keyring JSON (old key retained) and its SHA-256; it does not modify the file.
-2. Write the new keyring to the `master_key` secret file, keep a copy of the old file in the backup location (per 11.6), and `docker compose up -d --force-recreate web worker`. Force recreation rereads the startup snapshot and remounts replaced file secrets. New encryptions now use version 2.
-3. Run `docker compose run --rm web python -m app.cli rotate-master-key`. It re-encrypts every `private_key` and `user.totp_secret_*` row with a new nonce and the active version, in batches of 100, and prints the remaining count. Each completed batch is committed with a counts-only audit; a failure rolls back the current batch and earlier batches remain committed. It is idempotent and resumable; one row-scoped helper holds plaintext at a time, without files or plaintext SQL/logging.
+1. Generate version N+1 into a new file: `python -m app.cli generate-master-key --version 2 --merge /etc/cert-dashboard/secrets/master_key --output /etc/cert-dashboard/secrets/master_key.v2.new`. The old key is retained in the new keyring; the merge source is unchanged. The output file is exclusively created as `0400` and fsynced; stdout contains only its SHA-256 and path. Verify that digest with `sha256sum /etc/cert-dashboard/secrets/master_key.v2.new`. **Never redirect onto the --merge path**: the shell would truncate the live keyring before Python could read it.
+2. Keep a copy of the old file in the backup location (per 11.6), then install the verified new file with host privileges: `install -m 0400 -o 10001 -g 10001 /etc/cert-dashboard/secrets/master_key.v2.new /etc/cert-dashboard/secrets/master_key`, and `docker compose up -d --force-recreate web worker`. Force recreation rereads the startup snapshot and remounts replaced file secrets. New encryptions now use version 2.
+3. Run `docker compose run --rm web python -m app.cli rotate-master-key`. It re-encrypts every `private_key` and `user.totp_secret_*` row with a new nonce and the active version, in batches of 100, and prints the remaining count. Each completed batch is committed with a counts-only audit; a failure rolls back the current batch and earlier batches remain committed. It is idempotent and resumable; one row-scoped helper holds plaintext at a time, without files or plaintext SQL/logging. After the loop a fresh transaction checks missing versions and stale key/TOTP counts; if any remain, the CLI exits non-zero with metadata only. Reload legacy writers and rerun before retiring a version; this check observes a fresh snapshot and cannot prevent future old-version writes.
 4. Verify both `SELECT count(*) FROM private_key WHERE master_key_version <> 2` and `SELECT count(*) FROM "user" WHERE totp_secret_ciphertext IS NOT NULL AND totp_secret_version IS DISTINCT FROM 2` return 0. Run `python -m app.cli verify-key --certificate-id ID` for a keyed certificate; it prints only metadata/success. The Status panel shows the active version.
 5. Remove version 1 from the secret file, force-recreate web/worker as in step 2, and destroy the old key copy **only after** both counts in step 4 are zero and a successful PFX export.
 6. Rotation triggers: a custodian leaves, the key file may have been exposed, or annually (`Assumption`: annual rotation is the default policy).

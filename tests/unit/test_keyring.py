@@ -110,7 +110,8 @@ def test_generate_keyring_has_exact_bytes_fingerprint_and_no_db_dependency(tmp_p
     assert result.stdout.endswith(b"\n") and b"\r" not in result.stdout
     ring = load_keyring(result.stdout)
     assert ring.active == 1 and len(ring.keys[1]) == 32
-    assert result.stderr.strip() == ("sha256=" + hashlib.sha256(result.stdout).hexdigest()).encode()
+    assert b"--output" in result.stderr and b"warning" in result.stderr.lower()
+    assert ("sha256=" + hashlib.sha256(result.stdout).hexdigest()).encode() in result.stderr
     assert (
         result.stdout
         == (json.dumps(json.loads(result.stdout), sort_keys=True, separators=(",", ":")) + "\n").encode()
@@ -122,10 +123,10 @@ def test_generate_keyring_has_exact_bytes_fingerprint_and_no_db_dependency(tmp_p
     new = load_keyring(merged.stdout)
     assert new.active == 2 and new.keys[1] == ring.keys[1] and new.keys[2] != ring.keys[1]
     assert path.read_bytes() == result.stdout
-    assert merged.stderr.strip() == ("sha256=" + hashlib.sha256(merged.stdout).hexdigest()).encode()
+    assert ("sha256=" + hashlib.sha256(merged.stdout).hexdigest()).encode() in merged.stderr
 
 
-@pytest.mark.parametrize("version", ["0", "-1", "bad"])
+@pytest.mark.parametrize("version", ["0", "-1", "bad", "2147483648"])
 def test_generate_rejects_invalid_versions(version):
     result = cli("generate-master-key", "--version", version)
     assert result.returncode == 2 and b"version" in result.stderr and not result.stdout
@@ -191,7 +192,7 @@ def test_cli_in_process_generation_and_configuration_errors(tmp_path, monkeypatc
     assert main(["generate-master-key", "--version", "1"]) == 0
     out, err = capfdbinary.readouterr()
     assert load_keyring(out).active == 1
-    assert err.strip() == ("sha256=" + hashlib.sha256(out).hexdigest()).encode()
+    assert b"--output" in err and ("sha256=" + hashlib.sha256(out).hexdigest()).encode() in err
     monkeypatch.setenv("SECRETS_DIR", str(tmp_path))
     for name in ["DB_PASSWORD", "MASTER_KEY"]:
         monkeypatch.delenv(name, raising=False)
@@ -201,3 +202,45 @@ def test_cli_in_process_generation_and_configuration_errors(tmp_path, monkeypatc
     assert main(["generate-master-key", "--version", "2", "--merge", str(tmp_path / "missing")]) == 1
     out, err = capfdbinary.readouterr()
     assert not out and b"master_key" in err
+
+
+def test_generate_output_is_exclusive_0400_and_only_reports_metadata(tmp_path, capsys):
+    from app.cli import main
+    from app.crypto.keyring import load_keyring
+
+    path = tmp_path / "new-keyring"
+    assert main(["generate-master-key", "--version", "2147483647", "--output", str(path)]) == 0
+    raw = path.read_bytes()
+    ring = load_keyring(raw)
+    out, err = capsys.readouterr()
+    assert ring.active == 2147483647
+    assert path.stat().st_mode & 0o777 == 0o400
+    assert out == f"sha256={hashlib.sha256(raw).hexdigest()} path={path}\n"
+    assert not err and raw.decode() not in out
+    assert all(base64.b64encode(key).decode() not in out for key in ring.keys.values())
+
+
+def test_generate_output_refuses_existing_path_without_changing_it(tmp_path):
+    path = tmp_path / "existing"
+    path.write_bytes(b"fixture-do-not-overwrite")
+    result = cli("generate-master-key", "--version", "1", "--output", str(path))
+    assert result.returncode == 1 and b"exists" in result.stderr and not result.stdout
+    assert path.read_bytes() == b"fixture-do-not-overwrite"
+
+
+def test_generate_output_cannot_alias_merge_source(tmp_path, capsys):
+    from app.cli import main
+
+    source = tmp_path / "current"
+    raw = json.dumps({"active": 1, "keys": {"1": base64.b64encode(bytes(range(32))).decode()}}).encode()
+    source.write_bytes(raw)
+    # A symbolic alias must compare equal by realpath before any output is opened.
+    alias = tmp_path / "alias"
+    alias.symlink_to(source)
+    for output in [source, alias]:
+        assert (
+            main(["generate-master-key", "--version", "2", "--merge", str(source), "--output", str(output)])
+            == 1
+        )
+        out, err = capsys.readouterr()
+        assert not out and "merge" in err and source.read_bytes() == raw

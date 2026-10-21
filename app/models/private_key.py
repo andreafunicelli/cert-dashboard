@@ -22,5 +22,6 @@ class PrivateKey(Timestamps, Base):
     __table_args__ = (
         CheckConstraint("octet_length(nonce) = 12", name="nonce_length"),
         CheckConstraint("master_key_version >= 1", name="master_key_version"),
+        CheckConstraint("origin IN ('generated', 'imported_pfx', 'imported_pem')", name="origin"),
         Index("ix_private_key_master_key_version", "master_key_version"),
     )

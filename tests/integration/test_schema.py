@@ -202,7 +202,11 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
         assert "nextval(" in columns["id"]["default"]
     expected_checks = {
         "certificate": {"ck_certificate_validity", "ck_certificate_required_key"},
-        "private_key": {"ck_private_key_nonce_length", "ck_private_key_master_key_version"},
+        "private_key": {
+            "ck_private_key_nonce_length",
+            "ck_private_key_master_key_version",
+            "ck_private_key_origin",
+        },
         "renewal": {"ck_renewal_required_key"},
     }
     assert {c["name"] for c in inspect(engine).get_check_constraints(table)} == expected_checks.get(
