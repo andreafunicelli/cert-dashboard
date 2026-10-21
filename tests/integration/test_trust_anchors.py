@@ -1,14 +1,21 @@
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
-from sqlalchemy import func, select
+from sqlalchemy import create_engine, event, func, select
+from sqlalchemy.orm import sessionmaker
 
 from app.crypto.parse import parse_certificates
 from app.crypto.trust import assess_chain
+from app.db import transaction
 from app.models import AppSetting, AuditLog, Certificate, TrustAnchor
 from app.models.enums import ChainStatus
 from app.services.trust_anchors import (
@@ -191,3 +198,88 @@ def test_load_anchors_skips_malformed_rows(db, certs, actor, now):
     assert load_anchors(db) == ()
     add_anchor(db, _pem(certs.root), None, actor, now)
     assert len(load_anchors(db)) == 1
+
+
+def test_anchor_without_key_usage_is_rejected(db, actor, now):
+    key = ec.generate_private_key(ec.SECP256R1())
+    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "No Usage Root")])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(name)
+        .issuer_name(name)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    with pytest.raises(AnchorValidationError, match="KeyUsage"):
+        add_anchor(db, _pem(cert), None, actor, now)
+    assert db.scalar(select(func.count()).select_from(TrustAnchor)) == 0
+
+
+@pytest.mark.parametrize(
+    "value,enabled",
+    [(True, True), (1, True), ("true", True), (False, False), (0, False), (None, False)],
+)
+def test_public_bundle_setting_truthiness(monkeypatch, db, certs, now, value, enabled):
+    from app.services import trust_anchors as service
+
+    monkeypatch.setattr(service, "public_bundle_anchors", lambda: (certs.root,))
+    cert = _certificate_row(db, certs.leaf_pem, certs.chain_pem)
+    setting = db.scalar(select(AppSetting).where(AppSetting.key == "trust.include_public_bundle"))
+    setting.value = value
+    db.flush()
+    recheck_chain_statuses(db, now)
+    db.refresh(cert)
+    assert (cert.chain_status == ChainStatus.TRUSTED) is enabled
+
+
+@pytest.fixture
+def isolated_trust_factory(owner_engine, database_urls):
+    name = "fixture_trust_" + uuid.uuid4().hex
+    owner_url = owner_engine.url.set(database=name)
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.exec_driver_sql(f'CREATE DATABASE "{name}"')
+    cfg = Config("alembic.ini")
+    cfg.attributes["database_url"] = owner_url
+    command.upgrade(cfg, "head")
+    app = create_engine(database_urls[1].set(database=name))
+    factory = sessionmaker(app, expire_on_commit=False)
+    yield factory
+    app.dispose()
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        conn.exec_driver_sql(f'DROP DATABASE "{name}" WITH (FORCE)')
+
+
+def test_concurrent_duplicate_anchor_is_rejected(isolated_trust_factory, certs, now):
+    from app.services.audit import Actor
+
+    pem = _pem(certs.root)
+    barrier = Barrier(2)
+
+    def capture(conn, cursor, statement, parameters, context, many):
+        if statement.startswith("INSERT INTO trust_anchor"):
+            barrier.wait(timeout=10)
+
+    engine = isolated_trust_factory.kw["bind"]
+    event.listen(engine, "before_cursor_execute", capture)
+    outcome = {}
+
+    def insert():
+        try:
+            with transaction(isolated_trust_factory) as db:
+                add_anchor(db, pem, None, Actor(None, "system"), now)
+        except AnchorValidationError as exc:
+            outcome["error"] = str(exc)
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            list(pool.map(lambda _: insert(), range(2)))
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+
+    assert outcome.get("error") == "anchor already exists"
+    with transaction(isolated_trust_factory) as db:
+        assert db.scalar(select(func.count()).select_from(TrustAnchor)) == 1

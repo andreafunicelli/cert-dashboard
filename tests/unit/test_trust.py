@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
@@ -31,6 +31,12 @@ def _issue(
         .not_valid_before(before)
         .not_valid_after(after)
         .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key(
+                (issuer_key if issuer_key is not None else key).public_key()
+            ),
+            critical=False,
+        )
     )
     if key_usage:
         builder = builder.add_extension(
@@ -71,8 +77,7 @@ def test_expired_intermediate_is_incomplete(certs, now):
 
 def test_leaf_validity_and_validation_time_are_enforced(certs, now):
     assert (
-        assess_chain(certs.expired, certs.intermediates, [certs.root], now).status
-        == ChainStatus.INCOMPLETE
+        assess_chain(certs.expired, certs.intermediates, [certs.root], now).status == ChainStatus.INCOMPLETE
     )
     assert (
         assess_chain(certs.not_yet_valid, certs.intermediates, [certs.root], now).status
@@ -93,14 +98,8 @@ def test_leaf_validity_and_validation_time_are_enforced(certs, now):
 
 
 def test_wildcard_and_ip_identities_are_trusted(certs, now):
-    assert (
-        assess_chain(certs.wildcard, certs.intermediates, [certs.root], now).status
-        == ChainStatus.TRUSTED
-    )
-    assert (
-        assess_chain(certs.ip_leaf, certs.intermediates, [certs.root], now).status
-        == ChainStatus.TRUSTED
-    )
+    assert assess_chain(certs.wildcard, certs.intermediates, [certs.root], now).status == ChainStatus.TRUSTED
+    assert assess_chain(certs.ip_leaf, certs.intermediates, [certs.root], now).status == ChainStatus.TRUSTED
 
 
 def test_certificate_without_a_tls_identity_is_incomplete(certs, now):
@@ -171,3 +170,96 @@ def test_public_bundle_is_loaded_from_the_local_package():
     anchors = public_bundle_anchors()
     assert len(anchors) > 0
     assert all(isinstance(anchor, x509.Certificate) for anchor in anchors)
+
+
+def test_expired_anchor_reports_a_policy_reason(certs, now):
+    expired_key = ec.generate_private_key(ec.SECP256R1())
+    expired_root = _issue(
+        "Expired Root",
+        expired_key,
+        None,
+        None,
+        ca=True,
+        key_usage=True,
+        before=now - timedelta(days=90),
+        after=now - timedelta(days=30),
+    )
+    cross = _issue(
+        "Fixture Intermediate 2",
+        certs.intermediate2_key,
+        expired_root,
+        expired_key,
+        ca=True,
+        key_usage=True,
+        before=now - timedelta(days=1),
+        after=now + timedelta(days=30),
+    )
+    result = assess_chain(certs.leaf, [cross], [expired_root], now)
+    assert result.status == ChainStatus.INCOMPLETE
+    assert "policy_failure:expired_anchor" in result.messages
+
+
+def test_leaf_without_aki_reports_a_policy_reason(certs, now):
+    key = ec.generate_private_key(ec.SECP256R1())
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "no-aki.example.test")]))
+        .issuer_name(certs.intermediate2.subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=30))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("no-aki.example.test")]), critical=False)
+        .sign(certs.intermediate2_key, hashes.SHA256())
+    )
+    result = assess_chain(cert, certs.intermediates, [certs.root], now)
+    assert result.status == ChainStatus.INCOMPLETE
+    assert "policy_failure:missing_aki" in result.messages
+
+
+def _deep_chain(length: int):
+    root_key = ec.generate_private_key(ec.SECP256R1())
+    root = _issue(
+        "Deep Root",
+        root_key,
+        None,
+        None,
+        ca=True,
+        key_usage=True,
+        before=datetime(2026, 10, 19, 12, 0, tzinfo=UTC) - timedelta(days=1),
+        after=datetime(2026, 10, 19, 12, 0, tzinfo=UTC) + timedelta(days=30),
+    )
+    intermediates = []
+    previous, previous_key = root, root_key
+    for index in range(1, length + 1):
+        key = ec.generate_private_key(ec.SECP256R1())
+        cert = _issue(
+            f"Deep Intermediate {index}",
+            key,
+            previous,
+            previous_key,
+            ca=True,
+            key_usage=True,
+            before=datetime(2026, 10, 19, 12, 0, tzinfo=UTC) - timedelta(days=1),
+            after=datetime(2026, 10, 19, 12, 0, tzinfo=UTC) + timedelta(days=30),
+        )
+        intermediates.append(cert)
+        previous, previous_key = cert, key
+    leaf_key = ec.generate_private_key(ec.SECP256R1())
+    leaf = _issue(
+        "deep.example.test",
+        leaf_key,
+        previous,
+        previous_key,
+        sans=[x509.DNSName("deep.example.test")],
+        before=datetime(2026, 10, 19, 12, 0, tzinfo=UTC) - timedelta(days=1),
+        after=datetime(2026, 10, 19, 12, 0, tzinfo=UTC) + timedelta(days=30),
+    )
+    return leaf, intermediates
+
+
+def test_structurally_truncated_chain_reports_chain_truncated(now):
+    leaf, intermediates = _deep_chain(17)
+    result = assess_chain(leaf, intermediates, [], now)
+    assert result.status == ChainStatus.INCOMPLETE
+    assert "chain_truncated" in result.messages

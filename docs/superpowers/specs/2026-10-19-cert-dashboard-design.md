@@ -730,7 +730,7 @@ Audited actions include: login success/failure, logout, 2FA enable/disable, user
 | `created_by` | bigint null FK `user(id)` | Uploading admin |
 | `created_at` | timestamptz not null default now() | Immutable; removal is audited |
 
-This table, its enum, `certificate.chain_status`, and the public-bundle setting are created by the single initial v1 migration. Certifi is pinned in the lock file and loaded into memory; its public roots are never copied into this table. Add rejects anything except a single PEM root with BasicConstraints `CA:TRUE`, matching issuer/subject, and a valid self-signature (and CA-signing usage if KeyUsage is present). Deduplicate by fingerprint. Delete removes the uploaded anchor and recomputes statuses in the same transaction; audit `trust_anchor.add/remove` records actor/fingerprint/subject/notes, not private material. Anchors contain public certificates only.
+This table, its enum, `certificate.chain_status`, and the public-bundle setting are created by the single initial v1 migration. Certifi is pinned in the lock file and loaded into memory; its public roots are never copied into this table. Add rejects anything except a single PEM root with BasicConstraints `CA:TRUE`, matching issuer/subject, a valid self-signature, and a KeyUsage extension with `keyCertSign`. Deduplicate by fingerprint. Delete removes the uploaded anchor and recomputes statuses in the same transaction; audit `trust_anchor.add/remove` records actor/fingerprint/subject/notes, not private material. Anchors contain public certificates only.
 
 ---
 
@@ -828,7 +828,7 @@ Persist one `certificate.chain_status`:
 
 - `trusted`: PolicyBuilder verifies a path to an enabled anchor at validation_time.
 - `untrusted_root`: no trusted path, but a cryptographically connected path reaches a supplied/known self-signed root not in the enabled anchor set. An uploaded bundle's root is diagnostic, not an automatic trust grant.
-- `incomplete`: no valid path (including a missing intermediate, an expired intermediate, or another policy failure); show the missing issuer/policy diagnostic. When no terminal root is available, do not guess it is a root: use incomplete.
+- `incomplete`: no valid path (including a missing intermediate, an expired intermediate, or another policy failure); show the missing issuer/policy diagnostic. Policy failures carry a recognizable reason suffix (`policy_failure:expired_anchor`, `:name_constraint`, `:missing_aki`, `:missing_key_usage`); a structurally truncated chain reports `chain_truncated` rather than `policy_failure`. When no terminal root is available, do not guess it is a root: use incomplete.
 - `unchecked`: no assessment has run yet; never treat it as trusted.
 
 Import and issued upload display non-trusted results inline and on certificate detail but continue after their existing parse/key/CSR/leaf-validity gates pass. Recompute on chain changes, anchor add/remove, and public-bundle toggle through `recheck_chain_statuses(db, validation_time, diagnostic_roots=())`; when removing an anchor, retain the removed public root in memory for that recheck's untrusted-root diagnosis. The cached status reflects the last assessment; a later assessment may report incomplete if a formerly supplied untrusted root is no longer available. Each changed persisted status gets a metadata-only certificate.chain_check audit with validation_time.

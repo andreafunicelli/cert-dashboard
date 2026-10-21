@@ -82,24 +82,33 @@ def _terminal_root(
     return None
 
 
-def _verified(
+def _verification_error(
     leaf: x509.Certificate,
     supplied: Sequence[x509.Certificate],
     anchors: Sequence[x509.Certificate],
     identity: x509.GeneralName,
     validation_time: datetime,
-) -> bool:
+) -> str | None:
     try:
-        verifier = (
-            PolicyBuilder()
-            .time(validation_time)
-            .store(Store(anchors))
-            .build_server_verifier(identity)
-        )
+        verifier = PolicyBuilder().time(validation_time).store(Store(anchors)).build_server_verifier(identity)
         verifier.verify(leaf, supplied)
-    except Exception:  # noqa: BLE001 - any verifier failure is a non-trusted result.
-        return False
-    return True
+    except Exception as exc:  # noqa: BLE001 - any verifier failure is a non-trusted result.
+        return str(exc)
+    return None
+
+
+def _policy_reason(error: str | None) -> str:
+    if error is None:
+        return "policy_failure"
+    if "2.5.29.15" in error:
+        return "policy_failure:missing_key_usage"
+    if "2.5.29.35" in error:
+        return "policy_failure:missing_aki"
+    if "2.5.29.30" in error or "name constraint" in error.lower():
+        return "policy_failure:name_constraint"
+    if "not valid at validation time" in error.lower() or "expired" in error.lower():
+        return "policy_failure:expired_anchor"
+    return "policy_failure"
 
 
 def assess_chain(
@@ -123,8 +132,11 @@ def assess_chain(
         return ChainAssessment(ChainStatus.INCOMPLETE, ("missing_identity",), validation_time)
 
     anchor_list = _unique(anchors)
-    if anchor_list and _verified(leaf, supplied, anchor_list, identity, validation_time):
-        return ChainAssessment(ChainStatus.TRUSTED, (), validation_time)
+    verification_error: str | None = None
+    if anchor_list:
+        verification_error = _verification_error(leaf, supplied, anchor_list, identity, validation_time)
+        if verification_error is None:
+            return ChainAssessment(ChainStatus.TRUSTED, (), validation_time)
     for cert in path:
         if not _valid(cert, validation_time):
             code = (
@@ -142,7 +154,9 @@ def assess_chain(
     anchor_fingerprints = {_fingerprint(cert) for cert in anchor_list}
     if root is not None:
         if _fingerprint(root) in anchor_fingerprints:
-            return ChainAssessment(ChainStatus.INCOMPLETE, ("policy_failure",), validation_time)
+            return ChainAssessment(
+                ChainStatus.INCOMPLETE, (_policy_reason(verification_error),), validation_time
+            )
         return ChainAssessment(
             ChainStatus.UNTRUSTED_ROOT,
             ("untrusted_root", f"root:{root.subject.rfc4514_string()}"),
@@ -154,4 +168,6 @@ def assess_chain(
             ("missing_issuer", f"issuer:{structural.missing_issuer}"),
             validation_time,
         )
-    return ChainAssessment(ChainStatus.INCOMPLETE, ("policy_failure",), validation_time)
+    if structural.truncated:
+        return ChainAssessment(ChainStatus.INCOMPLETE, ("chain_truncated",), validation_time)
+    return ChainAssessment(ChainStatus.INCOMPLETE, (_policy_reason(verification_error),), validation_time)

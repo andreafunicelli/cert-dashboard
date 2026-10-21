@@ -11,6 +11,7 @@ import certifi
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.crypto.parse import ParsedCertificate, ParseError, parse_certificates
@@ -81,10 +82,8 @@ def load_anchors(db: Session) -> tuple[x509.Certificate, ...]:
 
 def _enabled_anchors(db: Session) -> tuple[x509.Certificate, ...]:
     anchors = list(load_anchors(db))
-    setting = db.scalar(
-        select(AppSetting.value).where(AppSetting.key == "trust.include_public_bundle")
-    )
-    if setting is None or setting is True:
+    setting = db.scalar(select(AppSetting.value).where(AppSetting.key == "trust.include_public_bundle"))
+    if bool(setting):
         anchors.extend(public_bundle_anchors())
     return _dedupe(anchors)
 
@@ -114,8 +113,8 @@ def _require_root(pem: bytes) -> ParsedCertificate:
     try:
         usage = cert.extensions.get_extension_for_class(x509.KeyUsage).value
     except x509.ExtensionNotFound:
-        usage = None
-    if usage is not None and not usage.key_cert_sign:
+        raise AnchorValidationError("anchor must include KeyUsage with certificate signing") from None
+    if not usage.key_cert_sign:
         raise AnchorValidationError("anchor must allow certificate signing")
     return parsed[0]
 
@@ -128,9 +127,7 @@ def add_anchor(
     validation_time: datetime,
 ) -> TrustAnchor:
     parsed = _require_root(pem)
-    if db.scalar(
-        select(TrustAnchor.id).where(TrustAnchor.sha256_fingerprint == parsed.sha256_fingerprint)
-    ):
+    if db.scalar(select(TrustAnchor.id).where(TrustAnchor.sha256_fingerprint == parsed.sha256_fingerprint)):
         raise AnchorValidationError("anchor already exists")
     row = TrustAnchor(
         subject=parsed.subject_dn,
@@ -140,8 +137,12 @@ def add_anchor(
         notes=notes,
         created_by=actor.user_id,
     )
-    db.add(row)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(row)
+            db.flush()
+    except IntegrityError:
+        raise AnchorValidationError("anchor already exists") from None
     record(
         db,
         actor,
@@ -189,9 +190,7 @@ def recheck_chain_statuses(
 ) -> dict[str, int]:
     anchors = _enabled_anchors(db)
     counts: dict[str, int] = {}
-    rows = db.scalars(
-        select(Certificate).order_by(Certificate.id).limit(_MAX_CERTIFICATES)
-    ).all()
+    rows = db.scalars(select(Certificate).order_by(Certificate.id).limit(_MAX_CERTIFICATES)).all()
     for row in rows:
         try:
             leaf = parse_certificates(row.pem.encode("ascii"))[0].cert
@@ -203,14 +202,10 @@ def recheck_chain_statuses(
             intermediates: list[x509.Certificate] = []
             if row.chain_pem.strip():
                 try:
-                    intermediates = [
-                        item.cert for item in parse_certificates(row.chain_pem.encode("ascii"))
-                    ]
+                    intermediates = [item.cert for item in parse_certificates(row.chain_pem.encode("ascii"))]
                 except (ParseError, UnicodeError):
                     intermediates = []
-            assessment = assess_chain(
-                leaf, intermediates, anchors, validation_time, diagnostic_roots
-            )
+            assessment = assess_chain(leaf, intermediates, anchors, validation_time, diagnostic_roots)
         counts[assessment.status.value] = counts.get(assessment.status.value, 0) + 1
         if row.chain_status != assessment.status:
             row.chain_status = assessment.status
