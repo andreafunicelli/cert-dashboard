@@ -116,11 +116,11 @@ def test_entire_v1_schema(engine):
 
 ### Task 3: Transactional append-only audit and shared redaction
 
-**Files:** Create: `app/services/__init__.py`, `app/services/audit.py`. Test: `tests/unit/test_redaction.py`, `tests/integration/test_audit.py`.
+**Files:** Create: `app/services/__init__.py`, `app/services/audit.py`. Modify: `tests/integration/conftest.py`. Test: `tests/unit/test_redaction.py`, `tests/integration/test_audit.py`.
 
 **Interfaces:** Consumes: `transaction(factory: sessionmaker[Session]) -> ContextManager[Session]`, `AuditLog`, `JSONValue`. Produces: `Actor(user_id: int | None, label: str, ip: str | None = None, user_agent: str | None = None)`; `record(db: Session, actor: Actor, action: str, target_type: str, target_id: str | None, details: Mapping[str, JSONValue]) -> AuditLog`; `redact(value: JSONValue) -> JSONValue`; `SecretRedactionFilter(logging.Filter)`.
 
-- [ ] Write failing atomicity and app-role permission tests:
+- [x] Write failing atomicity and app-role permission tests:
 
 ```python
 def test_audit_is_append_only(db, actor):
@@ -134,10 +134,10 @@ def test_audit_is_append_only(db, actor):
 ```
 
   Test mutation+audit rollback together, system/actor snapshots, nested password/token/PEM redaction, private-key block and long-base64 log filtering, preserving safe SHA-256 fingerprints; no certificate PEM or form bodies logged.
-- [ ] Run `uv run pytest tests/unit/test_redaction.py tests/integration/test_audit.py -q`; expect FAIL, missing writer/filter.
-- [ ] Implement `record` without committing its caller's transaction; audit actions/details are explicit allowlisted fields at each call site, with shared redaction as a second barrier. Never persist passwords, keyring values, TOTP seeds, recovery codes, key material, or export passwords; redact exception messages/tracebacks through the same filter.
-- [ ] Run `uv run pytest tests/unit/test_redaction.py tests/integration/test_audit.py -q`; expect PASS.
-- [ ] Commit: `git add app/services tests/unit/test_redaction.py tests/integration/test_audit.py`; `git commit -m "feat: add transactional append-only audit and secret redaction"`.
+- [x] Run `uv run pytest tests/unit/test_redaction.py tests/integration/test_audit.py -q`; expect FAIL, missing writer/filter.
+- [x] Implement `record` without committing its caller's transaction; audit actions/details are explicit allowlisted fields at each call site, with shared redaction as a second barrier. Never persist passwords, keyring values, TOTP seeds, recovery codes, key material, or export passwords; redact exception messages/tracebacks through the same filter.
+- [x] Run `uv run pytest tests/unit/test_redaction.py tests/integration/test_audit.py -q`; expect PASS.
+- [x] Commit: `git add app/services tests/unit/test_redaction.py tests/integration/test_audit.py tests/integration/conftest.py docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`; `git commit -m "feat: add transactional append-only audit and secret redaction"`.
 
 ### Task 4: Row-bound encryption, key custody, and rotation CLI
 

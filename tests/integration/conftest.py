@@ -66,3 +66,14 @@ def db(engine):
         with Session(bind=connection, join_transaction_mode="create_savepoint") as session:
             yield session
         outer.rollback()
+
+
+@pytest.fixture
+def actor(db):
+    from app.models import User
+    from app.services.audit import Actor
+
+    user = User(username="fixture-admin", email="fixture@example.test")
+    db.add(user)
+    db.flush()
+    return Actor(user.id, user.username, "192.0.2.10", "fixture-browser")
