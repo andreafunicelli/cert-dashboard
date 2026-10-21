@@ -376,3 +376,81 @@ def test_thirty_cross_sign_candidates_finish_quickly(certs):
     assert len(result.fingerprints) == 1
     assert len(result.alternates) == 29
     assert result.missing_issuer is not None
+
+
+def _deep_chain(length: int):
+    root_key = ec.generate_private_key(ec.SECP256R1())
+    root = _issue("Deep Root", root_key, None, None, ca=True)
+    intermediates = []
+    previous, previous_key = root, root_key
+    for index in range(1, length + 1):
+        key = ec.generate_private_key(ec.SECP256R1())
+        cert = _issue(f"Deep Intermediate {index}", key, previous, previous_key, ca=True)
+        intermediates.append(cert)
+        previous, previous_key = cert, key
+    leaf_key = ec.generate_private_key(ec.SECP256R1())
+    leaf = _issue(
+        "deep.example.test",
+        leaf_key,
+        previous,
+        previous_key,
+        sans=[x509.DNSName("deep.example.test")],
+    )
+    return leaf, intermediates, root
+
+
+def test_parse_rejects_more_than_32_certificates_before_decoding(certs):
+    pem = certs.leaf.public_bytes(serialization.Encoding.PEM)
+    with pytest.raises(ParseError, match="32"):
+        parse_certificates(pem * 33)
+    assert len(parse_certificates(pem * 32)) == 32
+
+
+def test_thirty_two_same_subject_candidates_are_fast(certs):
+    import time
+
+    missing_key = ec.generate_private_key(ec.SECP256R1())
+    missing_root = _issue("Missing Root", missing_key, None, None, ca=True)
+    candidates = [
+        _issue("Fixture Intermediate 2", certs.intermediate2_key, missing_root, missing_key, ca=True)
+        for _ in range(32)
+    ]
+    started = time.monotonic()
+    result = order_chain(certs.leaf, candidates)
+    assert time.monotonic() - started < 0.2
+    assert len(result.fingerprints) == 1
+    assert len(result.alternates) == 31
+
+
+def test_sixteen_hundred_direct_candidates_finish_under_a_second(certs):
+    import time
+
+    missing_key = ec.generate_private_key(ec.SECP256R1())
+    missing_root = _issue("Missing Root", missing_key, None, None, ca=True)
+    candidates = [
+        _issue("Fixture Intermediate 2", certs.intermediate2_key, missing_root, missing_key, ca=True)
+        for _ in range(1600)
+    ]
+    started = time.monotonic()
+    result = order_chain(certs.leaf, candidates)
+    assert time.monotonic() - started < 1.0
+    assert len(result.fingerprints) == 1
+    assert len(result.alternates) == 1599
+
+
+def test_depth_limit_reports_truncation_without_a_missing_issuer():
+    leaf, intermediates, root = _deep_chain(17)
+    result = order_chain(leaf, [*intermediates, root])
+    assert result.truncated is True
+    assert result.missing_issuer is None
+    assert "depth-limit" in result.dropped
+    assert len(result.fingerprints) == 16
+
+
+def test_twelve_intermediates_complete_without_truncation():
+    leaf, intermediates, root = _deep_chain(12)
+    result = order_chain(leaf, [*intermediates, root])
+    assert result.truncated is False
+    assert result.missing_issuer is None
+    assert "root" in result.dropped
+    assert len(result.fingerprints) == 12

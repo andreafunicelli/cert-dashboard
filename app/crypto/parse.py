@@ -45,6 +45,8 @@ def parse_certificates(data: bytes) -> list[ParsedCertificate]:
     raw = bytes(data)
     if len(raw) > MAX_INPUT_BYTES:
         raise ParseError("certificate input exceeds 1 MiB")
+    if raw.count(b"-----BEGIN") > 32:
+        raise ParseError("too many certificates (max 32)")
     try:
         return [_parsed(cert) for cert in _load_all(raw)]
     except ParseError:
