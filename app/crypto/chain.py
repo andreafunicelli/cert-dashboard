@@ -20,6 +20,7 @@ class ChainResult:
     dropped: tuple[str, ...]
     missing_issuer: str | None
     diagnostic_roots: tuple[x509.Certificate, ...] = field(repr=False, compare=False)
+    alternates: tuple[str, ...] = ()
 
 
 def _fingerprint(cert: x509.Certificate) -> str:
@@ -36,6 +37,20 @@ def _verifies(child: x509.Certificate, issuer: x509.Certificate) -> bool:
 
 def _self_signed(cert: x509.Certificate) -> bool:
     return cert.subject == cert.issuer and _verifies(cert, cert)
+
+
+_MAX_DEPTH = 10
+_MAX_NODES = 5_000
+
+
+def _path_key(path: list[x509.Certificate]) -> tuple[str, ...]:
+    return tuple(_fingerprint(cert) for cert in path)
+
+
+def _better(candidate: tuple, current: tuple) -> bool:
+    if len(candidate[1]) != len(current[1]):
+        return len(candidate[1]) > len(current[1])
+    return _path_key(candidate[1]) < _path_key(current[1])
 
 
 def order_chain(leaf: x509.Certificate, candidates: Sequence[x509.Certificate]) -> ChainResult:
@@ -56,37 +71,71 @@ def order_chain(leaf: x509.Certificate, candidates: Sequence[x509.Certificate]) 
         notes.add("duplicate")
         unique.pop(leaf_fingerprint)
     roots = {fp: cert for fp, cert in unique.items() if _self_signed(cert)}
+    verifications: dict[tuple[str, str], bool] = {}
+
+    def verifies(child: x509.Certificate, issuer: x509.Certificate) -> bool:
+        key = (_fingerprint(child), _fingerprint(issuer))
+        if key not in verifications:
+            verifications[key] = _verifies(child, issuer)
+        return verifications[key]
 
     chain: list[x509.Certificate] = []
-    seen = {leaf_fingerprint}
-    current = leaf
     missing_issuer: str | None = None
+    alternates: set[str] = set()
+    complete = False
     if not _self_signed(leaf):
-        while True:
-            claimed = [cert for cert in unique.values() if cert.subject == current.issuer]
-            valid = [cert for cert in claimed if _verifies(current, cert)]
-            if claimed and not valid:
-                raise ChainError("chain claims an issuer with an invalid signature")
-            if not valid:
-                missing_issuer = current.issuer.rfc4514_string()
-                break
-            if len(valid) > 1:
-                notes.add("ambiguous")
-            chosen = min(valid, key=_fingerprint)
-            fingerprint = _fingerprint(chosen)
-            if fingerprint in seen:
-                notes.add("cycle")
-                missing_issuer = current.issuer.rfc4514_string()
-                break
-            if fingerprint in roots:
-                notes.add("root")
-                break
-            chain.append(chosen)
-            seen.add(fingerprint)
-            current = chosen
+        nodes = 0
 
+        def walk(
+            current: x509.Certificate,
+            path: list[x509.Certificate],
+            visited: set[str],
+            depth: int,
+        ) -> tuple[int, list[x509.Certificate], str | None, set[str]]:
+            nonlocal nodes
+            if depth >= _MAX_DEPTH or nodes >= _MAX_NODES:
+                return (1, path, current.issuer.rfc4514_string(), set())
+            nodes += 1
+            claims = [cert for cert in unique.values() if cert.subject == current.issuer]
+            valid = [cert for cert in claims if verifies(current, cert)]
+            usable = [cert for cert in valid if _fingerprint(cert) not in visited]
+            if not usable:
+                if valid:
+                    notes.add("cycle")
+                return (1, path, current.issuer.rfc4514_string(), set())
+            best: tuple[int, list[x509.Certificate], str | None, set[str]] | None = None
+            for candidate in sorted(usable, key=_fingerprint):
+                fingerprint = _fingerprint(candidate)
+                others = {_fingerprint(cert) for cert in usable if cert is not candidate}
+                if fingerprint in roots:
+                    return (2, path, None, others)
+                outcome = walk(candidate, [*path, candidate], visited | {fingerprint}, depth + 1)
+                if outcome[0] == 2:
+                    return (2, outcome[1], None, others | outcome[3])
+                if best is None or _better(outcome, best):
+                    best = (1, outcome[1], outcome[2], others | outcome[3])
+                if nodes >= _MAX_NODES:
+                    break
+            if best is None:
+                return (1, path, current.issuer.rfc4514_string(), set())
+            return best
+
+        kind, chain, missing_issuer, alternate_fingerprints = walk(
+            leaf, [], {leaf_fingerprint}, 0
+        )
+        complete = kind == 2
+        alternates = alternate_fingerprints
+        terminal = chain[-1] if chain else leaf
+        claimed = [cert for cert in unique.values() if cert.subject == terminal.issuer]
+        if claimed and not any(verifies(terminal, cert) for cert in claimed):
+            raise ChainError("chain claims an issuer with an invalid signature")
+        if complete:
+            notes.add("root")
+
+    if alternates:
+        notes.add("cross-sign")
     used = {leaf_fingerprint} | {_fingerprint(cert) for cert in chain}
-    if any(fp not in used and fp not in roots for fp in unique):
+    if any(fp not in used and fp not in roots and fp not in alternates for fp in unique):
         notes.add("unrelated")
     return ChainResult(
         pem="".join(
@@ -96,6 +145,7 @@ def order_chain(leaf: x509.Certificate, candidates: Sequence[x509.Certificate]) 
         dropped=tuple(sorted(notes)),
         missing_issuer=missing_issuer,
         diagnostic_roots=tuple(roots[fp] for fp in sorted(roots)),
+        alternates=tuple(sorted(alternates)),
     )
 
 

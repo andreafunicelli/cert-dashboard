@@ -211,7 +211,7 @@ def test_cross_signed_ambiguity_is_deterministic(certs):
     second = order_chain(certs.leaf, [cross, certs.intermediate2])
     assert first.fingerprints == second.fingerprints
     assert first.fingerprints[0] == min(_fp(certs.intermediate2), _fp(cross))
-    assert "ambiguous" in first.dropped
+    assert "cross-sign" in first.dropped
 
 
 def test_forged_root_claiming_the_issuer_is_rejected(certs):
@@ -302,3 +302,77 @@ def test_hostile_inputs_never_raise_unhandled(certs):
             parse_certificates(bytes(mutated))
         except ParseError:
             pass
+
+
+def test_truncated_stray_or_trailing_pem_junk_is_rejected(certs):
+    leaf = certs.leaf.public_bytes(serialization.Encoding.PEM)
+    intermediate = certs.intermediate2.public_bytes(serialization.Encoding.PEM)
+    der = certs.intermediate2.public_bytes(serialization.Encoding.DER)
+    for payload in (leaf + intermediate[:120], leaf + b"-----END CERTIFICATE-----", leaf + der):
+        with pytest.raises(ParseError):
+            parse_certificates(payload)
+
+
+def test_complete_cross_signed_path_beats_a_lower_fingerprint_dead_end(certs):
+    for _ in range(50):
+        root_a_key = ec.generate_private_key(ec.SECP256R1())
+        root_a = _issue("Cross Root A", root_a_key, None, None, ca=True)
+        root_b_key = ec.generate_private_key(ec.SECP256R1())
+        root_b = _issue("Cross Root B", root_b_key, None, None, ca=True)
+        intermediate_a = _issue(
+            "Fixture Intermediate 2", certs.intermediate2_key, root_a, root_a_key, ca=True
+        )
+        intermediate_b = _issue(
+            "Fixture Intermediate 2", certs.intermediate2_key, root_b, root_b_key, ca=True
+        )
+        if _fp(intermediate_b) < _fp(intermediate_a):
+            break
+    else:
+        pytest.fail("could not build a lower-fingerprint dead-end candidate")
+
+    result = order_chain(certs.leaf, [root_a, intermediate_a, intermediate_b])
+    assert result.fingerprints == (_fp(intermediate_a),)
+    assert result.missing_issuer is None
+    assert result.alternates == (_fp(intermediate_b),)
+    assert "cross-sign" in result.dropped
+
+
+def test_two_supplied_roots_and_a_duplicate_leaf(certs):
+    other_root_key = ec.generate_private_key(ec.SECP256R1())
+    other_root = _issue("Other Root", other_root_key, None, None, ca=True)
+    result = order_chain(
+        certs.leaf,
+        [
+            certs.intermediate2,
+            certs.intermediate1,
+            certs.root,
+            other_root,
+            certs.leaf,
+            certs.leaf,
+        ],
+    )
+    assert result.fingerprints == (certs.intermediate2_fp, certs.intermediate1_fp)
+    assert "root" in result.dropped
+    assert "duplicate" in result.dropped
+    assert {_fp(root) for root in result.diagnostic_roots} == {
+        _fp(certs.root),
+        _fp(other_root),
+    }
+
+
+def test_thirty_cross_sign_candidates_finish_quickly(certs):
+    import time
+
+    candidates = []
+    for index in range(30):
+        root_key = ec.generate_private_key(ec.SECP256R1())
+        root = _issue(f"Fast Root {index}", root_key, None, None, ca=True)
+        candidates.append(
+            _issue("Fixture Intermediate 2", certs.intermediate2_key, root, root_key, ca=True)
+        )
+    started = time.monotonic()
+    result = order_chain(certs.leaf, candidates)
+    assert time.monotonic() - started < 0.5
+    assert len(result.fingerprints) == 1
+    assert len(result.alternates) == 29
+    assert result.missing_issuer is not None

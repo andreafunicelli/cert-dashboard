@@ -59,10 +59,20 @@ def _load_all(raw: bytes) -> list[x509.Certificate]:
     labels = {label.upper() for label in _PEM_LABEL.findall(raw)}
     if labels != {b"CERTIFICATE"}:
         raise ParseError("only CERTIFICATE PEM blocks are accepted")
-    blocks = _CERTIFICATE_BLOCK.findall(raw)
-    if not blocks:
+    matches = list(_CERTIFICATE_BLOCK.finditer(raw))
+    if not matches:
         raise ParseError("certificate PEM block is missing")
-    return [x509.load_pem_x509_certificate(block) for block in blocks]
+    leftover = []
+    cursor = 0
+    for match in matches:
+        leftover.append(raw[cursor : match.start()])
+        cursor = match.end()
+    leftover.append(raw[cursor:])
+    if b"-----BEGIN" in b"".join(leftover) or b"-----END" in b"".join(leftover):
+        raise ParseError("truncated or stray PEM block")
+    if raw[matches[-1].end() :].strip():
+        raise ParseError("unexpected data after the last certificate block")
+    return [x509.load_pem_x509_certificate(match.group(0)) for match in matches]
 
 
 def _parsed(cert: x509.Certificate) -> ParsedCertificate:
