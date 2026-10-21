@@ -76,9 +76,13 @@ _AUTH = re.compile(
     r"(?<![\w@:])(?:AWS4-HMAC-SHA256|Bearer|Basic|Digest|Token|Negotiate|NTLM)\b[^\r\n]*+",
     re.IGNORECASE,
 )
+_AUTH_SCHEME = re.compile(
+    r"(?:AWS4-HMAC-SHA256|Bearer|Basic|Digest|Token|Negotiate|NTLM)\b", re.IGNORECASE
+)
 _LINE_VALUE = re.compile(r"[^\r\n]*+")
 _AUTHORIZATION_KEYS = {"authorization", "proxyauthorization", "wwwauthenticate"}
 _URL_PASSWORD = re.compile(r"(?P<prefix>[a-z][a-z0-9+.-]{0,31}://[^/\s:@]*:)[^@\s/]+(?=@)", re.IGNORECASE)
+_SCHEMELESS_URL_PASSWORD = re.compile(r"(?P<prefix>//[^/\s:@]*:)[^@\s/]+(?=@)")
 _STANDARD_LOG_FIELDS = frozenset(logging.makeLogRecord({}).__dict__)
 _BODY_ASSIGNMENT = re.compile(
     r"\b(?:body|(?:request|response|raw)[_-]?body|form(?:[_-]?(?:data|body))?|request[_-]?form)"
@@ -118,14 +122,19 @@ def _inline_text(value: str) -> str:
     parts = []
     cursor = 0
     for index, match in enumerate(matches):
-        if match.start() < cursor or not _sensitive(match["key"], ""):
-            continue
         start = match.end()
+        scheme_value = _AUTH_SCHEME.match(value, start) is not None
+        if match.start() < cursor or (not _sensitive(match["key"], "") and not scheme_value):
+            continue
         if value.startswith(_REDACTED, start):
             end = start + len(_REDACTED)
         elif quoted := _QUOTED_VALUE.match(value, start):
             end = quoted.end()
-        elif _normalized_key(match["key"]) in _AUTHORIZATION_KEYS or value[start : start + 1] in {"'", '"'}:
+        elif (
+            scheme_value
+            or _normalized_key(match["key"]) in _AUTHORIZATION_KEYS
+            or value[start : start + 1] in {"'", '"'}
+        ):
             end = _LINE_VALUE.match(value, start).end()
         else:
             end = _INLINE_VALUE.match(value, start, ends[index]).end()
@@ -152,6 +161,7 @@ def _text(value: str) -> str:
     value = _inline_text(value)
     if "://" in value:
         value = _URL_PASSWORD.sub(lambda match: match["prefix"] + _REDACTED, value)
+    value = _SCHEMELESS_URL_PASSWORD.sub(lambda match: match["prefix"] + _REDACTED, value)
     return value + suffix
 
 

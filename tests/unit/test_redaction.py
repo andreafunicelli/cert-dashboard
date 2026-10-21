@@ -540,3 +540,37 @@ def test_unterminated_quoted_value_consumes_to_line_end(value):
     from app.services.audit import redact
 
     assert redact(value) == "password=[REDACTED]"
+
+
+@pytest.mark.parametrize(
+    "value,secret",
+    [
+        ("X-Auth:Basic dXNlci1zZWNyZXQ=", "dXNlci1zZWNyZXQ="),
+        ("authentication:Bearer header-token", "header-token"),
+        ('hdr:Digest username="u", response=r', "response=r"),
+        ("password:Basic password-basic", "password-basic"),
+        ("secret:Token abc123", "abc123"),
+    ],
+)
+def test_scheme_word_after_colon_hides_credentials(value, secret):
+    from app.services.audit import redact
+
+    clean = redact(value)
+    assert secret not in clean
+    assert "[REDACTED]" in clean
+    assert redact(clean) == clean
+
+
+def test_scheme_word_inside_a_secret_value_keeps_the_following_field():
+    from app.services.audit import redact
+
+    assert redact("password=fixture:token=value event=safe") == "password=[REDACTED] event=safe"
+
+
+def test_schemeless_url_credentials_are_redacted():
+    from app.services.audit import redact
+
+    assert redact("//alice:p4ss@host") == "//alice:[REDACTED]@host"
+    assert redact("//:p4ss@host") == "//:[REDACTED]@host"
+    assert redact("user:pass@host") == "user:pass@host"
+    assert redact("http://host:8080/path") == "http://host:8080/path"
