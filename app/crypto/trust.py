@@ -154,9 +154,12 @@ def assess_chain(
     anchor_fingerprints = {_fingerprint(cert) for cert in anchor_list}
     if root is not None:
         if _fingerprint(root) in anchor_fingerprints:
-            return ChainAssessment(
-                ChainStatus.INCOMPLETE, (_policy_reason(verification_error),), validation_time
+            reason = (
+                "policy_failure:anchor_not_yet_valid"
+                if root.not_valid_before_utc > validation_time
+                else _policy_reason(verification_error)
             )
+            return ChainAssessment(ChainStatus.INCOMPLETE, (reason,), validation_time)
         return ChainAssessment(
             ChainStatus.UNTRUSTED_ROOT,
             ("untrusted_root", f"root:{root.subject.rfc4514_string()}"),

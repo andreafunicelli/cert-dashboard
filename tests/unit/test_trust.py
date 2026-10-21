@@ -18,6 +18,7 @@ def _issue(
     sans=(),
     ca=False,
     key_usage=False,
+    name_constraints=None,
     before=None,
     after=None,
 ):
@@ -55,6 +56,8 @@ def _issue(
         )
     if sans:
         builder = builder.add_extension(x509.SubjectAlternativeName(list(sans)), critical=False)
+    if name_constraints is not None:
+        builder = builder.add_extension(name_constraints, critical=True)
     return builder.sign(issuer_key if issuer_key is not None else key, hashes.SHA256())
 
 
@@ -197,6 +200,68 @@ def test_expired_anchor_reports_a_policy_reason(certs, now):
     result = assess_chain(certs.leaf, [cross], [expired_root], now)
     assert result.status == ChainStatus.INCOMPLETE
     assert "policy_failure:expired_anchor" in result.messages
+
+
+def test_not_yet_valid_anchor_has_its_own_policy_reason(certs, now):
+    root_key = ec.generate_private_key(ec.SECP256R1())
+    root = _issue(
+        "Future Root",
+        root_key,
+        None,
+        None,
+        ca=True,
+        key_usage=True,
+        before=now + timedelta(days=1),
+        after=now + timedelta(days=90),
+    )
+    cross = _issue(
+        "Fixture Intermediate 2",
+        certs.intermediate2_key,
+        root,
+        root_key,
+        ca=True,
+        key_usage=True,
+        before=now - timedelta(days=1),
+        after=now + timedelta(days=30),
+    )
+    result = assess_chain(certs.leaf, [cross], [root], now)
+    assert result.status == ChainStatus.INCOMPLETE
+    assert result.messages == ("policy_failure:anchor_not_yet_valid",)
+
+
+def test_name_constraints_rejection_reports_a_policy_reason(certs, now):
+    constrained = _issue(
+        "Fixture Intermediate 2",
+        certs.intermediate2_key,
+        certs.root,
+        certs.root_key,
+        ca=True,
+        key_usage=True,
+        before=now - timedelta(days=1),
+        after=now + timedelta(days=30),
+        name_constraints=x509.NameConstraints(
+            permitted_subtrees=[x509.DNSName(".allowed.example.test")], excluded_subtrees=None
+        ),
+    )
+    result = assess_chain(certs.leaf, [constrained], [certs.root], now)
+    assert result.status == ChainStatus.INCOMPLETE
+    assert result.messages == ("policy_failure:name_constraint",)
+
+
+def test_intermediate_without_key_usage_reports_a_policy_reason(certs, now):
+    no_usage = _issue(
+        "Fixture Intermediate 2",
+        certs.intermediate2_key,
+        certs.root,
+        certs.root_key,
+        ca=True,
+        key_usage=False,
+        before=now - timedelta(days=1),
+        after=now + timedelta(days=30),
+    )
+    result = assess_chain(certs.leaf, [no_usage], [certs.root], now)
+    assert result.status == ChainStatus.INCOMPLETE
+    assert result.messages == ("policy_failure:missing_key_usage",)
 
 
 def test_leaf_without_aki_reports_a_policy_reason(certs, now):

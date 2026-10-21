@@ -1,5 +1,6 @@
 """Trust-anchor uploads, the pinned public bundle, and synchronous rechecks."""
 
+import logging
 import re
 import warnings
 from collections.abc import Sequence
@@ -22,6 +23,7 @@ from app.services.audit import Actor, record
 
 _MAX_CERTIFICATES = 500
 _BUNDLE_BLOCK = re.compile(rb"-----BEGIN CERTIFICATE-----.*?-----END CERTIFICATE-----", re.DOTALL)
+_LOG = logging.getLogger(__name__)
 
 
 class AnchorValidationError(ValueError):
@@ -83,9 +85,23 @@ def load_anchors(db: Session) -> tuple[x509.Certificate, ...]:
 def _enabled_anchors(db: Session) -> tuple[x509.Certificate, ...]:
     anchors = list(load_anchors(db))
     setting = db.scalar(select(AppSetting.value).where(AppSetting.key == "trust.include_public_bundle"))
-    if bool(setting):
+    if _public_bundle_enabled(setting):
         anchors.extend(public_bundle_anchors())
     return _dedupe(anchors)
+
+
+def _public_bundle_enabled(value: object) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    if type(value) is int and value in (0, 1):
+        return value == 1
+    if isinstance(value, str) and value.casefold() in ("true", "false"):
+        return value.casefold() == "true"
+    # Preserve the specified default without recording potentially secret input.
+    _LOG.warning("Invalid trust.include_public_bundle setting; using default true")
+    return True
 
 
 def _require_root(pem: bytes) -> ParsedCertificate:
@@ -141,8 +157,14 @@ def add_anchor(
         with db.begin_nested():
             db.add(row)
             db.flush()
-    except IntegrityError:
-        raise AnchorValidationError("anchor already exists") from None
+    except IntegrityError as exc:
+        if (
+            getattr(exc.orig, "sqlstate", None) == "23505"
+            and getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+            == "uq_trust_anchor_sha256_fingerprint"
+        ):
+            raise AnchorValidationError("anchor already exists") from None
+        raise
     record(
         db,
         actor,

@@ -1,3 +1,4 @@
+import logging
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -10,8 +11,10 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
-from sqlalchemy import create_engine, event, func, select
+from sqlalchemy import create_engine, event, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.crypto.parse import parse_certificates
 from app.crypto.trust import assess_chain
@@ -220,20 +223,95 @@ def test_anchor_without_key_usage_is_rejected(db, actor, now):
 
 
 @pytest.mark.parametrize(
-    "value,enabled",
-    [(True, True), (1, True), ("true", True), (False, False), (0, False), (None, False)],
+    "value,enabled,warn",
+    [
+        (True, True, False),
+        (False, False, False),
+        (1, True, False),
+        (0, False, False),
+        (None, True, False),
+        ("true", True, False),
+        ("TrUe", True, False),
+        ("false", False, False),
+        ("FaLsE", False, False),
+        ("fixture-sensitive-setting", True, True),
+        ("", True, True),
+        ([], True, True),
+        ({"password": "fixture-sensitive-setting"}, True, True),
+        (2, True, True),
+        (1.0, True, True),
+        (0.0, True, True),
+        (" true ", True, True),
+    ],
 )
-def test_public_bundle_setting_truthiness(monkeypatch, db, certs, now, value, enabled):
+def test_public_bundle_setting_strict_parsing(monkeypatch, db, certs, now, value, enabled, warn, caplog):
     from app.services import trust_anchors as service
 
     monkeypatch.setattr(service, "public_bundle_anchors", lambda: (certs.root,))
     cert = _certificate_row(db, certs.leaf_pem, certs.chain_pem)
     setting = db.scalar(select(AppSetting).where(AppSetting.key == "trust.include_public_bundle"))
     setting.value = value
+    # JSON True == 1.0 in Python; force this exact JSON value into PostgreSQL.
+    flag_modified(setting, "value")
     db.flush()
-    recheck_chain_statuses(db, now)
+    with caplog.at_level(logging.WARNING, logger=service.__name__):
+        recheck_chain_statuses(db, now)
     db.refresh(cert)
     assert (cert.chain_status == ChainStatus.TRUSTED) is enabled
+    warnings = [item for item in caplog.records if item.name == service.__name__]
+    assert bool(warnings) is warn
+    assert "fixture-sensitive-setting" not in caplog.text
+    assert all(item.args == () for item in warnings)
+
+
+def test_missing_public_bundle_setting_uses_the_default_true(monkeypatch, db, certs, now, caplog):
+    from app.services import trust_anchors as service
+
+    monkeypatch.setattr(service, "public_bundle_anchors", lambda: (certs.root,))
+    cert = _certificate_row(db, certs.leaf_pem, certs.chain_pem)
+    setting = db.scalar(select(AppSetting).where(AppSetting.key == "trust.include_public_bundle"))
+    db.delete(setting)
+    db.flush()
+    with caplog.at_level(logging.WARNING, logger=service.__name__):
+        recheck_chain_statuses(db, now)
+    db.refresh(cert)
+    assert cert.chain_status == ChainStatus.TRUSTED
+    assert not caplog.records
+
+
+@pytest.mark.parametrize("violation", ["foreign_key", "primary_key"])
+def test_non_fingerprint_integrity_errors_are_not_mislabeled_as_duplicates(db, certs, now, violation):
+    from app.services.audit import Actor
+
+    actor = (
+        Actor(9_223_372_036_854_775_807, "fixture-missing-user")
+        if violation == "foreign_key"
+        else Actor(None, "system")
+    )
+    if violation == "primary_key":
+        # Reserve n, occupy n+1 explicitly, then the service's default nextval collides.
+        occupied = db.scalar(text("SELECT nextval(pg_get_serial_sequence('trust_anchor', 'id'))")) + 1
+        db.add(
+            TrustAnchor(
+                id=occupied,
+                subject="CN=Fixture occupied id",
+                sha256_fingerprint="f" * 64,
+                pem=_pem(certs.root).decode("ascii"),
+                source="uploaded",
+            )
+        )
+        db.flush()
+    with pytest.raises(IntegrityError) as exc:
+        add_anchor(db, _pem(certs.root), None, actor, now)
+    assert exc.value.orig.sqlstate == ("23503" if violation == "foreign_key" else "23505")
+    assert exc.value.orig.diag.constraint_name == (
+        "fk_trust_anchor_created_by_user" if violation == "foreign_key" else "pk_trust_anchor"
+    )
+    # The service savepoint rolls back only its failed insert.
+    assert db.scalar(select(func.count()).select_from(TrustAnchor)) == (
+        0 if violation == "foreign_key" else 1
+    )
+    assert db.scalar(select(func.count()).select_from(AuditLog)) == 0
 
 
 @pytest.fixture
