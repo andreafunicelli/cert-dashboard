@@ -10,3 +10,11 @@ secrets/
 .env
 tests/fixtures/certificates/
 *.egg-info/
+# Never commit generated key or certificate material (public repository).
+*.pem
+*.key
+*.p12
+*.pfx
+*.csr
+*.der
+*.crt

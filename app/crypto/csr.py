@@ -16,6 +16,8 @@ from cryptography.x509.oid import NameOID
 
 from app.crypto.keys import PrivateKeyObject, public_key_sha256
 
+_NUMERIC_PAYLOAD = re.compile(r"[0-9.]+|0[xX][0-9A-Fa-f.]+")
+
 
 @dataclass(frozen=True)
 class CSRMaterial:
@@ -33,6 +35,8 @@ def _dns_name(value: str) -> str:
     except idna.IDNAError:
         raise ValueError("invalid DNS name") from None
     result = ("*." if wildcard else "") + name
+    if wildcard and "." not in name:
+        raise ValueError("wildcard must cover at least two labels")
     if len(result) > 253 or any(not label or len(label) > 63 for label in name.split(".")):
         raise ValueError("DNS name exceeds label or total length limit")
     return result
@@ -63,7 +67,9 @@ def parse_san(value: str) -> x509.GeneralName:
         try:
             address = _ip_name(payload)
         except ValueError:
-            if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", payload):
+            if "%" in payload:
+                raise ValueError("scoped IP SANs are not supported") from None
+            if _NUMERIC_PAYLOAD.fullmatch(payload):
                 raise ValueError("invalid IP SAN") from None
         else:
             if kind == "dns":
@@ -96,7 +102,8 @@ def _canonical(name: x509.GeneralName) -> str:
     if isinstance(name, x509.IPAddress):
         return str(name.value)
     if isinstance(name, x509.RFC822Name):
-        return "email:" + name.value
+        local, _, domain = name.value.partition("@")
+        return "email:" + local + "@" + domain.lower()
     if isinstance(name, x509.UniformResourceIdentifier):
         return "URI:" + name.value
     raise ValueError("unsupported SAN type")
@@ -124,7 +131,11 @@ def _identity(common_name: str, sans: Sequence[str]) -> tuple[str, tuple[str, ..
 
 
 def _supported_public_key(key: object) -> bool:
-    return (isinstance(key, rsa.RSAPublicKey) and key.key_size in {2048, 3072, 4096}) or (
+    return (
+        isinstance(key, rsa.RSAPublicKey)
+        and key.key_size in {2048, 3072, 4096}
+        and key.public_numbers().e == 65537
+    ) or (
         isinstance(key, ec.EllipticCurvePublicKey) and isinstance(key.curve, (ec.SECP256R1, ec.SECP384R1))
     )
 
@@ -132,7 +143,7 @@ def _supported_public_key(key: object) -> bool:
 def build_csr(key: PrivateKeyObject, common_name: str, sans: Sequence[str]) -> CSRMaterial:
     cn, values = _identity(common_name, sans)
     if not _supported_public_key(key.public_key()):
-        raise ValueError("unsupported CSR key type or size")
+        raise ValueError("unsupported CSR key type, size or exponent")
     csr = (
         x509.CertificateSigningRequestBuilder()
         .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)]))
@@ -146,13 +157,15 @@ def build_csr(key: PrivateKeyObject, common_name: str, sans: Sequence[str]) -> C
 
 
 def validate_csr(csr_pem: str, common_name: str, sans: Sequence[str], public_hash: str) -> list[str]:
+    if not isinstance(csr_pem, str):
+        return ["CSR could not be parsed"]
     try:
         cn, values = _identity(common_name, sans)
     except (ValueError, TypeError):
         return ["CSR expected identity is invalid"]
     try:
         csr = x509.load_pem_x509_csr(csr_pem.encode("ascii"))
-    except (ValueError, UnicodeError, UnsupportedAlgorithm):
+    except (ValueError, UnicodeError, UnsupportedAlgorithm, x509.InvalidVersion):
         return ["CSR could not be parsed"]
     errors = []
     try:
@@ -160,7 +173,7 @@ def validate_csr(csr_pem: str, common_name: str, sans: Sequence[str], public_has
             errors.append("CSR signature is invalid")
         if csr.signature_hash_algorithm is None or csr.signature_hash_algorithm.name != "sha256":
             errors.append("CSR signature must use SHA-256")
-    except (ValueError, UnsupportedAlgorithm):
+    except (ValueError, TypeError, UnsupportedAlgorithm):
         errors.append("CSR signature is invalid")
     subject = list(csr.subject)
     try:
@@ -169,20 +182,24 @@ def validate_csr(csr_pem: str, common_name: str, sans: Sequence[str], public_has
             and subject[0].oid == NameOID.COMMON_NAME
             and _canonical(parse_san(subject[0].value)) == cn
         )
-    except ValueError:
+    except (ValueError, TypeError):
         subject_matches = False
     if not subject_matches:
         errors.append("CSR subject does not match CN-only identity")
     try:
         actual = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
         actual_values = canonical_sans([_canonical(name) for name in actual])
-    except (ValueError, x509.ExtensionNotFound):
+    except (ValueError, TypeError, x509.ExtensionNotFound, x509.DuplicateExtension):
         actual_values = ()
     if set(actual_values) != set(values):
         errors.append("CSR SANs do not match")
-    public_key = csr.public_key()
+    try:
+        public_key = csr.public_key()
+    except (ValueError, UnsupportedAlgorithm):
+        errors.append("CSR public key is unreadable")
+        return list(dict.fromkeys(errors))
     if not _supported_public_key(public_key):
-        errors.append("CSR public key type or size is unsupported")
-    if public_key_sha256(public_key) != public_hash:
+        errors.append("CSR public key type, size or exponent is unsupported")
+    if public_key_sha256(public_key) != str(public_hash).lower():
         errors.append("CSR public key does not match")
-    return errors
+    return list(dict.fromkeys(errors))

@@ -1,8 +1,10 @@
+import base64
 import hashlib
 from ipaddress import ip_address
 
 import pytest
 from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from cryptography.x509.oid import NameOID
@@ -89,7 +91,7 @@ def test_typed_sans_are_preserved_normalized_and_cn_is_added_once(certs):
         "alt.example.test",
         "192.0.2.1",
         "2001:db8::1",
-        "email:Operator@EXAMPLE.TEST",
+        "email:Operator@example.test",
         "URI:https://Example.TEST/Case",
     )
     result = build_csr(certs.leaf_key, "PRIMARY.EXAMPLE.TEST", supplied)
@@ -97,7 +99,7 @@ def test_typed_sans_are_preserved_normalized_and_cn_is_added_once(certs):
     san = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
     assert san.get_values_for_type(x509.DNSName) == ["alt.example.test", "primary.example.test"]
     assert san.get_values_for_type(x509.IPAddress) == [ip_address("192.0.2.1"), ip_address("2001:db8::1")]
-    assert san.get_values_for_type(x509.RFC822Name) == ["Operator@EXAMPLE.TEST"]
+    assert san.get_values_for_type(x509.RFC822Name) == ["Operator@example.test"]
     assert san.get_values_for_type(x509.UniformResourceIdentifier) == ["https://Example.TEST/Case"]
     assert (
         validate_csr(
@@ -371,7 +373,7 @@ def test_csr_validation_rejects_invalid_expected_identity_and_unsupported_public
         "leaf.example.test",
         ["leaf.example.test"],
         public_key_sha256(weak.public_key()),
-    ) == ["CSR public key type or size is unsupported"]
+    ) == ["CSR public key type, size or exponent is unsupported"]
 
 
 def test_validation_cannot_treat_a_dns_encoded_ip_as_an_ip_san(certs):
@@ -405,3 +407,146 @@ def test_unicode_cn_is_punycode_and_deduplicates_the_equivalent_san(certs):
     assert csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value.get_values_for_type(
         x509.DNSName
     ) == ["xn--bcher-kva.example"]
+
+
+def _pem_from_der(der: bytes) -> str:
+    body = base64.b64encode(der).decode("ascii")
+    lines = [body[index : index + 64] for index in range(0, len(body), 64)]
+    return "-----BEGIN CERTIFICATE REQUEST-----\n" + "\n".join(lines) + "\n-----END CERTIFICATE REQUEST-----\n"
+
+
+def test_scoped_and_numeric_sans_use_specific_errors():
+    from app.crypto.csr import parse_san
+
+    with pytest.raises(ValueError, match="scoped IP SANs"):
+        parse_san("fe80::1%eth0")
+    for value in ["1.2.3.4.5", "1.2.3", "999.1.1.1", "0x7f.0.0.1"]:
+        with pytest.raises(ValueError, match="invalid IP SAN"):
+            parse_san(value)
+
+
+def test_email_domain_is_canonical_while_local_case_is_kept(certs):
+    from app.crypto.csr import build_csr, canonical_sans
+
+    assert canonical_sans(["email:Operator@EXAMPLE.com", "email:Operator@example.com"]) == (
+        "email:Operator@example.com",
+    )
+    assert canonical_sans(["email:Operator@example.com", "email:operator@example.com"]) == (
+        "email:Operator@example.com",
+        "email:operator@example.com",
+    )
+    csr = x509.load_pem_x509_csr(
+        build_csr(certs.leaf_key, "leaf.example.test", ["email:Operator@EXAMPLE.com"]).pem.encode()
+    )
+    san = csr.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+    assert san.get_values_for_type(x509.RFC822Name) == ["Operator@example.com"]
+
+
+def test_wildcards_need_two_remaining_labels():
+    from app.crypto.csr import parse_san
+
+    for value in ["*.com", "*.local"]:
+        with pytest.raises(ValueError, match="at least two labels"):
+            parse_san(value)
+    assert parse_san("*.example.com") == x509.DNSName("*.example.com")
+    assert parse_san("*.co.uk") == x509.DNSName("*.co.uk")
+
+
+def test_none_key_size_uses_defaults_and_ec_rejects_explicit_mismatch():
+    from app.crypto.keys import KeySpec, generate_key
+
+    assert generate_key(KeySpec()).key_size == 2048
+    assert generate_key(KeySpec(size=None)).key_size == 2048
+    assert generate_key(KeySpec(kind="ecdsa", curve="secp384r1")).key_size == 384
+    assert generate_key(KeySpec(kind="ecdsa", curve="secp384r1", size=384)).key_size == 384
+    with pytest.raises(ValueError):
+        generate_key(KeySpec(kind="ecdsa", curve="secp384r1", size=2048))
+    with pytest.raises(ValueError):
+        generate_key(KeySpec(kind="ecdsa", curve="secp256r1", size=384))
+
+
+def test_rsa_public_exponent_must_be_65537():
+    from app.crypto.csr import build_csr, validate_csr
+    from app.crypto.keys import load_private_key, private_key_pem, public_key_sha256
+
+    weak = rsa.generate_private_key(public_exponent=3, key_size=2048)
+    pem = weak.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+    with pytest.raises(ValueError, match="exponent"):
+        load_private_key(pem)
+    with pytest.raises(ValueError, match="exponent"):
+        private_key_pem(weak)
+    with pytest.raises(ValueError, match="exponent"):
+        build_csr(weak, "leaf.example.test", ["leaf.example.test"])
+    csr = (
+        x509.CertificateSigningRequestBuilder()
+        .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "leaf.example.test")]))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName("leaf.example.test")]), critical=False)
+        .sign(weak, hashes.SHA256())
+    )
+    assert validate_csr(
+        csr.public_bytes(serialization.Encoding.PEM).decode(),
+        "leaf.example.test",
+        ["leaf.example.test"],
+        public_key_sha256(weak.public_key()),
+    ) == ["CSR public key type, size or exponent is unsupported"]
+
+
+def test_validate_csr_returns_problems_for_invalid_version_and_unreadable_key(certs):
+    from app.crypto.csr import build_csr, validate_csr
+    from app.crypto.keys import public_key_sha256
+
+    result = build_csr(certs.leaf_key, "leaf.example.test", ["leaf.example.test"])
+    der = x509.load_pem_x509_csr(result.pem.encode()).public_bytes(serialization.Encoding.DER)
+    expected = public_key_sha256(certs.leaf_key.public_key())
+
+    version_at = der.find(b"\x02\x01\x00")
+    bad_version = der[: version_at + 2] + b"\x01" + der[version_at + 3 :]
+    with pytest.raises(x509.InvalidVersion):
+        x509.load_der_x509_csr(bad_version)
+    assert validate_csr(
+        _pem_from_der(bad_version), "leaf.example.test", ["leaf.example.test"], expected
+    ) == ["CSR could not be parsed"]
+
+    oid_at = der.find(bytes.fromhex("2a864886f70d010101"))
+    broken_key = der[: oid_at + 3] + b"\x55\x1d\x0e\x01\x02\x03" + der[oid_at + 9 :]
+    parsed = x509.load_der_x509_csr(broken_key)
+    with pytest.raises(UnsupportedAlgorithm):
+        parsed.public_key()
+    errors = validate_csr(_pem_from_der(broken_key), "leaf.example.test", ["leaf.example.test"], expected)
+    assert "CSR public key is unreadable" in errors
+    assert len(errors) == len(set(errors))
+
+
+def test_validate_csr_accepts_uppercase_public_hash(certs):
+    from app.crypto.csr import build_csr, validate_csr
+    from app.crypto.keys import public_key_sha256
+
+    result = build_csr(certs.leaf_key, "leaf.example.test", ["leaf.example.test"])
+    assert (
+        validate_csr(
+            result.pem,
+            "leaf.example.test",
+            ["leaf.example.test"],
+            public_key_sha256(certs.leaf_key.public_key()).upper(),
+        )
+        == []
+    )
+
+
+def test_validate_csr_error_list_is_unique(certs):
+    from app.crypto.csr import build_csr, validate_csr
+    from app.crypto.keys import public_key_sha256
+
+    result = build_csr(certs.leaf_key, "leaf.example.test", ["leaf.example.test"])
+    der = x509.load_pem_x509_csr(result.pem.encode()).public_bytes(serialization.Encoding.DER)
+    tampered = _pem_from_der(der[:-1] + bytes([der[-1] ^ 1]))
+    errors = validate_csr(
+        tampered,
+        "leaf.example.test",
+        ["leaf.example.test"],
+        public_key_sha256(certs.leaf_key.public_key()),
+    )
+    assert errors == ["CSR signature is invalid"]
+    assert len(errors) == len(set(errors))

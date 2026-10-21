@@ -9,6 +9,16 @@ import pytest
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Host Docker CLI required")
 @pytest.mark.parametrize("read_only", [False, True])
 def test_documented_bootstrap_uses_runtime_uid_and_only_prints_digest(read_only):
+    if subprocess.run(["sudo", "-n", "true"], check=False, capture_output=True).returncode != 0:
+        pytest.skip("Passwordless sudo required for the bootstrap ownership check")
+    if (
+        subprocess.run(
+            ["docker", "image", "inspect", "cert-dashboard:local"], check=False, capture_output=True
+        ).returncode
+        != 0
+    ):
+        pytest.skip("cert-dashboard:local image required; build it first")
+
     def run(*args):
         return subprocess.run(args, check=True, capture_output=True, text=True, timeout=30)
 

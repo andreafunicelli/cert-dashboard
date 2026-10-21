@@ -14,15 +14,17 @@ type PrivateKeyObject = rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey
 @dataclass(frozen=True)
 class KeySpec:
     kind: Literal["rsa", "ecdsa"] = "rsa"
-    size: int = 2048
+    size: int | None = None
     curve: str | None = None
 
 
 def generate_key(spec: KeySpec) -> PrivateKeyObject:
-    if type(spec.size) is not int:
-        raise ValueError("key size must be an integer")
-    if spec.kind == "rsa" and spec.size in {2048, 3072, 4096} and spec.curve is None:
-        return rsa.generate_private_key(public_exponent=65537, key_size=spec.size)
+    if spec.size is not None and type(spec.size) is not int:
+        raise ValueError("key size must be an integer or None")
+    if spec.kind == "rsa":
+        size = 2048 if spec.size is None else spec.size
+        if size in {2048, 3072, 4096} and spec.curve is None:
+            return rsa.generate_private_key(public_exponent=65537, key_size=size)
     curves = {
         "prime256v1": ec.SECP256R1,
         "secp256r1": ec.SECP256R1,
@@ -34,14 +36,17 @@ def generate_key(spec: KeySpec) -> PrivateKeyObject:
         constructor = curves.get((spec.curve or "secp256r1").casefold())
         if constructor is not None:
             curve = constructor()
-            # The RSA-default size is unused for EC; an explicit EC bit size must match.
-            if spec.size in {2048, curve.key_size}:
+            if spec.size is None or spec.size == curve.key_size:
                 return ec.generate_private_key(curve)
     raise ValueError("unsupported or conflicting key type, size or curve")
 
 
 def _validate(key: PrivateKeyObject) -> None:
-    if isinstance(key, rsa.RSAPrivateKey) and key.key_size in {2048, 3072, 4096}:
+    if isinstance(key, rsa.RSAPrivateKey):
+        if key.key_size not in {2048, 3072, 4096}:
+            raise ValueError("unsupported private key type, size or curve")
+        if key.public_key().public_numbers().e != 65537:
+            raise ValueError("RSA public exponent must be 65537")
         return
     if isinstance(key, ec.EllipticCurvePrivateKey) and isinstance(key.curve, (ec.SECP256R1, ec.SECP384R1)):
         return
@@ -58,10 +63,10 @@ def private_key_pem(key: PrivateKeyObject) -> bytes:
 def load_private_key(pem: bytes) -> PrivateKeyObject:
     try:
         key = serialization.load_pem_private_key(pem, password=None)
-        _validate(key)
-        return key
     except (ValueError, TypeError, UnsupportedAlgorithm):
         raise ValueError("unsupported or malformed private key") from None
+    _validate(key)
+    return key
 
 
 def public_key_sha256(key: rsa.RSAPublicKey | ec.EllipticCurvePublicKey) -> str:
