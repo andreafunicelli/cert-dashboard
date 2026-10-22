@@ -51,7 +51,7 @@ def test_application_services_are_hardened():
         assert svc["restart"] == "unless-stopped"
         assert svc["logging"]["options"] == {"max-size": "50m", "max-file": "5"}
     assert services["web"]["image"] == services["worker"]["image"]
-    assert services["web"]["command"] == ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    assert services["web"]["command"] == ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-proxy-headers", "--no-access-log"]
 
 
 def test_owner_secret_only_reaches_db_or_one_shot_migration():

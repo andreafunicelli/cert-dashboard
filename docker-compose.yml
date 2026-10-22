@@ -50,8 +50,11 @@ services:
       retries: 10
   web:
     <<: *app
+    environment:
+      <<: *app-env
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
     mem_limit: 1g
-    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000"]
+    command: [uvicorn, app.main:app, --host, 0.0.0.0, --port, "8000", --no-proxy-headers, --no-access-log]
     ports: ["127.0.0.1:8000:8000"]
     tmpfs: [/tmp:noexec,nosuid,nodev,size=64m,mode=1777]
     secrets:

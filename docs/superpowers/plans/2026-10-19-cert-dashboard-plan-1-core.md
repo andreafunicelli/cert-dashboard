@@ -344,7 +344,9 @@ def test_totp_is_single_use(db, user, keyring, actor):
 
 ### Task 10: Server sessions, CSRF, and web error foundation
 
-**Files:** Create: `app/auth/sessions.py`, `app/main.py`, `app/templates/base.html.j2`, `app/templates/error.html.j2`, `app/static/app.css`. Test: `tests/integration/test_sessions_http.py`, `tests/integration/conftest.py`.
+**Implementation decisions:** `Settings.trusted_proxies` loads comma-separated `TRUSTED_PROXIES` CIDRs (default empty). Honor X-Forwarded-For only from a trusted transport peer, scanning right-to-left for the first untrusted hop; malformed/all-trusted chains fall back to the peer. The image and Compose commands disable Uvicorn proxy reinterpretation and raw access logs; structured logs contain route templates and generated request IDs, never cookies, body/query values or exception text. All non-GET bodies are bounded to 4 MiB and multipart spool thresholds match this hard cap, keeping plaintext uploads in memory; Task 15 still enforces 1 MiB per object. Reusable `rotate_session`, cookie and signed pre-auth CSRF helpers live in `auth/sessions.py`; test-only login/MFA/logout routes exercise them until Task 11 owns real forms. Configure Jinja autoescape explicitly for `.html.j2`.
+
+**Files:** Create: `app/auth/sessions.py`, `app/main.py`, `app/templates/base.html.j2`, `app/templates/error.html.j2`, `app/static/app.css`. Modify: `app/config.py`, `Dockerfile`, `docker-compose.yml`, `docs/development.md`. Test: `tests/integration/test_sessions_http.py`, `tests/integration/conftest.py`, `tests/unit/test_topology.py`.
 
 **Interfaces:** Consumes: `assert_database_ready(engine: Engine, timeout_seconds: int = 60) -> None`, `AuthBackend.authenticate(username: str, password: str) -> AuthResult`, `Settings`, `Actor`, `SecretRedactionFilter`, Task 8 `allow_login_attempt(factory: sessionmaker[Session], source_ip: str, now: datetime) -> bool`. Produces: `create_app(settings: Settings | None = None) -> FastAPI`, module `app`; `issue_session(db: Session, user_id: int, now: datetime, ip: str, user_agent: str, authenticated: bool = True) -> UserSession`; `resolve_session(db: Session, cookie: str, now: datetime) -> UserSession | None`; `revoke_sessions(db: Session, user_id: int, now: datetime) -> int`; FastAPI `require_user(request: Request) -> UserRecord` and `require_admin(request: Request) -> UserRecord`; `check_csrf(request: Request, session: UserSession | None) -> None`.
 
@@ -418,6 +420,8 @@ def test_claims_are_exclusive(queue_factory, seeded_jobs, now):
 - [ ] Commit: `git add app/jobs tests/integration/test_queue.py`; `git commit -m "feat: add transactional Postgres job queue and timeout reaper"`.
 
 ### Task 13: Worker registry, scheduler shell, liveness, and cleanup
+
+**Login-counter retention:** The cleanup job deletes `login_rate_limit` rows with `window_start < now - interval '1 day'`; retain all current/recent minute buckets. Test deletion of old IPv4/IPv6 rows and preservation of current buckets so cleanup cannot reset active throttling.
 
 **Files:** Create: `app/jobs/worker.py`, `app/jobs/handlers/__init__.py`, `app/jobs/handlers/cleanup.py`. Modify: `app/main.py`, `app/config.py`. Test: `tests/integration/test_worker.py`.
 

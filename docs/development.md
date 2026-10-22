@@ -32,8 +32,8 @@ Docker-CLI checks skip inside the application test image, which has no host Dock
 command runs only tests/unit; the full suite runs on the Docker-enabled host.
 Unit tests do not contact network services. Prepare images/dependencies before running tests.
 
-The v1 database schema, owner migration path, and runtime readiness checker are
-implemented. `app.main` and the worker loop arrive in later reviewed plan tasks.
+The v1 database schema, owner migration path, runtime readiness checker and web
+foundation are implemented. Account forms and the worker loop arrive in later reviewed plan tasks.
 The test Compose app runs unit smoke checks after its owner-only migrate service
 completes; the full integration suite runs on the Docker-enabled host.
 
@@ -130,3 +130,27 @@ export capability arrives in its later plan task.
 A missing referenced version is reported by `missing_master_key_versions` and
 blocks dependent unwrap/rotation operations. Public inventory remains readable.
 Rotation keeps plaintext in a one-row helper and never writes it to SQL or files.
+
+
+## Web sessions and reverse proxies
+
+Set `TRUSTED_PROXIES` to a comma-separated list of the actual reverse-proxy CIDRs
+when needed. It defaults to empty; forwarded headers from every other direct peer
+are ignored. For a trusted peer, the right-most untrusted X-Forwarded-For hop is
+the client; malformed or all-trusted chains fall back to the peer. Prefer individual
+proxy /32 or /128 addresses. Compose passes this setting only to web. Keep
+`--no-proxy-headers --no-access-log` when starting Uvicorn manually, matching the
+image/Compose commands: application middleware owns trust decisions and emits
+structured request logs without raw URLs, query strings, cookies or exception text.
+
+`create_app()` loads default secrets only in lifespan. Tests inject settings, a real
+PostgreSQL session factory and clock before entering TestClient. The app exposes
+health/static routes; account/login forms arrive in Task 11. No `/_test` routes ship
+in production. Reusable session rotation revokes the old ID and replaces both ID
+and CSRF token. Pending MFA sessions last at most ten minutes and confer no admin
+authority. Authentication completes only after the caller verifies its factors.
+
+Every non-GET requires session CSRF, or a signed ten-minute double-submit token
+before authentication. Bodies are bounded to 4 MiB; multipart parts stay in memory.
+Per-file 1 MiB limits remain the upload service's responsibility. Connection
+acquisition retries once; request mutations and partially committed work never replay.

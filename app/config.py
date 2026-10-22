@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
+from ipaddress import ip_network
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -40,6 +41,14 @@ class Settings(DatabaseSettings):
     inventory_root: Path = Path("/srv/inventory")
     artifacts_root: Path = Path("/srv/artifacts")
     key_staging_dir: Path = Path("/run/cert-keys")
+    trusted_proxies: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        try:
+            networks = tuple(str(ip_network(value, strict=False)) for value in self.trusted_proxies)
+        except (ValueError, TypeError):
+            raise ConfigurationError("TRUSTED_PROXIES: expected IPv4/IPv6 CIDRs") from None
+        object.__setattr__(self, "trusted_proxies", networks)
 
     @property
     def ssh_available(self) -> bool:
@@ -56,7 +65,6 @@ class Settings(DatabaseSettings):
             "ansible_ssh_key_present": self.ssh_available,
             "smtp_password_present": self.smtp_password is not None,
         }
-
 
 
 def _secret(
@@ -105,10 +113,14 @@ def load_settings(
     session = _secret("session_secret", environ, secrets_dir, required=True) if profile == "web" else None
     if session is not None and len(session) < 32:
         raise ConfigurationError("session_secret: expected at least 32 random bytes")
-    worker_secrets = {
-        name: _secret(name, environ, secrets_dir)
-        for name in ("ansible_ssh_key", "ansible_vault_password", "inventory_git_token", "smtp_password")
-    } if profile == "worker" else {}
+    worker_secrets = (
+        {
+            name: _secret(name, environ, secrets_dir)
+            for name in ("ansible_ssh_key", "ansible_vault_password", "inventory_git_token", "smtp_password")
+        }
+        if profile == "worker"
+        else {}
+    )
     ssh_key = worker_secrets.get("ansible_ssh_key")
     if ssh_key is not None:
         from cryptography.hazmat.primitives import serialization
@@ -122,10 +134,17 @@ def load_settings(
             # Parser/backend failures must not expose key material or internals.
             raise ConfigurationError("ansible_ssh_key: expected an unencrypted SSH private key") from None
     return Settings(
-        profile=profile, keyring=ring, keyring_sha256=hashlib.sha256(master).hexdigest(),
+        profile=profile,
+        keyring=ring,
+        keyring_sha256=hashlib.sha256(master).hexdigest(),
         **asdict(database),
-        session_secret=session, worker_concurrency=_positive_int(environ, "WORKER_CONCURRENCY", 4),
-        max_parallel_jobs=_positive_int(environ, "MAX_PARALLEL_JOBS", 2), **worker_secrets,
+        session_secret=session,
+        worker_concurrency=_positive_int(environ, "WORKER_CONCURRENCY", 4),
+        max_parallel_jobs=_positive_int(environ, "MAX_PARALLEL_JOBS", 2),
+        **worker_secrets,
+        trusted_proxies=tuple(
+            value.strip() for value in environ.get("TRUSTED_PROXIES", "").split(",") if value.strip()
+        ),
     )
 
 
@@ -134,7 +153,9 @@ def load_database_settings(environ: Mapping[str, str], secrets_dir: Path) -> Dat
     password = _secret("db_password", environ, secrets_dir, required=True)
     assert password is not None
     return DatabaseSettings(
-        db_password=password, db_host=environ.get("DB_HOST", "db"),
+        db_password=password,
+        db_host=environ.get("DB_HOST", "db"),
         db_port=_positive_int(environ, "DB_PORT", 5432, 65535),
-        db_name=environ.get("DB_NAME", "cert_dashboard"), db_user=environ.get("DB_USER", "app_role"),
+        db_name=environ.get("DB_NAME", "cert_dashboard"),
+        db_user=environ.get("DB_USER", "app_role"),
     )

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}Cert Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="/static/app.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+<header><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+  {% for item in navigation %}
+    {% if item.enabled %}<a href="{{ item.url }}">{{ item.label }}</a>
+    {% else %}<span aria-disabled="true" title="{{ item.reason }}">{{ item.label }}</span>{% endif %}
+  {% endfor %}
+  </nav>
+  {% if user %}<details><summary>{{ user.display_name }}</summary>
+    <span aria-disabled="true" title="Available with account management">Account</span>
+    <span aria-disabled="true" title="Available with user management">Users</span>
+  </details>{% endif %}
+</header>
+{% block status_banner %}{% if status_banner %}<aside role="status">{{ status_banner }}</aside>{% endif %}{% endblock %}
+<main>{% block content %}{% endblock %}</main>
+{% block scripts %}{% endblock %}
+</body>
+</html>
