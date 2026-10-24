@@ -225,7 +225,14 @@ def test_finish_failed_stores_redacted_truncated_message(queue_factory, now):
 
 @pytest.mark.parametrize(
     "bad_class",
-    ["password=fixture-class-secret", "Bearer fixture-class-token", "has space", "x" * 200, ""],
+    [
+        "password=fixture-class-secret",
+        "Bearer fixture-class-token",
+        "has space",
+        "x" * 200,
+        "",
+        "fixturecredentialvalue",
+    ],
 )
 def test_finish_never_persists_unsafe_error_class(queue_factory, now, bad_class):
     job_id = add_job(queue_factory, now)
@@ -236,7 +243,7 @@ def test_finish_never_persists_unsafe_error_class(queue_factory, now, bad_class)
     assert row.status == JobStatus.FAILED and row.error_class == "internal"
     (audit,) = audits(queue_factory, "job.failed")
     assert audit.details["error_class"] == "internal"
-    for value in ("fixture-class-secret", "fixture-class-token"):
+    for value in ("fixture-class-secret", "fixture-class-token", "fixturecredentialvalue"):
         assert value not in str(
             (row.error_class, row.error_message, row.result, audit.details, audit.actor_label)
         )

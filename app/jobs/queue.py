@@ -5,7 +5,6 @@ with the state change they describe, so a rollback removes both. ``now`` is alwa
 """
 
 import math
-import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -20,7 +19,6 @@ from app.models.enums import JobHostStatus, JobStatus, JobType
 from app.services.audit import Actor, record, redact
 
 ERROR_MESSAGE_LIMIT = 2_000
-_ERROR_CLASS_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
 TIMEOUT_MESSAGE = "Job exceeded its time limit or its worker stopped responding."
 WORKER_LOST = "worker_lost"
 SYSTEM_ACTOR = Actor(None, "system")
@@ -47,6 +45,10 @@ RETRY_POLICY: dict[JobType, RetryPolicy] = {
     JobType.CLEANUP: RetryPolicy(2, frozenset({"transient_network", "operational"})),
     JobType.DEPLOY: RetryPolicy(1, frozenset()),
 }
+# Finite set of classifications a failure may carry. Anything else is persisted as ``internal``.
+ALLOWED_ERROR_CLASSES: frozenset[str] = NON_RETRYABLE_CLASSES.union(
+    *(policy.retryable for policy in RETRY_POLICY.values())
+)
 # Delay after the Nth failed attempt. Attempts are capped at 3 in total, so 300 s is never used.
 _RETRY_DELAYS = {1: 30, 2: 120, 3: 300}
 
@@ -56,12 +58,12 @@ class StaleJobError(Exception):
 
 
 def safe_error_class(value: str | None) -> str:
-    """Return ``value`` only if it is a plain classification token the redaction leaves alone.
+    """Return ``value`` only if it is one of the recognized classifications, else ``internal``.
 
-    Anything else (free text, ``key=value`` pairs, tokens, empty) collapses to ``internal`` so a
-    caller-supplied class can never smuggle a secret into ``job.error_class`` or the audit log.
+    The set is finite (``ALLOWED_ERROR_CLASSES``), so free text, ``key=value`` pairs, bare
+    tokens and unknown names can never smuggle a secret into ``job.error_class`` or the audit log.
     """
-    if isinstance(value, str) and _ERROR_CLASS_PATTERN.fullmatch(value) and redact(value) == value:
+    if isinstance(value, str) and value in ALLOWED_ERROR_CLASSES:
         return value
     return "internal"
 

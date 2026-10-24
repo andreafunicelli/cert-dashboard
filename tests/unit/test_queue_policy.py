@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.jobs.queue import (
+    ALLOWED_ERROR_CLASSES,
     NON_RETRYABLE_CLASSES,
     RETRY_POLICY,
     JobFailure,
@@ -151,7 +152,17 @@ def test_enqueue_rejects_naive_run_after_and_unknown_scheduled_reason():
 
 
 @pytest.mark.parametrize(
-    "bad", ["password=fixture-class-secret", "Bearer fixture-class-token", "has space", "x" * 200, ""]
+    "bad",
+    [
+        "password=fixture-class-secret",
+        "Bearer fixture-class-token",
+        "has space",
+        "x" * 200,
+        "",
+        "fixturecredentialvalue",
+        "surprising",
+        "AUTH",
+    ],
 )
 def test_job_failure_normalizes_unsafe_error_class(bad):
     failure = JobFailure(bad, "failure")
@@ -169,3 +180,14 @@ def test_safe_error_class_keeps_plain_classifications():
     assert safe_error_class("transient_network") == "transient_network"
     assert safe_error_class("smtp_transient") == "smtp_transient"
     assert safe_error_class(None) == "internal"
+
+
+def test_safe_error_class_allowlist_is_the_policy_classes():
+    allowed = set(NON_RETRYABLE_CLASSES)
+    for policy in RETRY_POLICY.values():
+        allowed |= policy.retryable
+    assert allowed == ALLOWED_ERROR_CLASSES
+    for value in sorted(allowed):
+        assert safe_error_class(value) == value
+    assert safe_error_class("fixturecredentialvalue") == "internal"
+    assert JobFailure("fixturecredentialvalue", "failure").error_class == "internal"
