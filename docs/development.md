@@ -32,8 +32,9 @@ Docker-CLI checks skip inside the application test image, which has no host Dock
 command runs only tests/unit; the full suite runs on the Docker-enabled host.
 Unit tests do not contact network services. Prepare images/dependencies before running tests.
 
-The v1 database schema, owner migration path, runtime readiness checker and web
-foundation are implemented. Account forms and the worker loop arrive in later reviewed plan tasks.
+The v1 database schema, owner migration path, runtime readiness checker, web
+foundation, sign-in/MFA flow and account-security forms are implemented. The worker
+loop arrives in a later reviewed plan task.
 The test Compose app runs unit smoke checks after its owner-only migrate service
 completes; the full integration suite runs on the Docker-enabled host.
 
@@ -86,6 +87,64 @@ The offline htmx asset is upstream v2.0.8 from
 `app/static/htmx.LICENSE`; the bundled JS SHA-256 is
 `22283ef68cb7545914f0a88a1bdedc7256a703d1d580c1d255217d0a50d31313`.
 
+
+## Administrator bootstrap, sign-in and MFA
+
+No web route creates the first administrator. After migrations, run the CLI in the
+web service, which already mounts `master_key` and `db_password`:
+
+```sh
+docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal
+```
+
+The command reads the password twice with getpass, compares the two entries and exits
+1 on mismatch. `BOOTSTRAP_ADMIN_PASSWORD` replaces both prompts; the CLI reads it once
+and removes it from its process environment, so pass it as an environment variable and
+never as an argument:
+
+```sh
+docker compose run --rm -e BOOTSTRAP_ADMIN_PASSWORD web python -m app.cli bootstrap-admin --username admin --email admin@example.internal
+```
+
+The password never reaches argv, stdout, logs or audit details; the audited
+`user.bootstrap_admin` row records the username only. Bootstrap and password changes
+share `hash_password`: at least 12 characters, at most 1024 UTF-8 bytes, and not in
+the vendored top-1000 denylist (case-insensitive). A refused password exits 1 without
+creating a user. Username and email are stripped, must be non-empty and at most 254
+characters; a duplicate username is refused, and `user.username` is `citext`, so that
+check is case-insensitive. The new account is an active local administrator with
+`must_change_password` false.
+
+With no active user, `GET /login` redirects once (303) to `/login?bootstrap=1`, which
+shows the command above; there is no registration route. Once an administrator exists
+the same URL renders the normal sign-in form.
+
+`POST /login` requires CSRF, then consumes one PostgreSQL-backed attempt for the
+source IP (UTC minute window, IPv6 /128): the sixth attempt within a minute returns 429
+with `Retry-After: 60`. Unknown, wrong-password and inactive accounts all return the
+same "Invalid credentials." message. Ten consecutive failures lock the account for 15
+minutes; locked sign-in attempts return 423 with a distinct message. Successful sign-in
+lands on `/account`; there is no `next` parameter, so no open redirect. `POST /logout`
+(CSRF required) revokes only the current session and clears the cookie.
+
+Accounts with TOTP enabled get a pending session with no admin authority and a 303 to
+`/login/2fa`, which accepts a TOTP code (SHA-1, 6 digits, 30-second step, ±1 step) or
+one recovery code. Every code and time step is single use, and MFA failures share the
+same lockout counter and IP rate limit. `/account` owns the security forms: password
+changes, enrollment and disabling re-authenticate the current password, while
+confirmation requires a TOTP code; a wrong current password counts toward the same
+lockout counter. Enrollment renders the secret, provisioning URI and
+ten recovery codes once in the POST response with `Cache-Control: no-store`, and
+stores only the encrypted secret plus argon2 hashes of the codes; confirmation enables
+TOTP; disabling requires the current password and deletes all TOTP material. Password
+changes, TOTP enable/disable and enrollment restarts revoke every session and reissue
+one for the acting browser, so other browsers must sign in again. The remaining
+recovery-code count is shown on `/account`.
+
+There is no self-service or email password reset; the sign-in page tells users to
+contact another administrator. While `must_change_password` is set, `require_user`
+allows only `GET /account`, `POST /account/password` and `POST /logout`; every other
+route returns 403.
 
 ## Key custody and rotation
 
@@ -145,10 +204,11 @@ structured request logs without raw URLs, query strings, cookies or exception te
 
 `create_app()` loads default secrets only in lifespan. Tests inject settings, a real
 PostgreSQL session factory and clock before entering TestClient. The app exposes
-health/static routes; account/login forms arrive in Task 11. No `/_test` routes ship
-in production. Reusable session rotation revokes the old ID and replaces both ID
-and CSRF token. Pending MFA sessions last at most ten minutes and confer no admin
-authority. Authentication completes only after the caller verifies its factors.
+health/static routes, the `/login`, `/login/2fa`, `/logout` and `/account` routes. No
+`/_test` routes ship in production. Reusable session rotation revokes the old ID and
+replaces both ID and CSRF token. Pending MFA sessions last at most ten minutes and
+confer no admin authority. Authentication completes only after the caller verifies its
+factors.
 
 Every non-GET requires session CSRF, or a signed ten-minute double-submit token
 before authentication. Bodies are bounded to 4 MiB; multipart parts stay in memory.

@@ -176,7 +176,7 @@ def test_row_binding_and_tamper(keyring):
 
 `KeySpec.size=None` means the default: RSA 2048, or the curve's size for ECDSA; an explicit ECDSA size must equal the curve size.
 
-- [ ] Write failing tests (generated fixtures include named leaf, root, two intermediates and their keys):
+- [x] Write failing tests (generated fixtures include named leaf, root, two intermediates and their keys):
 
 ```python
 @pytest.mark.parametrize('size', [2048,3072,4096])
@@ -190,10 +190,10 @@ def test_rsa_csr(size):
 ```
 
   Add P-256/P-384 curve tests, DNS/IP/email/URI SAN preservation (DNS lowercase and IDNA A-labels; compare typed sets; include CN once), CN-only subject, invalid size/curve, independent SPKI digest comparison, same-algorithm wrong-key and curve/size mismatch assertions. CSR fingerprint means SHA-256 of DER, explicitly resolving the spec's unspecified encoding.
-- [ ] Run `uv run pytest tests/unit/test_keys_csr.py -q`; expect FAIL, generation/CSR absent.
-- [ ] Implement the signatures in `keys.py`/`csr.py` using cryptography. Accept typed SAN prefixes `DNS:`, `IP:`, `email:`, `URI:`; infer unprefixed DNS/IP, normalize only DNS; append canonical CN to SANs if absent, deduplicating typed identities. Reject empty supplied SAN lists and more than 100 entries, and enforce the final 100-identity limit after CN inclusion. DNS uses the locked idna dependency with non-transitional UTS #46 and STD3 rules (preserve ß as its A-label, never silently map it to ss); reject empty labels, underscores, leading/trailing hyphens, trailing root dots, labels over 63 ASCII bytes, and names over 253 ASCII bytes. A wildcard must be the complete left-most label. CN must be DNS/IP and fit the X.509 64-byte limit; longer valid names remain usable as SANs. IPv4/IPv6 use IPAddress, including CN insertion; reject DNS-encoded IPs during validation, scoped addresses and malformed dotted quads. Email/absolute ASCII URI payloads retain case and type. KeySpec size defaults to None (RSA means 2048); ECDSA derives its size from the curve (default P-256), accepts its matching explicit bit size, and rejects any explicit mismatch. Accept secp256r1/prime256v1/P-256 and secp384r1/P-384 aliases. Validate CSR signature, SHA-256 digest algorithm, CN-only subject, typed SAN set and SPKI identity, returning all fixed diagnostics without echoing input. Generated fixtures stay in memory at session scope. Canonical storage uses unprefixed lowercase DNS/canonical IP and explicit email:/URI: prefixes; comparisons use the same typed canonical set throughout.
-- [ ] Run `uv run pytest tests/unit/test_keys_csr.py -q`; expect PASS.
-- [ ] Commit: `git add app/crypto/keys.py app/crypto/csr.py tests/fixtures tests/conftest.py tests/unit/test_keys_csr.py pyproject.toml uv.lock docs/superpowers/specs/2026-10-19-cert-dashboard-design.md docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`; `git commit -m "feat: generate supported keys and verifiable CSRs"`.
+- [x] Run `uv run pytest tests/unit/test_keys_csr.py -q`; expect FAIL, generation/CSR absent.
+- [x] Implement the signatures in `keys.py`/`csr.py` using cryptography. Accept typed SAN prefixes `DNS:`, `IP:`, `email:`, `URI:`; infer unprefixed DNS/IP, normalize only DNS; append canonical CN to SANs if absent, deduplicating typed identities. Reject empty supplied SAN lists and more than 100 entries, and enforce the final 100-identity limit after CN inclusion. DNS uses the locked idna dependency with non-transitional UTS #46 and STD3 rules (preserve ß as its A-label, never silently map it to ss); reject empty labels, underscores, leading/trailing hyphens, trailing root dots, labels over 63 ASCII bytes, and names over 253 ASCII bytes. A wildcard must be the complete left-most label. CN must be DNS/IP and fit the X.509 64-byte limit; longer valid names remain usable as SANs. IPv4/IPv6 use IPAddress, including CN insertion; reject DNS-encoded IPs during validation, scoped addresses and malformed dotted quads. Email/absolute ASCII URI payloads retain case and type. KeySpec size defaults to None (RSA means 2048); ECDSA derives its size from the curve (default P-256), accepts its matching explicit bit size, and rejects any explicit mismatch. Accept secp256r1/prime256v1/P-256 and secp384r1/P-384 aliases. Validate CSR signature, SHA-256 digest algorithm, CN-only subject, typed SAN set and SPKI identity, returning all fixed diagnostics without echoing input. Generated fixtures stay in memory at session scope. Canonical storage uses unprefixed lowercase DNS/canonical IP and explicit email:/URI: prefixes; comparisons use the same typed canonical set throughout.
+- [x] Run `uv run pytest tests/unit/test_keys_csr.py -q`; expect PASS.
+- [x] Commit: `git add app/crypto/keys.py app/crypto/csr.py tests/fixtures tests/conftest.py tests/unit/test_keys_csr.py pyproject.toml uv.lock docs/superpowers/specs/2026-10-19-cert-dashboard-design.md docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`; `git commit -m "feat: generate supported keys and verifiable CSRs"`.
 
 ### Task 6: Certificate parsing and chain normalization
 
@@ -203,7 +203,7 @@ def test_rsa_csr(size):
 
 `parse_certificates` rejects truncated or stray PEM blocks, non-whitespace data after the last certificate block, and more than 32 certificates per input (BEGIN markers counted before decoding); leading human-readable text before the first block is allowed. `order_chain` prefers a complete path ending at a supplied root (bounded depth-first search, max depth 16 plus a node budget), falls back to the longest path with the lowest fingerprint sequence, reports `truncated=True` with a `depth-limit`/`budget` note and `missing_issuer=None` when a cap (not absence) ends the search, and returns unchosen same-subject cross-sign fingerprints in `alternates` (note `cross-sign`).
 
-- [ ] Write failing Review Focus tests:
+- [x] Write failing Review Focus tests:
 
 ```python
 def test_reverse_chain_and_root_removal(certs):
@@ -222,10 +222,10 @@ def test_garbage_is_typed(raw):
 ```
 
   Add DER/PEM independent SHA-256, CN-less SAN fallback, serial normalization, wildcard/IP/email/URI extraction, future/expired times, unrelated issuer, forged signature, non-certificate blocks in chain, ambiguous cross-sign paths, and self-signed leaf tests. A non-root top intermediate may omit its root; verify root signature when supplied before dropping it, never imply trust validation.
-- [ ] Run `uv run pytest tests/unit/test_parse_chain.py -q`; expect FAIL, parser/builder absent.
-- [ ] Implement in `parse.py` and `chain.py`. Order known issuer-DN/signature links, reject malformed blocks or a forged claimed issuer link, dedupe fingerprints and exclude self-signed roots from stored/output chains with audit notes. Missing links and disconnected components produce missing_issuer diagnostics and deterministic issuer-topological/fingerprint order, not a blocking completeness exception; retain supplied roots in diagnostic_roots in memory only for Task 6A. Do not infer that an absent issuer is a root. Trust/completeness is decided by PolicyBuilder/Store in Task 6A, replacing the prior structural-only assumption. No AIA fetching or revocation checks.
-- [ ] Run `uv run pytest tests/unit/test_parse_chain.py -q`; expect PASS.
-- [ ] Commit: `git add app/crypto/parse.py app/crypto/chain.py tests/unit/test_parse_chain.py`; `git commit -m "feat: parse certificates and normalize verified chains"`.
+- [x] Run `uv run pytest tests/unit/test_parse_chain.py -q`; expect FAIL, parser/builder absent.
+- [x] Implement in `parse.py` and `chain.py`. Order known issuer-DN/signature links, reject malformed blocks or a forged claimed issuer link, dedupe fingerprints and exclude self-signed roots from stored/output chains with audit notes. Missing links and disconnected components produce missing_issuer diagnostics and deterministic issuer-topological/fingerprint order, not a blocking completeness exception; retain supplied roots in diagnostic_roots in memory only for Task 6A. Do not infer that an absent issuer is a root. Trust/completeness is decided by PolicyBuilder/Store in Task 6A, replacing the prior structural-only assumption. No AIA fetching or revocation checks.
+- [x] Run `uv run pytest tests/unit/test_parse_chain.py -q`; expect PASS.
+- [x] Commit: `git add app/crypto/parse.py app/crypto/chain.py tests/unit/test_parse_chain.py`; `git commit -m "feat: parse certificates and normalize verified chains"`.
 
 ### Task 6A: Offline trust-anchor assessment and root-management service
 
@@ -233,7 +233,7 @@ def test_garbage_is_typed(raw):
 
 **Interfaces:** Consumes: Task 2 `TrustAnchor`, `ChainStatus`, `AppSetting`, `Certificate`; `ChainResult` including in-memory diagnostic_roots; Task 3 audit. Produces: `AnchorValidationError(ValueError)`; `ChainAssessment(status: ChainStatus, messages: tuple[str,...], validation_time: datetime)`; `assess_chain(leaf: x509.Certificate, intermediates: Sequence[x509.Certificate], anchors: Sequence[x509.Certificate], validation_time: datetime, diagnostic_roots: Sequence[x509.Certificate] = ()) -> ChainAssessment` in crypto/trust.py; `load_anchors(db: Session) -> tuple[x509.Certificate,...]`; `add_anchor(db: Session, pem: bytes, notes: str | None, actor: Actor, validation_time: datetime) -> TrustAnchor`; `remove_anchor(db: Session, anchor_id: int, actor: Actor, validation_time: datetime) -> None`; `recheck_chain_statuses(db: Session, validation_time: datetime, diagnostic_roots: Sequence[x509.Certificate] = ()) -> dict[str,int]` in services/trust_anchors.py. Service is this task; upload/delete/toggle UI is Task 23.
 
-- [ ] Write failing offline tests using a complete internal chain with serverAuth/CA constraints compatible with the verifier:
+- [x] Write failing offline tests using a complete internal chain with serverAuth/CA constraints compatible with the verifier:
 
 ```python
 def test_internal_anchor_and_missing_paths(certs, now):
@@ -254,10 +254,10 @@ def test_expired_intermediate_and_non_ca_anchor(db, certs, actor, now):
 ```
 
   Add valid uploaded root→existing certificate status trusted, removal→untrusted_root using removed root as diagnostic, public-bundle toggle recomputation, duplicates, oversized/non-PEM/multiple/non-self-signed/forged CA rejection, default unchecked, no-path incomplete, validation-time boundary, and audit/transaction rollback assertions. With public bundle off, certifi roots cannot confer trust; enabling it only reads pinned packaged bytes. Assert the bundle is never inserted into trust_anchor and tests never make network calls. `AnchorValidationError` is a typed value error from services/trust_anchors.py; fixture generation remains local.
-- [ ] Run `uv run pytest tests/unit/test_trust.py tests/integration/test_trust_anchors.py -q`; expect FAIL, trust APIs absent.
-- [ ] Implement the exact signatures above. Use `cryptography.x509.verification.PolicyBuilder().time(validation_time).store(Store(anchors))` and a server verifier, choosing DNS/IP SAN identity (expand a wildcard with a fixed representative label); absent TLS identity is a non-trusted policy diagnostic. An empty enabled anchor set is handled without constructing an invalid empty Store. Map verified paths to trusted; a valid connected path to a supplied/known self-signed non-anchor to untrusted_root; missing issuer, expired intermediate, or policy failure to incomplete. Use stable diagnostic codes plus issuer/root names; never promote a root from the upload automatically. Read certifi.where() locally only when enabled, pin certifi in Task 1's uv.lock, and merge enabled anchors in memory. Validate uploaded CA:TRUE/root self-signature and CA signing usage, fingerprint-dedupe, audit trust_anchor.add/remove, then recheck all ≤500 cached statuses synchronously in the same caller transaction; pass the removed root as diagnostic only. Changed statuses emit certificate.chain_check with validation_time. No new migration/job type here and no network fetching.
-- [ ] Run `uv run pytest tests/unit/test_trust.py tests/integration/test_trust_anchors.py -q`; expect PASS.
-- [ ] Commit: `git add app/crypto/trust.py app/services/trust_anchors.py tests/fixtures/certificates.py tests/unit/test_trust.py tests/integration/test_trust_anchors.py`; `git commit -m "feat: assess certificate paths against configured trust anchors"`.
+- [x] Run `uv run pytest tests/unit/test_trust.py tests/integration/test_trust_anchors.py -q`; expect FAIL, trust APIs absent.
+- [x] Implement the exact signatures above. Use `cryptography.x509.verification.PolicyBuilder().time(validation_time).store(Store(anchors))` and a server verifier, choosing DNS/IP SAN identity (expand a wildcard with a fixed representative label); absent TLS identity is a non-trusted policy diagnostic. An empty enabled anchor set is handled without constructing an invalid empty Store. Map verified paths to trusted; a valid connected path to a supplied/known self-signed non-anchor to untrusted_root; missing issuer, expired intermediate, or policy failure to incomplete. Use stable diagnostic codes plus issuer/root names; never promote a root from the upload automatically. Read certifi.where() locally only when enabled, pin certifi in Task 1's uv.lock, and merge enabled anchors in memory. Validate uploaded CA:TRUE/root self-signature and CA signing usage, fingerprint-dedupe, audit trust_anchor.add/remove, then recheck all ≤500 cached statuses synchronously in the same caller transaction; pass the removed root as diagnostic only. Changed statuses emit certificate.chain_check with validation_time. No new migration/job type here and no network fetching.
+- [x] Run `uv run pytest tests/unit/test_trust.py tests/integration/test_trust_anchors.py -q`; expect PASS.
+- [x] Commit: `git add app/crypto/trust.py app/services/trust_anchors.py tests/fixtures/certificates.py tests/unit/test_trust.py tests/integration/test_trust_anchors.py`; `git commit -m "feat: assess certificate paths against configured trust anchors"`.
 
 ### Task 7: PFX import and password-protected construction
 
@@ -269,7 +269,7 @@ A v1 CA certificate without BasicConstraints is indistinguishable from a self-si
 
 **Interfaces:** Consumes: `PrivateKeyObject`, `order_chain(leaf: x509.Certificate, candidates: Sequence[x509.Certificate]) -> ChainResult`. Produces: `PFXMaterial(key: PrivateKeyObject | None, leaf: x509.Certificate, chain: tuple[x509.Certificate,...])`; `read_pfx(data: bytes, password: str | None) -> PFXMaterial`; `build_pfx(key: PrivateKeyObject, leaf: x509.Certificate, chain: Sequence[x509.Certificate], password: str, friendly_name: str) -> bytes`; `PFXError(code: str, message: str)`.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_password_and_contents(certs):
@@ -282,10 +282,10 @@ def test_password_and_contents(certs):
 ```
 
   Add <12-character export password, mismatched key, no leaf, public-only PFX, malformed data, and an unsupported-algorithm loader exception fixture asserting `code == 'unsupported_encryption'` and an offline modern-PFX re-export hint. Generate/check an RC2 fixture only where the pinned backend supports it: successful import must normalize normally; unsupported RC2 must produce that typed hint. Do not silently enable system legacy providers or weaken new exports.
-- [ ] Run `uv run pytest tests/unit/test_pfx.py -q`; expect FAIL, PFX API absent.
-- [ ] Implement with cryptography `pkcs12.load_key_and_certificates` and `serialize_key_and_certificates`, `BestAvailableEncryption`, friendly name UTF-8 CN, normalized intermediate-only chain, and in-memory bytes. For keyless bundles choose the unique end-entity certificate from returned certificates; reject zero or multiple candidate leaves with a typed error. Separate wrong-password/corrupt-bundle errors from `UnsupportedAlgorithm` without echoing passwords or promising diagnosis a backend cannot distinguish.
-- [ ] Run `uv run pytest tests/unit/test_pfx.py -q`; expect PASS.
-- [ ] Commit: `git add app/crypto/pfx.py tests/unit/test_pfx.py`; `git commit -m "feat: import and build password-protected PFX bundles"`.
+- [x] Run `uv run pytest tests/unit/test_pfx.py -q`; expect FAIL, PFX API absent.
+- [x] Implement with cryptography `pkcs12.load_key_and_certificates` and `serialize_key_and_certificates`, `BestAvailableEncryption`, friendly name UTF-8 CN, normalized intermediate-only chain, and in-memory bytes. For keyless bundles choose the unique end-entity certificate from returned certificates; reject zero or multiple candidate leaves with a typed error. Separate wrong-password/corrupt-bundle errors from `UnsupportedAlgorithm` without echoing passwords or promising diagnosis a backend cannot distinguish.
+- [x] Run `uv run pytest tests/unit/test_pfx.py -q`; expect PASS.
+- [x] Commit: `git add app/crypto/pfx.py tests/unit/test_pfx.py`; `git commit -m "feat: import and build password-protected PFX bundles"`.
 
 ### Task 8: Pluggable password authentication and account lockout
 
@@ -295,7 +295,7 @@ def test_password_and_contents(certs):
 
 **Interfaces:** Consumes: `create_session_factory(settings: DatabaseSettings) -> sessionmaker[Session]`, `Actor`, Task 3 `record` contract. Produces: exact §5.4 `AuthBackend` protocol (`name: str`, `authenticate(self, username: str, password: str) -> AuthResult`, `lookup(self, username: str) -> UserRecord | None`, `supports_password_change(self) -> bool`); `Success(user_key: str, display_name: str, email: str)`, `Failure(reason: Literal['invalid_credentials','locked','inactive','backend_unavailable','not_supported'])`, `AuthResult = Success | Failure`; `UserRecord(user_key: str, username: str, display_name: str, email: str, backend: str, is_active: bool)`; `LocalAuthBackend(factory: sessionmaker[Session], clock: Callable[[], datetime])`; `hash_password(password: str) -> str`; `verify_password(encoded: str, password: str) -> bool`.
 
-- [ ] Write failing tests; use the same contract suite against local and a fake backend:
+- [x] Write failing tests; use the same contract suite against local and a fake backend:
 
 ```python
 def test_lockout_and_hash_parameters(local_backend, local_user, clock):
@@ -309,10 +309,10 @@ def test_lockout_and_hash_parameters(local_backend, local_user, clock):
 ```
 
   Assert unknown/inactive/wrong-password behavior uses generic UI text, successful auth resets failures, outdated hashes rehash, concurrent failures do not lose increments, <12/top-1000 passwords are refused, and failure/lockout events persist even when login fails.
-- [ ] Run `uv run pytest tests/integration/test_auth_backend.py -q`; expect FAIL, backend absent.
-- [ ] Implement local transaction-per-auth with locked user row, dummy argon2 verification for unknown accounts, and audit result. `user_key` is stringified local user ID; web resolves identities through `lookup`, never through password-hash fields. Vendor a reviewed top-1000 password list with provenance/license; no runtime download. `ldap.py` implements the protocol returning `Failure('not_supported')`, not local fallback. Inactive/locked accounts fail before any session grant; future backend outage is `backend_unavailable`.
-- [ ] Run `uv run pytest tests/integration/test_auth_backend.py -q`; expect PASS.
-- [ ] Commit: `git add app/auth app/static/common-passwords.txt tests/integration/test_auth_backend.py`; `git commit -m "feat: add pluggable argon2 authentication and lockout"`.
+- [x] Run `uv run pytest tests/integration/test_auth_backend.py -q`; expect FAIL, backend absent.
+- [x] Implement local transaction-per-auth with locked user row, dummy argon2 verification for unknown accounts, and audit result. `user_key` is stringified local user ID; web resolves identities through `lookup`, never through password-hash fields. Vendor a reviewed top-1000 password list with provenance/license; no runtime download. `ldap.py` implements the protocol returning `Failure('not_supported')`, not local fallback. Inactive/locked accounts fail before any session grant; future backend outage is `backend_unavailable`.
+- [x] Run `uv run pytest tests/integration/test_auth_backend.py -q`; expect PASS.
+- [x] Commit: `git add app/auth app/static/common-passwords.txt tests/integration/test_auth_backend.py`; `git commit -m "feat: add pluggable argon2 authentication and lockout"`.
 
 ### Task 9: Encrypted TOTP enrollment and single-use recovery
 
@@ -322,7 +322,7 @@ def test_lockout_and_hash_parameters(local_backend, local_user, clock):
 
 **Interfaces:** Consumes: `wrap(keyring: Keyring, plaintext: bytes, aad: str) -> WrappedSecret`, `unwrap(keyring: Keyring, wrapped: WrappedSecret, aad: str) -> bytes`, `Actor`, ORM `User`. Produces: `Enrollment(secret: str, provisioning_uri: str, recovery_codes: tuple[str,...])`; `begin_totp(db: Session, user_id: int, keyring: Keyring, actor: Actor) -> Enrollment`; `confirm_totp(db: Session, user_id: int, code: str, keyring: Keyring, now: datetime, actor: Actor) -> bool`; `consume_second_factor(db: Session, user_id: int, code: str, keyring: Keyring, now: datetime, actor: Actor) -> bool`; `disable_totp(db: Session, user_id: int, actor: Actor) -> None`.
 
-- [ ] Write failing tests with an RFC 6238 SHA-1 vector and DB concurrency:
+- [x] Write failing tests with an RFC 6238 SHA-1 vector and DB concurrency:
 
 ```python
 def test_totp_is_single_use(db, user, keyring, actor):
@@ -337,10 +337,10 @@ def test_totp_is_single_use(db, user, keyring, actor):
 ```
 
   Assert ±1 step acceptance, ±2 rejection, two concurrent requests accept a step/code once, encrypted row uses `user:<id>:totp:<version>`, only hashes persist, secret/recovery list shown once, and failed MFA increments the same lockout counter.
-- [ ] Run `uv run pytest tests/integration/test_totp.py -q`; expect FAIL, MFA API absent.
-- [ ] Implement using PyOTP with explicit SHA-1/digits/interval; lock user row before comparing/updating `totp_last_used_step` or removing a recovery hash, and reject any step <= the last accepted step. Enrollment stays disabled until confirmation, refuses replacing an enabled secret, and revokes existing sessions when enabled/disabled/reset. Reset/enrollment requires current-password re-auth in its caller; recovery success is audited without code content. Pending enrollment secret is encrypted and never re-displayed; restarting enrollment replaces unconfirmed material.
-- [ ] Run `uv run pytest tests/integration/test_totp.py -q`; expect PASS.
-- [ ] Commit: `git add app/auth/local.py tests/integration/test_totp.py`; `git commit -m "feat: enroll encrypted TOTP with atomic single-use factors"`.
+- [x] Run `uv run pytest tests/integration/test_totp.py -q`; expect FAIL, MFA API absent.
+- [x] Implement using PyOTP with explicit SHA-1/digits/interval; lock user row before comparing/updating `totp_last_used_step` or removing a recovery hash, and reject any step <= the last accepted step. Enrollment stays disabled until confirmation, refuses replacing an enabled secret, and revokes existing sessions when enabled/disabled/reset. Reset/enrollment requires current-password re-auth in its caller; recovery success is audited without code content. Pending enrollment secret is encrypted and never re-displayed; restarting enrollment replaces unconfirmed material.
+- [x] Run `uv run pytest tests/integration/test_totp.py -q`; expect PASS.
+- [x] Commit: `git add app/auth/local.py tests/integration/test_totp.py`; `git commit -m "feat: enroll encrypted TOTP with atomic single-use factors"`.
 
 ### Task 10: Server sessions, CSRF, and web error foundation
 
@@ -350,7 +350,7 @@ def test_totp_is_single_use(db, user, keyring, actor):
 
 **Interfaces:** Consumes: `assert_database_ready(engine: Engine, timeout_seconds: int = 60) -> None`, `AuthBackend.authenticate(username: str, password: str) -> AuthResult`, `Settings`, `Actor`, `SecretRedactionFilter`, Task 8 `allow_login_attempt(factory: sessionmaker[Session], source_ip: str, now: datetime) -> bool`. Produces: `create_app(settings: Settings | None = None) -> FastAPI`, module `app`; `issue_session(db: Session, user_id: int, now: datetime, ip: str, user_agent: str, authenticated: bool = True) -> UserSession`; `resolve_session(db: Session, cookie: str, now: datetime) -> UserSession | None`; `revoke_sessions(db: Session, user_id: int, now: datetime) -> int`; FastAPI `require_user(request: Request) -> UserRecord` and `require_admin(request: Request) -> UserRecord`; `check_csrf(request: Request, session: UserSession | None) -> None`.
 
-- [ ] Write failing HTTPS-client tests:
+- [x] Write failing HTTPS-client tests:
 
 ```python
 def test_cookie_csrf_and_expiry(client, signed_in, clock):
@@ -363,10 +363,10 @@ def test_cookie_csrf_and_expiry(client, signed_in, clock):
 ```
 
   Assert HttpOnly/Secure/SameSite=Lax/Path=/ and no Domain; 24-hour absolute expiry despite activity; login rotation; logout/password/MFA revocation; inactive/pending-MFA sessions cannot authenticate; unknown session is rejected. Sixth IP attempt in the same minute returns 429 across separate DB connections/restarts. Assert header/form CSRF accepted, absent/foreign token denied for every POST including login, HTML redirect vs JSON 401, styled 403/404/422/500/503, DB rollback + Retry-After, request IDs, and no stack trace/secret in error responses.
-- [ ] Run `uv run pytest tests/integration/test_sessions_http.py -q`; expect FAIL, HTTP/session foundation absent. Add a minimal test-only protected route for CSRF assertions until Task 11 owns logout.
-- [ ] Implement in the listed files using Task 2's `user_session.authenticated_at`: NULL is password-verified/MFA-pending and `require_user` rejects it; pending sessions expire after 10 minutes. Login form uses short-lived HMAC-signed double-submit pre-auth CSRF cookie (10-minute lifetime, same cookie flags); completed login replaces it with session-bound CSRF. CSRF rejects unsafe requests before action dispatch; TOTP completion rotates the pending session. Reuse Task 8's committed atomic IP gate before backend dispatch; rate-limit transactions must persist even if credentials fail or the request returns 429. Define test-only GET/POST `/_test/protected` routes and seed `signed_in` sessions directly until Task 11 adds login. Base template defines `title`, `content`, `status_banner`, `scripts` blocks, local htmx, escaped content, timezone formatting, and nav items Overview/Certificates/Servers/Deploy/Scans/Audit/Settings plus Users in user menu; unavailable features render disabled with reasons. Middleware adds structured JSON/request IDs and shared redaction; DB pool retries once, service transactions never replay partially committed mutations. Module-level app=create_app() defers default secret loading to lifespan, so injected-settings tests/imports do not read production secrets. Startup validates secrets/schema and key-version availability; key-dependent errors say “key material cannot be decrypted with the configured master key”.
-- [ ] Run `uv run pytest tests/integration/test_sessions_http.py -q`; expect PASS.
-- [ ] Commit: `git add app/auth/sessions.py app/main.py app/templates app/static/app.css tests/integration/conftest.py tests/integration/test_sessions_http.py`; `git commit -m "feat: protect web requests with sessions CSRF and typed errors"`. The authenticated-at column must already be committed in Task 2; this task makes no migration.
+- [x] Run `uv run pytest tests/integration/test_sessions_http.py -q`; expect FAIL, HTTP/session foundation absent. Add a minimal test-only protected route for CSRF assertions until Task 11 owns logout.
+- [x] Implement in the listed files using Task 2's `user_session.authenticated_at`: NULL is password-verified/MFA-pending and `require_user` rejects it; pending sessions expire after 10 minutes. Login form uses short-lived HMAC-signed double-submit pre-auth CSRF cookie (10-minute lifetime, same cookie flags); completed login replaces it with session-bound CSRF. CSRF rejects unsafe requests before action dispatch; TOTP completion rotates the pending session. Reuse Task 8's committed atomic IP gate before backend dispatch; rate-limit transactions must persist even if credentials fail or the request returns 429. Define test-only GET/POST `/_test/protected` routes and seed `signed_in` sessions directly until Task 11 adds login. Base template defines `title`, `content`, `status_banner`, `scripts` blocks, local htmx, escaped content, timezone formatting, and nav items Overview/Certificates/Servers/Deploy/Scans/Audit/Settings plus Users in user menu; unavailable features render disabled with reasons. Middleware adds structured JSON/request IDs and shared redaction; DB pool retries once, service transactions never replay partially committed mutations. Module-level app=create_app() defers default secret loading to lifespan, so injected-settings tests/imports do not read production secrets. Startup validates secrets/schema and key-version availability; key-dependent errors say “key material cannot be decrypted with the configured master key”.
+- [x] Run `uv run pytest tests/integration/test_sessions_http.py -q`; expect PASS.
+- [x] Commit: `git add app/auth/sessions.py app/main.py app/templates app/static/app.css tests/integration/conftest.py tests/integration/test_sessions_http.py`; `git commit -m "feat: protect web requests with sessions CSRF and typed errors"`. The authenticated-at column must already be committed in Task 2; this task makes no migration.
 
 ### Task 11: Login, MFA, bootstrap, and account-security forms
 
