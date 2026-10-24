@@ -223,6 +223,27 @@ def test_finish_failed_stores_redacted_truncated_message(queue_factory, now):
     assert "fixture-secret" not in str(audit.details)
 
 
+@pytest.mark.parametrize(
+    "bad_class",
+    ["password=fixture-class-secret", "Bearer fixture-class-token", "has space", "x" * 200, ""],
+)
+def test_finish_never_persists_unsafe_error_class(queue_factory, now, bad_class):
+    job_id = add_job(queue_factory, now)
+    take(queue_factory, "w1", now)
+    with queue_factory.begin() as db:
+        finish(db, job_id, "w1", "failed", now, error_class=bad_class, error_message="failure")
+    row = load(queue_factory, job_id)
+    assert row.status == JobStatus.FAILED and row.error_class == "internal"
+    (audit,) = audits(queue_factory, "job.failed")
+    assert audit.details["error_class"] == "internal"
+    for value in ("fixture-class-secret", "fixture-class-token"):
+        assert value not in str(
+            (row.error_class, row.error_message, row.result, audit.details, audit.actor_label)
+        )
+    with queue_factory.begin() as db:
+        assert retry_due(db, now + timedelta(days=1)) == 0
+
+
 def test_finish_cancelled(queue_factory, now):
     job_id = add_job(queue_factory, now)
     take(queue_factory, "w1", now)

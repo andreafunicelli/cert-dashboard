@@ -5,6 +5,7 @@ with the state change they describe, so a rollback removes both. ``now`` is alwa
 """
 
 import math
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -19,6 +20,7 @@ from app.models.enums import JobHostStatus, JobStatus, JobType
 from app.services.audit import Actor, record, redact
 
 ERROR_MESSAGE_LIMIT = 2_000
+_ERROR_CLASS_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
 TIMEOUT_MESSAGE = "Job exceeded its time limit or its worker stopped responding."
 WORKER_LOST = "worker_lost"
 SYSTEM_ACTOR = Actor(None, "system")
@@ -53,18 +55,38 @@ class StaleJobError(Exception):
     """The job is not running under this worker any more (reaped, re-claimed or never claimed)."""
 
 
+def safe_error_class(value: str | None) -> str:
+    """Return ``value`` only if it is a plain classification token the redaction leaves alone.
+
+    Anything else (free text, ``key=value`` pairs, tokens, empty) collapses to ``internal`` so a
+    caller-supplied class can never smuggle a secret into ``job.error_class`` or the audit log.
+    """
+    if isinstance(value, str) and _ERROR_CLASS_PATTERN.fullmatch(value) and redact(value) == value:
+        return value
+    return "internal"
+
+
+def safe_error_message(value: str | None) -> str | None:
+    """Redact and truncate a failure message before it is persisted."""
+    if value is None:
+        return None
+    return str(redact(value))[:ERROR_MESSAGE_LIMIT]
+
+
 class JobFailure(Exception):
     """Raised by a handler to fail its job with a classified, already-sanitized message.
 
+    ``error_class`` is normalized to a safe classification token and ``message`` is redacted
+    and truncated here, so nothing a handler passes can carry a secret into the job row.
     ``retryable=False`` is persisted as ``result={"retryable": False}`` so the retry sweep skips
     the job. ``retryable=True`` can never widen the per-type policy.
     """
 
     def __init__(self, error_class: str, message: str, retryable: bool = False) -> None:
-        super().__init__(f"{error_class}: {message}")
-        self.error_class = error_class
-        self.message = message
+        self.error_class = safe_error_class(error_class)
+        self.message = safe_error_message(message) or ""
         self.retryable = retryable
+        super().__init__(f"{self.error_class}: {self.message}")
 
     def result(self) -> dict[str, JSONValue] | None:
         return None if self.retryable else {"retryable": False}
@@ -248,11 +270,9 @@ def finish(
     if clean_result is not None:
         job.result = clean_result
     if status == "failed":
-        error_class = error_class or "internal"
-        job.error_class = error_class
-        job.error_message = (
-            str(redact(error_message))[:ERROR_MESSAGE_LIMIT] if error_message is not None else None
-        )
+        job.error_class = safe_error_class(error_class)
+        error_class = job.error_class
+        job.error_message = safe_error_message(error_message)
     elif status == "succeeded":
         error_class = job.error_class = job.error_message = None
     else:

@@ -12,6 +12,7 @@ from app.jobs.queue import (
     enqueue,
     is_retryable,
     retry_delay_seconds,
+    safe_error_class,
 )
 from app.models.enums import JobType
 from app.services.audit import Actor
@@ -147,3 +148,24 @@ def test_enqueue_rejects_naive_run_after_and_unknown_scheduled_reason():
         enqueue(None, JobType.SCAN, {}, ACTOR, priority=100, run_after=datetime(2026, 10, 19, 12, 0))
     with pytest.raises(ValueError, match="scheduled_reason"):
         enqueue(None, JobType.SCAN, {}, ACTOR, priority=100, run_after=NOW, scheduled_reason="whenever")
+
+
+@pytest.mark.parametrize(
+    "bad", ["password=fixture-class-secret", "Bearer fixture-class-token", "has space", "x" * 200, ""]
+)
+def test_job_failure_normalizes_unsafe_error_class(bad):
+    failure = JobFailure(bad, "failure")
+    assert failure.error_class == "internal"
+    assert "fixture-class-secret" not in str(failure)
+
+
+def test_job_failure_redacts_and_truncates_message():
+    failure = JobFailure("transient_network", "bad password=fixture-secret " + "x" * 5000)
+    assert "fixture-secret" not in failure.message and len(failure.message) <= 2000
+    assert "fixture-secret" not in str(failure)
+
+
+def test_safe_error_class_keeps_plain_classifications():
+    assert safe_error_class("transient_network") == "transient_network"
+    assert safe_error_class("smtp_transient") == "smtp_transient"
+    assert safe_error_class(None) == "internal"
