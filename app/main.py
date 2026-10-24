@@ -8,11 +8,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs
-from zoneinfo import ZoneInfo
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Environment, FileSystemLoader
@@ -23,12 +22,11 @@ from starlette.datastructures import MutableHeaders
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.formparsers import MultiPartParser
 
-from app.auth.base import Failure, UserRecord
+from app.auth.base import Failure
 from app.auth.ldap import LDAPAuthBackend
 from app.auth.local import (
     LocalAuthBackend,
     PasswordChangeError,
-    allow_login_attempt,
     begin_totp,
     change_password,
     confirm_totp,
@@ -40,7 +38,6 @@ from app.auth.sessions import (
     check_csrf,
     clear_session_cookie,
     client_ip,
-    issue_login_csrf,
     issue_session,
     resolve_session,
     revoke_session,
@@ -52,8 +49,34 @@ from app.crypto.keyring import KeyUnwrapError
 from app.db import assert_database_ready, create_session_factory
 from app.jobs.worker import worker_liveness
 from app.models import User
-from app.services.audit import Actor, SecretRedactionFilter, record
+from app.services.audit import SecretRedactionFilter, record
 from app.services.certificates import missing_master_key_versions
+from app.web.certificates import register_certificate_routes
+from app.web.common import (
+    _actor,
+    _error_response,
+    _form_page,
+    _render,
+    _transact,
+    enforce_login_rate_limit,
+    format_datetime,
+    require_admin,
+    require_user,
+)
+
+__all__ = [
+    "_actor",
+    "_error_response",
+    "_form_page",
+    "_render",
+    "_transact",
+    "app",
+    "create_app",
+    "enforce_login_rate_limit",
+    "format_datetime",
+    "require_admin",
+    "require_user",
+]
 
 _ROOT = Path(__file__).parent
 _LOG = logging.getLogger("cert_dashboard.web")
@@ -62,10 +85,6 @@ _LOG = logging.getLogger("cert_dashboard.web")
 POST_LOGIN_URL = "/account"
 # Unknown usernames are routed here so their failure is indistinguishable from a wrong password.
 DEFAULT_BACKEND = "local"
-# While must_change_password is set, only these (method, path) pairs pass require_user.
-_PASSWORD_CHANGE_ALLOWED = frozenset(
-    {("GET", "/account"), ("POST", "/account/password"), ("POST", "/logout")}
-)
 _MESSAGE_INVALID = "Invalid credentials."
 _MESSAGE_LOCKED = "This account is temporarily locked. Try again later or contact another admin."
 _MESSAGE_RATE_LIMITED = "Too many sign-in attempts. Wait a minute and try again."
@@ -80,18 +99,6 @@ _MAX_BODY = 4 * 1024 * 1024
 # The ASGI body cap also bounds every multipart part. Keep uploads in memory,
 # including downstream form parsing, so private-key uploads cannot spool to disk.
 MultiPartParser.spool_max_size = _MAX_BODY
-_MESSAGES = {
-    400: "Invalid request.",
-    401: "Sign in to continue.",
-    403: "Access denied.",
-    404: "Page not found.",
-    405: "Method not allowed.",
-    413: "Request is too large.",
-    422: "Request validation failed.",
-    429: "Too many attempts. Try again later.",
-    500: "An unexpected error occurred.",
-    503: "Service temporarily unavailable.",
-}
 
 
 class _JSONFormatter(logging.Formatter):
@@ -121,72 +128,6 @@ def _configure_logging() -> None:
         handler.setFormatter(_JSONFormatter())
         _LOG.addHandler(handler)
     _LOG.setLevel(logging.INFO)
-
-
-def format_datetime(value: datetime, timezone_name: str = "UTC") -> str:
-    return value.astimezone(ZoneInfo(timezone_name)).strftime("%Y-%m-%d %H:%M %Z")
-
-
-def require_user(request: Request) -> UserRecord:
-    user = getattr(request.state, "user", None)
-    session = getattr(request.state, "session", None)
-    if user is None or not user.is_active or session is None or session.authenticated_at is None:
-        raise HTTPException(401)
-    if (
-        getattr(request.state, "must_change_password", False)
-        and (
-            request.method,
-            request.url.path,
-        )
-        not in _PASSWORD_CHANGE_ALLOWED
-    ):
-        request.state.password_change_required = True
-        raise HTTPException(403)
-    return user
-
-
-def require_admin(request: Request) -> UserRecord:
-    # v1: every active, fully authenticated user is an administrator.
-    return require_user(request)
-
-
-def enforce_login_rate_limit(request: Request) -> None:
-    if not allow_login_attempt(request.app.state.factory, request.state.client_ip, request.app.state.clock()):
-        raise HTTPException(429, headers={"Retry-After": "60"})
-
-
-def _error_response(request: Request, status: int, headers=None):
-    request_id = getattr(request.state, "request_id", secrets.token_hex(16))
-    response_headers = dict(headers or {})
-    if status == 503:
-        response_headers.setdefault("Retry-After", "5")
-    if status == 429:
-        response_headers.setdefault("Retry-After", "60")
-    if status == 401:
-        if request.headers.get("HX-Request", "").lower() == "true":
-            response_headers["HX-Redirect"] = "/login"
-        elif "application/json" not in request.headers.get("Accept", ""):
-            return RedirectResponse("/login", status_code=303)
-    message = _MESSAGES.get(status, "Request could not be completed.")
-    if status == 403 and getattr(request.state, "password_change_required", False):
-        # must_change_password: send the user to the only screen that can clear the flag.
-        message = "Change your password to continue."
-        if request.headers.get("HX-Request", "").lower() == "true":
-            response_headers["HX-Redirect"] = "/account"
-        elif "application/json" not in request.headers.get("Accept", ""):
-            return RedirectResponse("/account", status_code=303)
-    if "application/json" in request.headers.get("Accept", ""):
-        return JSONResponse({"error": message, "request_id": request_id}, status, response_headers)
-    content = request.app.state.templates.get_template("error.html.j2").render(
-        request=request,
-        status=status,
-        message=message,
-        request_id=request_id,
-        user=getattr(request.state, "user", None),
-        navigation=request.app.state.navigation,
-        status_banner=request.app.state.status_banner,
-    )
-    return HTMLResponse(content, status, response_headers)
 
 
 def _acquire(factory):
@@ -367,52 +308,9 @@ class _WebFoundation:
             )
 
 
-def _actor(request: Request, user_id: int | None = None, label: str | None = None) -> Actor:
-    session = request.state.session
-    if user_id is None and session is not None:
-        user_id = session.user_id
-    user = request.state.user
-    label = label or (user.username if user is not None else "anonymous")
-    return Actor(user_id, label, request.state.client_ip, request.headers.get("user-agent", "")[:512])
-
-
 def _submitted_token(request: Request) -> str:
     # CSRF already validated this value; echoing it avoids churning the pre-auth cookie on errors.
     return request.headers.get("X-CSRF-Token") or getattr(request.state, "csrf_token", None) or ""
-
-
-def _render(request: Request, name: str, status: int = 200, **context) -> HTMLResponse:
-    app = request.app
-    response = app.state.templates.TemplateResponse(
-        request=request,
-        name=name,
-        status_code=status,
-        context={
-            "user": request.state.user,
-            "navigation": app.state.navigation,
-            "status_banner": app.state.status_banner,
-            **context,
-        },
-    )
-    response.headers["Cache-Control"] = "no-store"
-    return response
-
-
-def _form_page(request: Request, name: str, status: int = 200, token: str | None = None, **context):
-    """Render a pre-account form with the right CSRF token for the caller's current state."""
-    session = request.state.session
-    mint = token is None and session is None
-    if token is None:
-        holder = Response()
-        token = (
-            issue_login_csrf(holder, request.app.state.settings.session_secret, request.app.state.clock())
-            if mint
-            else session.csrf_token
-        )
-    response = _render(request, name, status, csrf_token=token, **context)
-    if mint:
-        response.headers.append("set-cookie", holder.headers["set-cookie"])
-    return response
 
 
 def _has_active_user(factory) -> bool:
@@ -475,29 +373,6 @@ def _password_error(exc: PasswordChangeError) -> tuple[int, str]:
     if exc.code == "policy":
         return 422, exc.message or "Password does not meet the policy."
     return _PASSWORD_ERRORS.get(exc.code, (422, "Request could not be completed."))
-
-
-def _transact(request: Request, work):
-    """Run work(db, now, actor) in one transaction. A PasswordChangeError is committed first.
-
-    Re-authentication failures increment the shared lockout counter and write audit rows;
-    they must persist even though the requested change is refused.
-    """
-    app = request.app
-    db = app.state.factory()
-    try:
-        try:
-            result = work(db, app.state.clock(), _actor(request))
-        except PasswordChangeError as exc:
-            db.commit()
-            return None, exc
-        db.commit()
-        return result, None
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
 
 
 def _account_page(request: Request, status: int = 200, token: str | None = None, **context):
@@ -807,6 +682,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(_WebFoundation)
     app.mount("/static", StaticFiles(directory=_ROOT / "static"), name="static")
     _register_auth_routes(app)
+    register_certificate_routes(app)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):

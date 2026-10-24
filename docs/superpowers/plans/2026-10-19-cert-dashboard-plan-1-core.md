@@ -478,7 +478,7 @@ def test_import_deduplicates(db, certs, actor):
 
 **Interfaces:** Consumes: `parse_certificates(data: bytes) -> list[ParsedCertificate]`, `read_pfx(data: bytes, password: str | None) -> PFXMaterial`, exact Task 4/14 custody/inventory contracts. Produces: `UploadInput(data: bytes, format: Literal['pem','crt','pfx'], password: str | None = None, chain_data: bytes | None = None, key_data: bytes | None = None, key_password: str | None = None)`; `ImportValidationError(errors: Mapping[str, tuple[str,...]])`; `import_upload(db: Session, keyring: Keyring, upload: UploadInput, metadata: CertificateMetadata, actor: Actor) -> ImportResult`; GET `/certificates/import`, POST `/certificates/import/upload`.
 
-- [ ] Write failing HTTP tests:
+- [x] Write failing HTTP tests:
 
 ```python
 def test_bad_upload_has_no_partial_rows(signed_in, db, csrf):
@@ -491,10 +491,10 @@ def test_bad_upload_has_no_partial_rows(signed_in, db, csrf):
 ```
 
   Add a 1,048,577-byte rejection before parsing, exact-limit read, malformed base64, PEM/DER `.crt`, wrong selected format, encrypted PEM key, unsupported private-key algorithm/size, matching PFX key+leaf+chain, public-only import, wrong password, mismatched private key, duplicate “view existing,” and htmx 422 fragment preserving non-secret fields. Assert upload/export passwords and private material never appear in HTML/audit/logs.
-- [ ] Run `uv run pytest tests/integration/test_upload_import.py -q`; expect FAIL, import route/service absent.
-- [ ] Implement bounded streamed reads for each uploaded object, content parsing independent of filename, PFX only in the import form, optional separate PEM key/chain, aggregate independent blocking errors separately from non-blocking chain-status diagnostics, and transaction after successful blocking validation so no orphan key survives. Reuse `store_key`/`save_certificate`; origin imported_pfx/imported_pem, imported_from upload_pfx/upload_pem. Imported private keys use the same supported RSA sizes/EC curves as generated keys; unsupported keys produce an explicit error, while public-only certificates remain importable. On duplicate, link existing; attaching a supplied matching key to public-only inventory requires an explicit confirmed action. Form re-renders retain owner/team/notes/format, never passwords/file contents; sanitized errors do not echo parsed key data.
-- [ ] Run `uv run pytest tests/integration/test_upload_import.py -q`; expect PASS.
-- [ ] Commit: `git add app/services/certificates.py app/main.py app/templates/import.html.j2 tests/integration/test_upload_import.py`; `git commit -m "feat: import certificate uploads with atomic validation"`.
+- [x] Run `uv run pytest tests/integration/test_upload_import.py -q`; expect FAIL, import route/service absent.
+- [x] Implement bounded streamed reads for each uploaded object, content parsing independent of filename, PFX only in the import form, optional separate PEM key/chain, aggregate independent blocking errors separately from non-blocking chain-status diagnostics, and transaction after successful blocking validation so no orphan key survives. Reuse `store_key`/`save_certificate`; origin imported_pfx/imported_pem, imported_from upload_pfx/upload_pem. Imported private keys use the same supported RSA sizes/EC curves as generated keys; unsupported keys produce an explicit error, while public-only certificates remain importable. On duplicate, link existing; attaching a supplied matching key to public-only inventory requires an explicit confirmed action. Form re-renders retain owner/team/notes/format, never passwords/file contents; sanitized errors do not echo parsed key data.
+- [x] Run `uv run pytest tests/integration/test_upload_import.py -q`; expect PASS.
+- [x] Commit: `git add app/services/certificates.py app/main.py app/templates/import.html.j2 tests/integration/test_upload_import.py`; `git commit -m "feat: import certificate uploads with atomic validation"`.
 
 ### Task 16: Worker-side host:port pull import
 

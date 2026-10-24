@@ -4,12 +4,17 @@ Every mutation stages its audit row in the caller's transaction; nothing here
 commits. Typed ``InventoryError`` codes are mapped to 422 by the callers.
 """
 
-from dataclasses import dataclass
+import re
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from types import MappingProxyType
+from typing import Literal
 
 from cryptography import x509
+from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
@@ -17,8 +22,10 @@ from sqlalchemy.orm import Session
 
 from app.crypto.chain import ChainError, ChainResult, order_chain
 from app.crypto.keyring import Keyring, KeyUnwrapError, WrappedSecret, unwrap, wrap
-from app.crypto.keys import PrivateKeyObject, load_private_key, private_key_pem, public_key_sha256
+from app.crypto.keys import PrivateKeyObject, _validate, load_private_key, private_key_pem, public_key_sha256
 from app.crypto.parse import MAX_INPUT_BYTES, ParsedCertificate, ParseError, parse_certificates
+from app.crypto.pfx import PFXError, _is_ca
+from app.crypto.pfx_isolated import read_encrypted_key_isolated, read_pfx_isolated
 from app.crypto.trust import ChainAssessment, assess_chain
 from app.models import Certificate, JSONValue, PrivateKey, User
 from app.models.enums import CertificateStatus, ChainStatus
@@ -265,6 +272,10 @@ class ImportResult:
     certificate: Certificate
     created: bool
     warnings: tuple[str, ...]
+    # Upload import only: a supplied key matches a public-only duplicate and awaits explicit
+    # confirmation / this import linked a private key to the certificate.
+    key_attachable: bool = False
+    key_attached: bool = False
 
 
 def _lock(db: Session, certificate_id: int) -> Certificate:
@@ -570,3 +581,269 @@ def set_lineage(db: Session, certificate_id: int, previous_id: int, actor: Actor
     row.renews_id = previous_id
     db.flush()
     record(db, actor, "certificate.lineage", "certificate", str(row.id), {"previous_id": previous_id})
+
+
+# --------------------------------------------------------------------------
+# Upload import (PEM / CRT / PFX)
+# --------------------------------------------------------------------------
+
+type UploadFormat = Literal["pem", "crt", "pfx"]
+_UPLOAD_FORMATS = ("pem", "crt", "pfx")
+_PRIVATE_KEY_BLOCK = re.compile(rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")
+_TOO_LARGE = "Input is too large: each file or pasted block is limited to 1 MiB (1,048,576 bytes)."
+_UNSUPPORTED_KEY = "Supported keys are RSA 2048/3072/4096 (e=65537) and ECDSA P-256/P-384."
+_PFX_FIELD = {
+    "invalid_password": "password",
+    "invalid_password_or_bundle": "password",
+    "unsupported_key": "key",
+    "key_mismatch": "key",
+}
+
+
+@dataclass(frozen=True)
+class UploadInput:
+    data: bytes = field(repr=False)
+    format: UploadFormat
+    password: str | None = field(default=None, repr=False)
+    chain_data: bytes | None = field(default=None, repr=False)
+    key_data: bytes | None = field(default=None, repr=False)
+    key_password: str | None = field(default=None, repr=False)
+
+
+class ImportValidationError(Exception):
+    """Aggregated, sanitized blocking errors keyed by form field (file/chain/key/password/metadata)."""
+
+    def __init__(self, errors: Mapping[str, tuple[str, ...]]) -> None:
+        super().__init__("upload validation failed")
+        self.errors: Mapping[str, tuple[str, ...]] = MappingProxyType(
+            {name: tuple(messages) for name, messages in errors.items() if messages}
+        )
+
+
+@dataclass(frozen=True)
+class PreparedUpload:
+    """A fully validated upload; nothing has touched the database yet."""
+
+    leaf: ParsedCertificate
+    chain: ChainResult
+    key: PrivateKeyObject | None = field(repr=False)
+    key_origin: str | None
+    source: str
+
+
+def _looks_like_pfx(data: bytes) -> bool:
+    """Cheap structural test (DER SEQUENCE { INTEGER 3, ... }); never runs a KDF."""
+    if len(data) < 6 or data[0] != 0x30:
+        return False
+    offset = 2 + (data[1] & 0x7F) if data[1] & 0x80 else 2
+    return data[offset : offset + 3] == b"\x02\x01\x03"
+
+
+def _describe_key(key: object) -> str:
+    if isinstance(key, rsa.RSAPrivateKey):
+        return f"RSA {key.key_size}-bit"
+    if isinstance(key, ec.EllipticCurvePrivateKey):
+        return f"EC {key.curve.name}"
+    return type(key).__name__
+
+
+def _certificate_part(
+    data: bytes, fail: Callable[[str, str], None]
+) -> tuple[ParsedCertificate | None, list[x509.Certificate]]:
+    if _PRIVATE_KEY_BLOCK.search(data):
+        fail(
+            "file",
+            "This input contains a private key. Upload the certificate here and the key in the private key field.",
+        )
+        return None, []
+    if _looks_like_pfx(data):
+        fail(
+            "file",
+            "This input does not look like a PEM or DER certificate; it looks like a PFX (PKCS#12) bundle. Select the PFX format.",
+        )
+        return None, []
+    try:
+        parsed = parse_certificates(data)
+    except ParseError:
+        fail(
+            "file",
+            "No valid X.509 certificate was found. The input must be a PEM or DER encoded certificate.",
+        )
+        return None, []
+    leaf = next((item for item in parsed if not _is_ca(item.cert)), parsed[0])
+    return leaf, [item.cert for item in parsed if item is not leaf]
+
+
+def _pfx_part(
+    upload: UploadInput, fail: Callable[[str, str], None]
+) -> tuple[ParsedCertificate | None, list[x509.Certificate], PrivateKeyObject | None]:
+    data = upload.data
+    if b"-----BEGIN" in data:
+        fail(
+            "file",
+            "This input does not look like a PFX (PKCS#12) bundle; it looks like PEM text. Select the PEM format.",
+        )
+        return None, [], None
+    if not _looks_like_pfx(data):
+        fail("file", "This input does not look like a PFX (PKCS#12) bundle.")
+        return None, [], None
+    try:
+        material = read_pfx_isolated(data, upload.password or None)
+        leaf = parse_certificates(material.leaf.public_bytes(serialization.Encoding.DER))[0]
+    except PFXError as exc:
+        fail(_PFX_FIELD.get(exc.code, "file"), exc.message)
+        return None, [], None
+    except ParseError:
+        fail("file", "The PFX certificate could not be parsed.")
+        return None, [], None
+    return leaf, list(material.chain), material.key
+
+
+def _pem_key_part(
+    data: bytes, password: str | None, fail: Callable[[str, str], None]
+) -> PrivateKeyObject | None:
+    if b"PRIVATE KEY" not in data or b"-----BEGIN" not in data:
+        fail("key", "The private key must be PEM encoded (a BEGIN ... PRIVATE KEY block).")
+        return None
+    try:
+        if b"ENCRYPTED" in data:
+            # Password-based key derivation is attacker-controlled work: sandbox it like PFX.
+            key = read_encrypted_key_isolated(data, password or None)
+        else:
+            key = serialization.load_pem_private_key(data, None)
+    except PFXError as exc:
+        if exc.code == "invalid_password_or_bundle":
+            fail("key", "The private key password is wrong or missing, or the key could not be read.")
+        elif exc.code == "unsupported_key":
+            fail("key", f"Unsupported private key. {_UNSUPPORTED_KEY}")
+        else:
+            fail("key", exc.message)
+        return None
+    except UnsupportedAlgorithm:
+        fail("key", f"Unsupported private key algorithm. {_UNSUPPORTED_KEY}")
+        return None
+    except (ValueError, TypeError):
+        fail("key", "The private key could not be read.")
+        return None
+    try:
+        _validate(key)
+    except ValueError:
+        fail("key", f"Unsupported private key ({_describe_key(key)}). {_UNSUPPORTED_KEY}")
+        return None
+    return key
+
+
+def validate_upload(upload: UploadInput) -> PreparedUpload:
+    """Check an upload completely, with no database access; aggregate independent errors."""
+    errors: dict[str, list[str]] = {}
+
+    def fail(name: str, message: str) -> None:
+        errors.setdefault(name, []).append(message)
+
+    if upload.format not in _UPLOAD_FORMATS:
+        fail("file", "Choose a supported format: PEM, CRT or PFX.")
+    for name, blob in (("file", upload.data), ("chain", upload.chain_data), ("key", upload.key_data)):
+        if blob is not None and len(blob) > MAX_INPUT_BYTES:
+            fail(name, _TOO_LARGE)  # rejected before any parser sees the bytes
+    if not upload.data and "file" not in errors:
+        fail("file", "Choose a certificate file or paste its contents.")
+
+    leaf, candidates, pfx_key = None, [], None
+    if "file" not in errors:
+        if upload.format == "pfx":
+            leaf, candidates, pfx_key = _pfx_part(upload, fail)
+        else:
+            leaf, candidates = _certificate_part(upload.data, fail)
+
+    extra: list[x509.Certificate] = []
+    if upload.chain_data and "chain" not in errors:
+        try:
+            extra = [item.cert for item in parse_certificates(upload.chain_data)]
+        except ParseError:
+            fail(
+                "chain",
+                "No valid certificate was found in the chain input (PEM or DER certificates expected).",
+            )
+
+    chain = None
+    if leaf is not None and "chain" not in errors:
+        try:
+            chain = order_chain(leaf.cert, [*candidates, *extra])
+        except ChainError:
+            fail("chain", "The certificate chain could not be ordered; check the intermediates.")
+
+    key, origin = None, None
+    if pfx_key is not None:
+        if upload.key_data:
+            fail("key", "The PFX already contains a private key; remove the separate private key input.")
+        else:
+            key, origin = pfx_key, "imported_pfx"
+    elif upload.key_data and "key" not in errors:
+        key = _pem_key_part(upload.key_data, upload.key_password, fail)
+        origin = "imported_pem"
+        if key is not None and leaf is not None:
+            key_hash = public_key_sha256(key.public_key())
+            if key_hash != leaf.public_key_sha256:
+                fail(
+                    "key",
+                    "The private key does not match the certificate "
+                    f"(key public hash {key_hash}; certificate public hash {leaf.public_key_sha256}).",
+                )
+                key = None
+
+    if errors or leaf is None or chain is None:
+        raise ImportValidationError({name: tuple(messages) for name, messages in errors.items()})
+    return PreparedUpload(
+        leaf,
+        chain,
+        key,
+        origin if key is not None else None,
+        f"upload_{'pfx' if upload.format == 'pfx' else 'pem'}",
+    )
+
+
+class _UnconfirmedAttach(Exception):
+    """Internal: a race made a new import a duplicate; roll back instead of attaching a key."""
+
+
+def import_upload(
+    db: Session,
+    keyring: Keyring,
+    upload: UploadInput,
+    metadata: CertificateMetadata,
+    actor: Actor,
+    *,
+    confirm_key: bool = False,
+    prepared: PreparedUpload | None = None,
+) -> ImportResult:
+    """Validate, then import in the caller's transaction: key + certificate, or nothing.
+
+    ``prepared`` lets a caller that already ran ``validate_upload`` skip a second parse.
+    A supplied key is stored only for a new certificate or after ``confirm_key`` for a
+    public-only duplicate; otherwise the duplicate is returned with ``key_attachable``.
+    """
+    prep = prepared if prepared is not None else validate_upload(upload)
+    try:
+        existing = _find_existing(db, prep.leaf)
+        if prep.key is None or (existing is not None and not confirm_key):
+            result = save_certificate(db, prep.leaf, prep.chain, metadata, actor, source=prep.source)
+            offer = prep.key is not None and result.certificate.key_id is None
+            return replace(result, key_attachable=offer)
+        previous_key_id = existing.key_id if existing is not None else None
+        try:
+            with db.begin_nested():  # a failure leaves no orphan key row or audit entry
+                key_row = store_key(db, keyring, prep.key, prep.key_origin or "imported_pem", actor)
+                result = save_certificate(
+                    db, prep.leaf, prep.chain, metadata, actor, source=prep.source, key_id=key_row.id
+                )
+                if not result.created and not confirm_key:
+                    raise _UnconfirmedAttach
+        except _UnconfirmedAttach:
+            result = save_certificate(db, prep.leaf, prep.chain, metadata, actor, source=prep.source)
+            return replace(result, key_attachable=result.certificate.key_id is None)
+        attached = result.created or (previous_key_id is None and result.certificate.key_id == key_row.id)
+        return replace(result, key_attached=attached)
+    except InventoryError as exc:
+        if exc.code == "key_mismatch":
+            raise ImportValidationError({"key": (exc.message,)}) from None
+        raise
