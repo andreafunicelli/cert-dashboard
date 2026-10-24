@@ -401,10 +401,28 @@ def _backend_for(app: FastAPI, username: str):
 
 
 def _session_user_id(db, backend, username: str, user_key: str) -> int | None:
-    # Only the local backend's user_key is a local user id. A directory key is never trusted as one.
-    if backend.name == "local":
-        return int(user_key) if user_key.isdecimal() else None
-    return db.scalar(select(User.id).where(User.username == username, User.auth_backend == backend.name))
+    """Bind the backend's authenticated identity to exactly one local user row.
+
+    The backend's own lookup must return an active record whose key equals Success.user_key,
+    and that key (the stringified local user id) must name a row of this backend and username.
+    Anything else grants no session.
+    """
+    found = backend.lookup(username)
+    if (
+        found is None
+        or not found.is_active
+        or found.backend != backend.name
+        or found.user_key != user_key
+        or found.username.casefold() != username.casefold()
+        or not user_key.isascii()
+        or not user_key.isdecimal()
+    ):
+        return None
+    return db.scalar(
+        select(User.id).where(
+            User.id == int(user_key), User.username == found.username, User.auth_backend == backend.name
+        )
+    )
 
 
 def _redirect_with_session(location: str, session) -> RedirectResponse:
@@ -590,10 +608,12 @@ def _register_auth_routes(app: FastAPI) -> None:
 
     @app.post("/logout")
     def logout(request: Request):
+        # Public path (CSRF still enforced): a pending-MFA session must be able to cancel and sign out.
         session = request.state.session
-        with app.state.factory.begin() as db:
-            revoke_session(db, session.id, app.state.clock())  # this browser only
-            record(db, _actor(request), "auth.logout", "user", str(session.user_id), {})
+        if session is not None:
+            with app.state.factory.begin() as db:
+                revoke_session(db, session.id, app.state.clock())  # this browser only
+                record(db, _actor(request), "auth.logout", "user", str(session.user_id), {})
         response = RedirectResponse("/login", status_code=303)
         clear_session_cookie(response)
         return response
@@ -613,6 +633,8 @@ def _register_auth_routes(app: FastAPI) -> None:
 
         def work(db, now, actor):
             if new_password != confirm_password:
+                # Re-authenticate first so a wrong current password always counts as a failure.
+                reauthenticate(db, user_id, current_password, actor, now)
                 raise PasswordChangeError("mismatch")
             change_password(db, user_id, current_password, new_password, actor, now)
             return issue_session(
@@ -738,7 +760,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.clock = lambda: datetime.now(UTC)
     app.state.status_banner = ""
-    app.state.public_paths = {"/login", "/login/2fa", "/health/live", "/health/ready", "/healthz"}
+    app.state.public_paths = {"/login", "/login/2fa", "/logout", "/health/live", "/health/ready", "/healthz"}
     app.state.navigation = [
         {"label": label, "url": url, "enabled": False, "reason": "Available in a later implementation task"}
         for label, url in [

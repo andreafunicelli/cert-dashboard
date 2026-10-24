@@ -339,6 +339,36 @@ def test_user_key_and_backend_come_from_the_user_row_not_the_login_form(client, 
     assert response.status_code == 401 and not local_calls  # ldap stub: not_supported, no local fallback
 
 
+def test_directory_login_with_mismatched_user_key_grants_no_session(client, web_app, web_factory, clock):
+    user = create_login_user(web_factory, "directory-user", "directory-pass-123", backend="ldap")
+
+    class Mismatched(FakeBackend):
+        def authenticate(self, username, password):
+            return Success("not-the-looked-up-identity", username, f"{username}@example.test")
+
+    web_app.state.backends["ldap"] = Mismatched({user.username: (user.password, user.id)})
+    token = _token(client.get("/login").text)
+    response = _login(client, clock, token, user.username, user.password)
+    assert response.status_code == 401 and INVALID in response.text
+    with web_factory() as db:
+        assert db.scalar(select(UserSession).where(UserSession.user_id == user.id)) is None
+
+
+def test_directory_login_without_a_lookup_record_grants_no_session(client, web_app, web_factory, clock):
+    user = create_login_user(web_factory, "directory-user", "directory-pass-123", backend="ldap")
+
+    class NoRecord(FakeBackend):
+        def lookup(self, username):
+            return None
+
+    web_app.state.backends["ldap"] = NoRecord({user.username: (user.password, user.id)})
+    token = _token(client.get("/login").text)
+    response = _login(client, clock, token, user.username, user.password)
+    assert response.status_code == 401 and INVALID in response.text
+    with web_factory() as db:
+        assert db.scalar(select(UserSession).where(UserSession.user_id == user.id)) is None
+
+
 # --- second factor ---------------------------------------------------------------------------------
 
 
@@ -452,6 +482,30 @@ def test_logout_is_post_only_and_needs_csrf(client, plain_user, csrf, clock):
     assert client.get("/account").status_code == 200
 
 
+def test_pending_mfa_session_can_cancel_and_sign_out(client, totp_user, csrf, clock, web_factory):
+    pending = _login(client, clock, csrf, "admin", LOGIN_PASSWORD)
+    assert pending.headers["location"] == "/login/2fa"
+    pending_cookie = client.cookies["cd_session"]
+    token = _token(client.get("/login/2fa").text)
+    response = _post(client, "/logout", token)
+    assert response.status_code == 303 and response.headers["location"] == "/login"
+    assert "cd_session=" in response.headers["set-cookie"] and "Max-Age=0" in response.headers["set-cookie"]
+    assert "cd_session" not in client.cookies
+    with web_factory() as db:
+        assert db.get(UserSession, pending_cookie).revoked_at is not None
+    # The revoked pending cookie neither reaches the second factor nor any protected route.
+    client.cookies.set("cd_session", pending_cookie, domain="testserver.local", path="/")
+    assert client.get("/login/2fa", follow_redirects=False).headers["location"] == "/login"
+    assert client.get("/account", headers={"Accept": "application/json"}).status_code == 401
+
+
+def test_pending_mfa_session_gets_no_other_protected_route(client, totp_user, csrf, clock):
+    _login(client, clock, csrf, "admin", LOGIN_PASSWORD)
+    token = _token(client.get("/login/2fa").text)
+    assert _post(client, "/account/password", token, current_password="x").status_code == 303
+    assert client.get("/account", headers={"Accept": "application/json"}).status_code == 401
+
+
 # --- account page ----------------------------------------------------------------------------------
 
 
@@ -532,6 +586,33 @@ def test_wrong_current_password_counts_as_failure_and_persists(client, plain_use
     )
     assert not _audit(web_factory, "auth.password_changed")
     assert client.get("/account").status_code == 200  # session untouched
+
+
+def test_wrong_current_password_with_mismatched_confirmation_still_counts_one_failure(
+    client, plain_user, csrf, clock, web_factory
+):
+    _sign_in(client, clock, plain_user, csrf)
+    token = _page_token(client)
+    response = _post(
+        client,
+        "/account/password",
+        token,
+        current_password="not-the-password",
+        new_password="a-brand-new-passphrase",
+        confirm_password="a-different-passphrase",
+    )
+    assert response.status_code == 422 and "Current password is incorrect" in response.text
+    assert _user(web_factory, plain_user.id).failed_attempts == 1
+    rows = [
+        row
+        for row in _audit(web_factory, "auth.login_failed")
+        if row.details.get("reason") == "invalid_current_password"
+    ]
+    assert len(rows) == 1
+    assert not _audit(web_factory, "auth.password_changed")
+    from app.auth.local import verify_password
+
+    assert verify_password(_user(web_factory, plain_user.id).password_hash, LOGIN_PASSWORD)
 
 
 def test_repeated_wrong_current_password_locks_the_account(client, plain_user, csrf, clock, web_factory):
