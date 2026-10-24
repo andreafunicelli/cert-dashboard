@@ -17,3 +17,16 @@ input,button { font: inherit; }
 input { padding: .5rem; border: 1px solid #66748a; border-radius: .25rem; }
 button { padding: .5rem 1rem; color: white; background: #2459a6; border: 0; border-radius: .25rem; cursor: pointer; }
 :focus-visible { outline: 3px solid #a66b00; outline-offset: 3px; }
+.panel { max-width: 42rem; margin: 0 0 1.5rem; padding: 1.5rem 2rem; background: white; border: 1px solid #d9e0ec; border-radius: .6rem; }
+.panel.narrow { margin: 3rem auto; }
+.panel label { display: block; margin-top: 1rem; font-weight: 600; }
+.panel input:not([type="hidden"]) { display: block; width: 100%; max-width: 24rem; }
+.panel button { margin-top: 1rem; }
+.form-error { padding: .6rem 1rem; color: #7a1d1d; background: #fde8e8; border-left: 4px solid #b42323; }
+.notice { padding: .6rem 1rem; color: #1d4d2b; background: #e3f4e8; border-left: 4px solid #2e7d4a; }
+.hint { color: #66748a; font-size: .9rem; }
+.secret-once { padding: 1rem 1.5rem; background: #fff1cf; border-left: 4px solid #a66b00; }
+.codes { columns: 2; list-style: none; padding: 0; }
+pre { overflow-x: auto; padding: 1rem; background: #eef1f7; border-radius: .25rem; }
+form.inline { display: inline; }
+button.link { color: #2459a6; background: none; padding: 0; text-decoration: underline; }

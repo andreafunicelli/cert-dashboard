@@ -2,7 +2,9 @@
 
 import argparse
 import base64
+import getpass
 import hashlib
+import hmac
 import json
 import os
 import sys
@@ -13,6 +15,7 @@ from pathlib import Path
 from cryptography import x509
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.auth.local import bootstrap_admin
 from app.config import ConfigurationError, load_settings
 from app.crypto.keyring import KeyUnwrapError, load_keyring
 from app.crypto.keys import public_key_sha256
@@ -119,6 +122,33 @@ def _generate(version: int, merge: Path | None, output: Path | None) -> None:
         print("sha256=" + digest, file=sys.stderr)
 
 
+def _bootstrap_password() -> str:
+    """BOOTSTRAP_ADMIN_PASSWORD is read once and removed from this process's environment."""
+    supplied = os.environ.pop("BOOTSTRAP_ADMIN_PASSWORD", None)
+    if supplied is not None:
+        return supplied
+    first = getpass.getpass("Password: ")
+    if not hmac.compare_digest(first.encode("utf-8"), getpass.getpass("Repeat password: ").encode("utf-8")):
+        raise ValueError("Passwords do not match.")
+    return first
+
+
+def _bootstrap_admin(username: str, email: str) -> int:
+    # The password never reaches argv, stdout, stderr, logs or audit details.
+    password = _bootstrap_password()
+    settings = load_settings("cli", os.environ, Path(os.environ.get("SECRETS_DIR", "/run/secrets")))
+    factory = create_session_factory(settings)
+    engine = factory.kw["bind"]
+    try:
+        assert_database_ready(engine)
+        with transaction(factory) as db:
+            user = bootstrap_admin(db, username, email, password, Actor(None, "cli"))
+        print(f"created admin user_id={user.id} username={user.username}")
+        return 0
+    finally:
+        engine.dispose()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
@@ -129,11 +159,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     commands.add_parser("rotate-master-key")
     verify = commands.add_parser("verify-key")
     verify.add_argument("--certificate-id", type=_positive, required=True)
+    bootstrap = commands.add_parser("bootstrap-admin")
+    bootstrap.add_argument("--username", required=True)
+    bootstrap.add_argument("--email", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "generate-master-key":
             _generate(args.version, args.merge, args.output)
             return 0
+        if args.command == "bootstrap-admin":
+            return _bootstrap_admin(args.username, args.email)
         settings = load_settings("cli", os.environ, Path(os.environ.get("SECRETS_DIR", "/run/secrets")))
         factory = create_session_factory(settings)
         engine = factory.kw["bind"]

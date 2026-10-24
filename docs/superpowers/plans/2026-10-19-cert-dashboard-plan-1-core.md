@@ -374,7 +374,7 @@ def test_cookie_csrf_and_expiry(client, signed_in, clock):
 
 **Interfaces:** Consumes: `AuthBackend.authenticate(username: str, password: str) -> AuthResult` and the exact MFA/session APIs of Tasks 9–10. Produces: `bootstrap_admin(db: Session, username: str, email: str, password: str, actor: Actor) -> User`; `change_password(db: Session, user_id: int, old_password: str, new_password: str, actor: Actor) -> None`; GET/POST `/login`, `/login/2fa`; POST `/logout`; GET `/account`; POST `/account/password`, `/account/totp/enroll`, `/account/totp/confirm`, `/account/totp/disable`.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_login_does_not_grant_access_before_mfa(client, totp_user, csrf):
@@ -389,10 +389,10 @@ def test_bootstrap_requires_cli(client):
 ```
 
   Test local/fake backend same flow, generic invalid credentials, active MFA replay refusal, `must_change_password` blocking other routes until changed, logout cookie clear, password/TOTP changes revoke all sessions, and prompt-confirmation/min-length/bootstrap audit through CLI runner.
-- [ ] Run `uv run pytest tests/integration/test_login_account.py -q`; expect FAIL, routes/CLI absent.
-- [ ] Implement in listed files; bootstrap CLI prompts without echo and confirms, or reads `BOOTSTRAP_ADMIN_PASSWORD` once, never logs it, refuses duplicate username. With no active user, /login redirects once to /login?bootstrap=1, which renders the CLI hint without a registration route. User identity/backend choice comes from backend lookup; use a configured default backend for unknown users. A pending MFA cookie has no admin authority; MFA attempts still rate-limit/lockout. Missing password reset points to another admin; no email reset. Account forms work without JavaScript and show enrollment secret/recovery codes once with no-store headers; current-password re-auth is required for password/MFA changes.
-- [ ] Run `uv run pytest tests/integration/test_login_account.py tests/integration/test_sessions_http.py -q`; expect PASS.
-- [ ] Commit: `git add app/main.py app/cli.py app/auth/local.py app/templates/login.html.j2 app/templates/login_2fa.html.j2 app/templates/account.html.j2 app/templates/bootstrap.html.j2 tests/integration/test_login_account.py`; `git commit -m "feat: expose login MFA and bootstrap account flows"`.
+- [x] Run `uv run pytest tests/integration/test_login_account.py -q`; expect FAIL, routes/CLI absent.
+- [x] Implement in listed files; bootstrap CLI prompts without echo and confirms, or reads `BOOTSTRAP_ADMIN_PASSWORD` once, never logs it, refuses duplicate username. With no active user, /login redirects once to /login?bootstrap=1, which renders the CLI hint without a registration route. User identity/backend choice comes from backend lookup; use a configured default backend for unknown users. A pending MFA cookie has no admin authority; MFA attempts still rate-limit/lockout. Missing password reset points to another admin; no email reset. Account forms work without JavaScript and show enrollment secret/recovery codes once with no-store headers; current-password re-auth is required for password/MFA changes.
+- [x] Run `uv run pytest tests/integration/test_login_account.py tests/integration/test_sessions_http.py -q`; expect PASS.
+- [x] Commit: `git add app/main.py app/cli.py app/auth/local.py app/templates/login.html.j2 app/templates/login_2fa.html.j2 app/templates/account.html.j2 app/templates/bootstrap.html.j2 tests/integration/test_login_account.py`; `git commit -m "feat: expose login MFA and bootstrap account flows"`.
 
 ### Task 12: Transactional queue claims, terminal states, and reaper
 
