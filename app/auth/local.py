@@ -22,7 +22,7 @@ from argon2 import PasswordHasher, Type
 from argon2.exceptions import InvalidHashError, VerificationError
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.base import AuthResult, Failure, Success, UserRecord
@@ -364,3 +364,92 @@ def disable_totp(db: Session, user_id: int, actor: Actor) -> None:
     user.recovery_codes = []
     _revoke_mfa_sessions(db, user.id)
     _audit(db, user, "auth.totp_disabled", actor=actor)
+
+
+class PasswordChangeError(Exception):
+    """Typed refusal; `code` is safe control-flow metadata, never account-enumerating text."""
+
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(code)
+        self.code, self.message = code, message
+
+
+def reauthenticate(
+    db: Session, user_id: int, password: str, actor: Actor, now: datetime | None = None
+) -> User:
+    """Verify the signed-in user's current local password under the row lock.
+
+    A wrong password is a real authentication failure: it increments the shared counter,
+    locks at 10 for 15 minutes and is audited. The caller MUST commit before reporting a
+    PasswordChangeError so those effects persist.
+    """
+    now = now if now is not None else datetime.now(UTC)
+    user = _locked_user(db, user_id)
+    if user is None or not user.is_active:
+        raise PasswordChangeError("unavailable")
+    if user.auth_backend != BackendName.LOCAL or not user.password_hash:
+        raise PasswordChangeError("not_supported")
+    if user.locked_until is not None:
+        if user.locked_until > now:
+            _audit(db, user, "auth.login_failed", "locked", actor=actor)
+            db.flush()
+            raise PasswordChangeError("locked")
+        user.failed_attempts, user.locked_until = 0, None
+    if not verify_password(user.password_hash, password):
+        user.failed_attempts += 1
+        _audit(db, user, "auth.login_failed", "invalid_current_password", actor=actor)
+        if user.failed_attempts >= 10:
+            user.locked_until = now + timedelta(minutes=15)
+            _audit(db, user, "auth.lockout", actor=actor)
+        db.flush()  # the caller commits this failure state before reporting the refusal
+        raise PasswordChangeError("invalid_current_password")
+    if not user.totp_enabled and user.totp_secret_ciphertext is None:
+        user.failed_attempts, user.locked_until = 0, None
+    return user
+
+
+def change_password(
+    db: Session,
+    user_id: int,
+    old_password: str,
+    new_password: str,
+    actor: Actor,
+    now: datetime | None = None,
+) -> None:
+    """Local backend only. Revokes every session; the caller reissues the current one."""
+    now = now if now is not None else datetime.now(UTC)
+    user = reauthenticate(db, user_id, old_password, actor, now)
+    try:
+        encoded = hash_password(new_password)
+    except ValueError as exc:
+        raise PasswordChangeError("policy", str(exc)) from None
+    user.password_hash, user.must_change_password = encoded, False
+    _revoke_mfa_sessions(db, user.id, now)
+    _audit(db, user, "auth.password_changed", actor=actor)
+
+
+def bootstrap_admin(db: Session, username: str, email: str, password: str, actor: Actor) -> User:
+    """Create an active local admin. Raises ValueError (policy, duplicate) with safe text only."""
+    username, email = username.strip(), email.strip()
+    if not username or len(username) > 254 or not email or len(email) > 254:
+        raise ValueError("Username and email must be non-empty and at most 254 characters.")
+    encoded = hash_password(password)
+    if db.scalar(select(User.id).where(User.username == username)) is not None:
+        raise ValueError("A user with this username already exists.")
+    user = User(
+        username=username,
+        email=email,
+        display_name=username,
+        auth_backend=BackendName.LOCAL,
+        password_hash=encoded,
+        is_active=True,
+        must_change_password=False,
+    )
+    try:
+        with db.begin_nested():
+            db.add(user)
+            db.flush()
+    except IntegrityError:
+        raise ValueError("A user with this username already exists.") from None
+    record(db, actor, "user.bootstrap_admin", "user", str(user.id), {"username": user.username})
+    return user

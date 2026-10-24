@@ -288,3 +288,60 @@ def signed_in(client, web_factory, web_user, clock):
     client.cookies.set("cd_session", session.id, domain="testserver.local", path="/")
     client.fixture_csrf = session.csrf_token
     return client
+
+
+LOGIN_PASSWORD = "correct-long-pass"
+
+
+def create_login_user(factory, username="admin", password=LOGIN_PASSWORD, backend="local", **extra):
+    """Persist a user row; non-local (fake directory) users carry no password hash."""
+    from types import SimpleNamespace
+
+    from app.auth.local import hash_password
+    from app.models import User
+
+    with factory.begin() as db:
+        user = User(
+            username=username,
+            email=f"{username}@example.test",
+            display_name=username,
+            auth_backend=backend,
+            password_hash=hash_password(password) if backend == "local" else None,
+            **extra,
+        )
+        db.add(user)
+        db.flush()
+        return SimpleNamespace(id=user.id, username=username, password=password)
+
+
+@pytest.fixture
+def plain_user(web_factory):
+    return create_login_user(web_factory)
+
+
+@pytest.fixture
+def totp_user(web_factory, web_settings, clock):
+    import pyotp
+
+    from app.auth.local import begin_totp, confirm_totp
+    from app.services.audit import Actor
+
+    user = create_login_user(web_factory)
+    actor = Actor(user.id, user.username, "192.0.2.90")
+    with web_factory.begin() as db:
+        enrollment = begin_totp(db, user.id, web_settings.keyring, actor)
+    with web_factory.begin() as db:
+        code = pyotp.TOTP(enrollment.secret).at(clock())
+        assert confirm_totp(db, user.id, code, web_settings.keyring, clock(), actor)
+    user.secret, user.recovery_codes = enrollment.secret, enrollment.recovery_codes
+    return user
+
+
+@pytest.fixture
+def csrf(client):
+    """Pre-auth double-submit token taken from the real login form."""
+    import re
+
+    response = client.get("/login")
+    assert response.status_code == 200
+    return re.search(r'name="csrf_token" value="([^"]+)"', response.text).group(1)

@@ -79,6 +79,16 @@ def revoke_sessions(db: Session, user_id: int, now: datetime) -> int:
     ).rowcount
 
 
+def revoke_session(db: Session, session_id: str, now: datetime) -> int:
+    """Revoke exactly one session (logout); the user's other sessions stay valid."""
+    _aware(now)
+    return db.execute(
+        update(UserSession)
+        .where(UserSession.id == session_id, UserSession.revoked_at.is_(None))
+        .values(revoked_at=now)
+    ).rowcount
+
+
 def rotate_session(
     db: Session,
     previous: UserSession | None,

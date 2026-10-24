@@ -1,0 +1,83 @@
+{% extends "base.html.j2" %}
+{% block title %}Account · Cert Dashboard{% endblock %}
+{% macro errors(message) %}{% if message %}<p class="form-error" role="alert">{{ message }}</p>{% endif %}{% endmacro %}
+{% block content %}
+<h1>Account</h1>
+<p>Signed in as <strong>{{ username }}</strong>.</p>
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+{% if must_change %}<p class="form-error" role="alert">You must change your password before you can use the rest of the application.</p>{% endif %}
+
+<section class="panel" aria-labelledby="password-heading">
+  <h2 id="password-heading">Change password</h2>
+  {% if can_change_password %}
+  {{ errors(password_error) }}
+  <form method="post" action="/account/password">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="pw-current">Current password</label>
+    <input id="pw-current" name="current_password" type="password" autocomplete="current-password" required>
+    <label for="pw-new">New password (at least 12 characters)</label>
+    <input id="pw-new" name="new_password" type="password" autocomplete="new-password" minlength="12" required>
+    <label for="pw-confirm">Repeat new password</label>
+    <input id="pw-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+    <button type="submit">Change password</button>
+  </form>
+  <p class="hint">Changing your password signs out every other session.</p>
+  {% else %}
+  <p>Your password is managed by your directory.</p>
+  {% endif %}
+</section>
+
+{% if not must_change %}
+<section class="panel" aria-labelledby="totp-heading">
+  <h2 id="totp-heading">Two-factor authentication</h2>
+  {% if enrollment %}
+    <div class="secret-once" role="alert">
+      <p><strong>Save this now. It is shown once and cannot be displayed again.</strong></p>
+      <p>Add the account to your authenticator app using this key (SHA-1, 6 digits, 30 seconds):</p>
+      <p><code data-secret>{{ enrollment.secret }}</code></p>
+      <p>Or open this provisioning link: <code>{{ enrollment.provisioning_uri }}</code></p>
+      <p>Recovery codes (each works once):</p>
+      <ul class="codes">{% for item in enrollment.recovery_codes %}<li><code data-recovery-code>{{ item }}</code></li>{% endfor %}</ul>
+    </div>
+  {% endif %}
+  {% if totp_enabled %}
+    <p>Two-factor authentication is <strong>enabled</strong>. Recovery codes remaining: {{ recovery_remaining }}.</p>
+    {{ errors(enroll_error) }}
+    {{ errors(disable_error) }}
+    <form method="post" action="/account/totp/disable">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="disable-password">Current password</label>
+      <input id="disable-password" name="current_password" type="password" autocomplete="current-password" required>
+      <button type="submit">Disable two-factor authentication</button>
+    </form>
+    <p class="hint">Disabling signs out every other session.</p>
+  {% else %}
+    {% if totp_pending %}
+      <p>Enrollment is <strong>pending</strong>: enter a code from your authenticator app to finish.</p>
+      {{ errors(confirm_error) }}
+      <form method="post" action="/account/totp/confirm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="confirm-code">6-digit code</label>
+        <input id="confirm-code" name="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code" required>
+        <button type="submit">Confirm and enable</button>
+      </form>
+      <p class="hint">Lost the key or codes? Start again below; the pending enrollment is replaced.</p>
+    {% else %}
+      <p>Two-factor authentication is <strong>not enabled</strong>.</p>
+    {% endif %}
+    {{ errors(enroll_error) }}
+    <form method="post" action="/account/totp/enroll">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="enroll-password">Current password</label>
+      <input id="enroll-password" name="current_password" type="password" autocomplete="current-password" required>
+      <button type="submit">{% if totp_pending %}Restart enrollment{% else %}Set up two-factor authentication{% endif %}</button>
+    </form>
+  {% endif %}
+</section>
+{% endif %}
+
+<form method="post" action="/logout">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit">Sign out</button>
+</form>
+{% endblock %}
