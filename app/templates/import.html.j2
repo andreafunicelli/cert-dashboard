@@ -1,0 +1,76 @@
+{% extends "base.html.j2" %}
+{% block title %}Import certificate · Cert Dashboard{% endblock %}
+{% block content %}
+{% macro field_errors(name, errors) %}{% if errors.get(name) %}<div class="form-error" data-field="{{ name }}" role="alert">{% for message in errors[name] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}{% endmacro %}
+<section class="panel" id="import-panel">
+  <h1>Import certificate</h1>
+  {% if duplicate %}
+  <div class="notice" role="status">
+    <p>Certificate already in inventory — <a href="/certificates/{{ duplicate.id }}">view existing</a>.</p>
+    {% if duplicate.notes %}<ul>{% for note in duplicate.notes %}<li>{{ note }}</li>{% endfor %}</ul>{% endif %}
+    {% if duplicate.key_attachable %}
+    <p>The private key you supplied matches this certificate, but the existing inventory entry has no key. Nothing was changed. To attach the key, select the same files again and confirm below.</p>
+    {% endif %}
+  </div>
+  {% endif %}
+  {% if errors %}<p class="form-error" role="alert">The import was not saved. Fix the problems below and try again.</p>{% endif %}
+  <form id="import-form" method="post" action="/certificates/import/upload" enctype="multipart/form-data"
+        hx-post="/certificates/import/upload" hx-encoding="multipart/form-data" hx-target="#import-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% if duplicate and duplicate.key_attachable %}<input type="hidden" name="attach_key" value="confirm">{% endif %}
+
+    <label for="format">Format</label>
+    <select id="format" name="format">
+      <option value="pem"{% if form.format == "pem" %} selected{% endif %}>PEM</option>
+      <option value="crt"{% if form.format == "crt" %} selected{% endif %}>CRT (PEM or DER certificate)</option>
+      <option value="pfx"{% if form.format == "pfx" %} selected{% endif %}>PFX / PKCS#12</option>
+    </select>
+
+    <label for="file">Certificate file</label>
+    <input id="file" name="file" type="file">
+    <label for="file_text">…or paste it (PEM text; base64 for PFX)</label>
+    <textarea id="file_text" name="file_text" rows="4" cols="60" spellcheck="false" autocomplete="off"></textarea>
+    {{ field_errors("file", errors) }}
+
+    <label for="password">PFX password</label>
+    <input id="password" name="password" type="password" autocomplete="off">
+    {{ field_errors("password", errors) }}
+
+    <label for="chain_file">Intermediate chain (optional)</label>
+    <input id="chain_file" name="chain_file" type="file">
+    <label for="chain_text">…or paste it</label>
+    <textarea id="chain_text" name="chain_text" rows="3" cols="60" spellcheck="false" autocomplete="off"></textarea>
+    {{ field_errors("chain", errors) }}
+
+    <label for="key_file">Private key, PEM (optional)</label>
+    <input id="key_file" name="key_file" type="file">
+    <label for="key_text">…or paste it</label>
+    <textarea id="key_text" name="key_text" rows="3" cols="60" spellcheck="false" autocomplete="off"></textarea>
+    <label for="key_password">Private key password (if encrypted)</label>
+    <input id="key_password" name="key_password" type="password" autocomplete="off">
+    {{ field_errors("key", errors) }}
+    <p class="hint">Keys are encrypted at rest. A certificate can also be imported without a key.</p>
+
+    <h2>Inventory details</h2>
+    <label for="owner_name">Owner name</label>
+    <input id="owner_name" name="owner_name" value="{{ form.owner_name }}" maxlength="200">
+    <label for="owner_email">Owner email</label>
+    <input id="owner_email" name="owner_email" value="{{ form.owner_email }}" maxlength="254">
+    <label for="team">Team</label>
+    <input id="team" name="team" value="{{ form.team }}" maxlength="200">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="3" cols="60" maxlength="10000">{{ form.notes }}</textarea>
+    {{ field_errors("metadata", errors) }}
+
+    <button type="submit">{% if duplicate and duplicate.key_attachable %}Attach key to existing certificate{% else %}Import{% endif %}</button>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+  // htmx ignores 4xx bodies by default; inline validation answers 422 with the re-rendered form.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
+  });
+</script>
+{% endblock %}
