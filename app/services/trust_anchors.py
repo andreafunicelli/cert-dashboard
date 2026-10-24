@@ -90,6 +90,9 @@ def _enabled_anchors(db: Session) -> tuple[x509.Certificate, ...]:
     return _dedupe(anchors)
 
 
+enabled_anchors = _enabled_anchors
+
+
 def _public_bundle_enabled(value: object) -> bool:
     if value is None:
         return True

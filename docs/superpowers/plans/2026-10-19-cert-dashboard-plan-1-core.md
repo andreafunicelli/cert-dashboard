@@ -451,7 +451,7 @@ def test_heartbeat_and_cleanup(worker_harness, client, clock):
 
 **Interfaces:** Consumes: `store_key(db: Session, keyring: Keyring, key: PrivateKeyObject, origin: str, actor: Actor) -> PrivateKey`, `ParsedCertificate`, `ChainResult`, `Actor`. Produces: `CertificateMetadata(owner_name: str | None = None, owner_email: str | None = None, team: str | None = None, notes: str | None = None)`; `ImportResult(certificate: Certificate, created: bool, warnings: tuple[str,...])`; `save_certificate(db: Session, leaf: ParsedCertificate, chain: ChainResult, metadata: CertificateMetadata, actor: Actor, *, source: str, key_id: int | None = None, renews_id: int | None = None) -> ImportResult`; `update_certificate(db: Session, certificate_id: int, metadata: CertificateMetadata, actor: Actor) -> Certificate`; `set_status(db: Session, certificate_id: int, status: CertificateStatus, reason: str, actor: Actor) -> Certificate`; `attach_chain(db: Session, certificate_id: int, chain_data: bytes, actor: Actor) -> Certificate`; `set_lineage(db: Session, certificate_id: int, previous_id: int, actor: Actor) -> None`.
 
-- [ ] Write failing persisted-identity tests:
+- [x] Write failing persisted-identity tests:
 
 ```python
 def test_import_deduplicates(db, certs, actor):
@@ -465,10 +465,10 @@ def test_import_deduplicates(db, certs, actor):
 ```
 
   Assert same issuer+serial collision, concurrent identical imports converge, mismatched attached key is rejected, keyless renewal/discovery source rejected by CHECK, cycles/self-lineage rejected, metadata/status reason/chain changes audited exactly once, and incomplete chain notes preserve missing issuer diagnostics. An explicit later key import may attach a matching key to an existing public-only certificate with its own audit; duplicates must not silently overwrite ownership/notes.
-- [ ] Run `uv run pytest tests/integration/test_certificates.py -q`; expect FAIL, inventory service incomplete.
-- [ ] Implement in `services/certificates.py`; use savepoints/uniqueness for race-safe dedupe, row locks for lineage/status/key attachment, and explicit audited duplicate/reuse result. Prevent lineage cycles with a recursive ancestor query under a transaction-scoped lineage advisory lock; a concurrent reverse edge cannot pass both checks. Persist a Task 6A assessment into chain_status on import/chain changes; non-trusted status and issuer/root diagnostics are warnings only, never a trust-based import rejection. Expired public inventory imports are allowed with a warning; renewing/deploying applies stricter validity checks elsewhere. All mutations and their audits share the caller's transaction.
-- [ ] Run `uv run pytest tests/integration/test_certificates.py -q`; expect PASS.
-- [ ] Commit: `git add app/services/certificates.py tests/integration/test_certificates.py`; `git commit -m "feat: manage deduplicated certificate inventory and lineage"`.
+- [x] Run `uv run pytest tests/integration/test_certificates.py -q`; expect FAIL, inventory service incomplete.
+- [x] Implement in `services/certificates.py`; use savepoints/uniqueness for race-safe dedupe, row locks for lineage/status/key attachment, and explicit audited duplicate/reuse result. Prevent lineage cycles with a recursive ancestor query under a transaction-scoped lineage advisory lock; a concurrent reverse edge cannot pass both checks. Persist a Task 6A assessment into chain_status on import/chain changes; non-trusted status and issuer/root diagnostics are warnings only, never a trust-based import rejection. Expired public inventory imports are allowed with a warning; renewing/deploying applies stricter validity checks elsewhere. All mutations and their audits share the caller's transaction.
+- [x] Run `uv run pytest tests/integration/test_certificates.py -q`; expect PASS.
+- [x] Commit: `git add app/services/certificates.py tests/integration/test_certificates.py`; `git commit -m "feat: manage deduplicated certificate inventory and lineage"`.
 
 ### Task 15: Atomic upload import with inline validation
 
