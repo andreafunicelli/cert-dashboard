@@ -1,0 +1,31 @@
+[project]
+name = "cert-dashboard"
+version = "0.1.0"
+description = "Internal certificate inventory and manual-CA renewal dashboard"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "fastapi", "uvicorn", "jinja2", "python-multipart", "sqlalchemy>=2,<3",
+  "alembic", "psycopg[binary]", "cryptography", "certifi", "argon2-cffi",
+  "pyotp", "pyopenssl", "ansible-core", "ansible-runner", "idna",
+]
+
+[dependency-groups]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "testcontainers[postgres]", "pyyaml", "ruff", "pip-audit"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 70

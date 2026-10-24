@@ -1,0 +1,20 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.coverage*
+coverage.json
+htmlcov/
+secrets/
+.env
+tests/fixtures/certificates/
+*.egg-info/
+# Never commit generated key or certificate material (public repository).
+*.pem
+*.key
+*.p12
+*.pfx
+*.csr
+*.der
+*.crt

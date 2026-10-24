@@ -1,0 +1,1 @@
+"""Cert Dashboard application."""

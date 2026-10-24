@@ -97,7 +97,7 @@ One internal web application that is the source of truth for every non-ACME cert
 
 - The dashboard is not a CA and never signs anything.
 - The dashboard is not configuration management. It does not create vhosts, and a binding it cannot find is reported, not fixed.
-- The dashboard does not guarantee certificate validity with the CA beyond parsing and key matching. Revocation status is not checked in v1.
+- The dashboard validates certificate paths to configured trust anchors, but does not query the CA for issuance or revocation status. OCSP/CRL checks remain outside v1.
 
 ---
 
@@ -189,7 +189,7 @@ Properties:
 
 | Service | Image | Volumes | Secrets |
 | --- | --- | --- | --- |
-| `db` | `postgres:16` | `pgdata:/var/lib/postgresql/data` | `db_password` |
+| `db` | pinned `postgres:16-bookworm` (UID/GID 999) | `pgdata:/var/lib/postgresql/data` | `db_owner_password`, `db_password` |
 | `web` | built from `./Dockerfile` | none | `master_key`, `db_password`, `session_secret` |
 | `worker` | same image, different command | `inventory:/srv/inventory`, `artifacts:/srv/artifacts`, tmpfs `/run/cert-keys` | `master_key`, `db_password`, `ansible_ssh_key`, `ansible_vault_password` (optional), `inventory_git_token` (optional), `smtp_password` (optional) |
 
@@ -208,7 +208,8 @@ Configuration is environment variables plus files under `/run/secrets/`. Precede
 | Secret file | Required | Used by | Content |
 | --- | --- | --- | --- |
 | `master_key` | yes | web, worker | JSON keyring, see 5.1 |
-| `db_password` | yes | web, worker, db | Postgres password |
+| `db_password` | yes | web, worker, db bootstrap | Runtime app_role password; shared file owner 10001:999, mode 0440 |
+| `db_owner_password` | yes | db, one-shot migration only | Distinct owner password; owner 999:999, mode 0400; never mounted into normal web/worker |
 | `session_secret` | yes | web | 32+ random bytes, HMAC for session-bound values |
 | `ansible_ssh_key` | yes (worker) | worker | Private SSH key for Ansible |
 | `ansible_vault_password` | no | worker | Password for the inventory's vaulted group_vars |
@@ -222,6 +223,8 @@ Rules:
 3. The app refuses to start if a required secret is missing, empty, or malformed, and prints a remediation hint (Section 9.2).
 4. `web` does not mount `ansible_ssh_key` at all.
 5. Start-up logs print secret *presence and fingerprint metadata only* (e.g. keyring version and SHA-256 of the file), never contents.
+6. Compose file-backed secrets are read-only bind mounts preserving host ownership/modes; do not specify ignored mode/uid/gid remapping. `/etc/cert-dashboard/secrets` is root:root 0711. App/worker secret files are 10001:10001 0400; db_owner_password is 999:999 0400; shared db_password is 10001:999 0440. `scripts/install-secrets.sh` applies these permissions to existing canonical files without reading/copying values. Verify postgres UID/GID 999 in the pinned Debian image.
+7. The dedicated one-shot migrate service runs as 999:999 with DB-only settings and only db_owner_password mapped to /run/secrets/db_password; it inherits no web configuration or application secrets. Runtime app_role owns no schema/tables and cannot assume the owner role.
 
 ### 3.5 Code layout
 
@@ -242,6 +245,7 @@ app/
     keys.py            RSA/ECDSA generation, public key fingerprints
     csr.py             CSR build and validation
     chain.py           chain ordering and validation, PEM assembly
+    trust.py           offline PolicyBuilder/Store path validation
     pfx.py             PKCS#12 build (and PKCS#12 import)
     parse.py           PEM/DER/PFX parsing, fingerprint, SAN extraction
   services/
@@ -252,6 +256,7 @@ app/
     scans.py           TLS scan engine
     alerts.py          expiry evaluation, digests, SMTP
     audit.py           append-only audit writer
+    trust_anchors.py   uploaded roots, in-memory public bundle, chain rechecks
   jobs/
     worker.py          scheduler tick, claim loop, reaper
     queue.py           enqueue/claim/complete primitives
@@ -339,6 +344,8 @@ certificate 1---* notification_log
 | Enum | Values |
 | --- | --- |
 | `certificate_status` | `active`, `superseded`, `revoked` |
+| `chain_status` | `trusted`, `incomplete`, `untrusted_root`, `unchecked` |
+| `trust_anchor_source` | `public_bundle`, `uploaded` |
 | `private_key_type` | `rsa`, `ecdsa` |
 | `renewal_state` | `draft`, `csr_generated`, `submitted`, `issued`, `deployed`, `done`, `cancelled` |
 | `webserver_type` | `nginx`, `apache` |
@@ -368,6 +375,7 @@ certificate 1---* notification_log
 | `sha256_fingerprint` | char(64) not null | SHA-256 of the DER encoding, lowercase hex |
 | `pem` | text not null | Leaf certificate PEM |
 | `chain_pem` | text not null default '' | Intermediates, root excluded, see 4.4 |
+| `chain_status` | `chain_status` not null default `unchecked` | Persisted offline path assessment, see 5.8 |
 | `key_id` | bigint null FK `private_key(id)` | Null for imported public-only certificates |
 | `owner_name` | text null | Human or team label |
 | `owner_email` | text null | Alert recipient for this certificate |
@@ -392,12 +400,13 @@ Indexes and constraints:
 
 ### 4.4 Chain storage
 
-`chain_pem` holds every intermediate required to build a path from the leaf up to (but excluding) a root, in leaf-to-root order, PEM-concatenated. Roots are never stored: they are trusted by the clients, and shipping one is redundant. Validation on ingest:
+`chain_pem` holds the supplied intermediates, root excluded, in leaf-to-root order where links can be established. Roots are excluded from certificate/chain/PFX downloads; uploaded trusted roots are separate `trust_anchor` rows, not part of `chain_pem`.
 
-1. Parse every block; reject non-certificate blocks.
-2. Verify each certificate signs the previous one (issuer/subject match and signature verify).
-3. Drop duplicate and self-signed root blocks with a note in the audit details.
-4. Store the ordered result; if the order cannot be resolved, reject the upload with an explicit message.
+1. Parse every block; reject non-certificate blocks and malformed data.
+2. Order known issuer/subject links and verify their signatures. Reject a supplied issuer claiming a link whose signature is invalid. Keep unresolved components in deterministic issuer-topological/fingerprint order with an incomplete-path diagnostic, rather than inventing a missing issuer.
+3. Drop duplicates and self-signed roots from `chain_pem` with audit notes. Retain roots temporarily in memory as untrusted diagnostic candidates; they do not become trusted merely because a bundle contains them.
+4. Assess the path using §5.8, the pinned certifi bundle when enabled, and uploaded anchors. Persist `certificate.chain_status`. Missing/untrusted/expired intermediate paths are warnings on both import and issued-certificate upload; they do not block inventory or renewal issuance. Malformed public material, wrong keys/CSR identity, or an invalid issued leaf validity window still block.
+5. A chain/anchor/public-bundle setting change recomputes affected statuses through the service in §5.8. No AIA, trust-store download, or other network fetching occurs.
 
 ### 4.5 `private_key`
 
@@ -414,9 +423,9 @@ Indexes and constraints:
 | `public_key_sha256` | char(64) not null | SHA-256 of the DER `SubjectPublicKeyInfo` — matching key to certificate |
 | `public_key_pem` | text not null | Safe to store and display |
 | `created_by` | bigint null FK `user(id)` | |
-| `origin` | text not null | `generated`, `imported_pfx`, `imported_pem` |
+| `origin` | text not null | CHECK IN (`generated`, `imported_pfx`, `imported_pem`) |
 
-Constraints: `unique (public_key_sha256)`, `index (master_key_version)`, `check (octet_length(nonce) = 12)`, `check (master_key_version >= 1)`.
+Constraints: `unique (public_key_sha256)`, `index (master_key_version)`, `check (octet_length(nonce) = 12)`, `check (master_key_version >= 1)`, `check (origin IN ('generated', 'imported_pfx', 'imported_pem'))`.
 
 `public_key_sha256` is how the app proves a key matches a certificate without decrypting it: the certificate's public key hashed the same way must be equal. It is also the fallback identity when a certificate is re-imported.
 
@@ -452,7 +461,7 @@ Transition rules:
 
 - `draft -> csr_generated`: requires key generation; CN/SANs frozen afterwards.
 - `csr_generated -> submitted`: requires `ca_order_reference` (Assumption: an order reference is mandatory so the audit trail links to the CA).
-- `submitted -> issued`: the uploaded leaf must parse, must match `csr_pem` (public key and subject/SANs), must match `key_id` by public key hash, and must not be expired. A chain is optional if the leaf is self-signed or already chained.
+- `submitted -> issued`: the uploaded leaf must parse, must match `csr_pem` (public key and subject/SANs), must match `key_id` by public key hash, and must not be expired. A chain is optional. Path failures (including missing intermediates or an untrusted self-signed issuer) persist a non-trusted chain_status and show warnings; they do not block this transition. Parse/key/CSR/leaf-validity checks remain mandatory.
 - `issued -> deployed`: at least one successful deploy job covering the certificate; automatically advanced by the deploy handler.
 - `deployed -> done`: manual confirmation by an admin that the old certificate is no longer needed anywhere.
 - Any transition to `cancelled` keeps the row and the generated key (the key is not deleted; deleting keys is not exposed in the UI).
@@ -476,7 +485,7 @@ Transition rules:
 
 ### 4.8 `binding`
 
-One row per certificate-consuming directive in a vhost.
+One row per certificate-consuming directive in a vhost. The same certificate path can appear in distinct server blocks; identity includes server, webserver, config file, listen `port`, vhost name, and certificate path. Deploy acts per binding, while each distinct file path is written once per host and restored once on rollback.
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -499,7 +508,7 @@ One row per certificate-consuming directive in a vhost.
 | `last_seen_at` | timestamptz not null | Last discovery that observed this binding |
 | `is_active` | boolean not null default true | False when a binding disappears from a config |
 
-Constraints: `unique (server_id, cert_path)`; `index (certificate_id)`; `index (server_id, is_active)`; `index (match_state)`.
+Constraints: `UNIQUE NULLS NOT DISTINCT (server_id, webserver, config_file, port, vhost_name, cert_path)`; `index (certificate_id)`; `index (server_id, is_active)`; `index (match_state)`.
 
 `key_mismatch` means the certificate at `cert_path` does not correspond to the key at `key_path` — a real misconfiguration that must be surfaced loudly and must block any deploy touching that vhost.
 
@@ -594,7 +603,9 @@ Indexes: `index (endpoint_id, checked_at desc)`, `index (status, checked_at desc
 | `rollback_error` | text null | |
 | `precheck` | jsonb null | Drift check, disk space, config test result |
 
-Constraints: `unique (job_id, server_id, binding_id)`; `index (job_id, status)`; `index (job_id, batch_no)`.
+Constraints: `UNIQUE NULLS NOT DISTINCT (job_id, server_id, binding_id)`; `index (job_id, status)`; `index (job_id, batch_no)`.
+
+NULL binding IDs represent non-binding host jobs and still participate in uniqueness: one job/server pair cannot have two NULL-binding rows.
 
 **Assumption:** `job_host` carries `binding_id`, so a single host with several affected vhosts gets several `job_host` rows (one per binding) that are executed as one Ansible run per host, updating all rows for that host together.
 
@@ -643,7 +654,7 @@ Sessions: idle timeout 8 hours, absolute lifetime 24 hours (`Assumption`), rotat
 | `updated_at` | timestamptz not null | |
 | `updated_by` | bigint null FK `user(id)` | |
 
-Known keys: `smtp.host`, `smtp.port`, `smtp.security` (`starttls`/`ssl`/`none`), `smtp.from`, `smtp.username`, `alert.thresholds_days` (default `[60,30,14,7,1,0]`), `alert.recipients` (team list), `alert.digest_enabled`, `inventory.repo_url`, `inventory.ref` (branch/tag), `inventory.path`, `inventory.webserver_var`, `deploy.batch_percent` (default 10), `deploy.pause_after_canary` (default true), `deploy.pause_timeout_hours` (default 24), `deploy.backup_retention_days` (default 30, `0` = keep forever), `deploy.concurrency` (default 5), `scan.timeout_seconds` (default 10), `scan.daily_at` (default `02:00`), `discovery.nightly_at` (default `03:00`), `digest.daily_at` (default `07:30`), `expiry_check.daily_at` (default `07:00`), `ui.timezone` (display default), `retention.days` (run/job retention, default 90).
+Known keys: `trust.include_public_bundle` (default `true`), `smtp.host`, `smtp.port`, `smtp.security` (`starttls`/`ssl`/`none`), `smtp.from`, `smtp.username`, `alert.thresholds_days` (default `[60,30,14,7,1,0]`), `alert.recipients` (team list), `alert.digest_enabled`, `inventory.repo_url`, `inventory.ref` (branch/tag), `inventory.path`, `inventory.webserver_var`, `deploy.batch_percent` (default 10), `deploy.pause_after_canary` (default true), `deploy.pause_timeout_hours` (default 24), `deploy.backup_retention_days` (default 30, `0` = keep forever), `deploy.concurrency` (default 5), `scan.timeout_seconds` (default 10), `scan.daily_at` (default `02:00`), `discovery.nightly_at` (default `03:00`), `digest.daily_at` (default `07:30`), `expiry_check.daily_at` (default `07:00`), `ui.timezone` (display default), `retention.days` (run/job retention, default 90).
 
 Secrets are never stored here: SMTP password comes from the `smtp_password` secret file.
 
@@ -658,10 +669,13 @@ Secrets are never stored here: SMTP password comes from the `smtp_password` secr
 | `recipients` | text[] not null | Resolved at send time |
 | `status` | `notification_status` not null | |
 | `error` | text null | |
-| `sent_at` | timestamptz not null default now() | |
+| `sent_at` | timestamptz null, no default | Set only on a successful send; NULL for failed attempts |
+| `last_attempt_at` | timestamptz null, no default | Set on every send attempt, including failures |
+| `attempts` | int not null default 0 | Total attempts so far |
+| `next_attempt_at` | timestamptz null | Retry backoff target |
 | `dedupe_key` | text not null unique | e.g. `expiry:42:30:2026-11-01` |
 
-The `dedupe_key` makes alerting idempotent: one email per certificate, threshold, and day, regardless of how often the check runs. A failed send keeps its row and is retried on the next scheduler tick (row updated to `sent` on success), up to 3 attempts total; after that the row stays `failed`, the failure is shown in the digest and on the Settings Status panel, and the next day's key takes over.
+The `dedupe_key` makes alerting idempotent: one email per certificate, threshold, and day, regardless of how often the check runs. A failed send updates last_attempt_at but leaves sent_at NULL; a successful send sets both timestamps. A failed send keeps its row and is retried on the next scheduler tick (row updated to `sent` on success), up to 3 attempts total; after that the row stays `failed`, the failure is shown in the digest and on the Settings Status panel, and the next day's key takes over.
 
 ### 4.16 `audit_log`
 
@@ -682,19 +696,41 @@ Append-only enforcement, in the migration:
 
 ```sql
 REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM app_role;
-CREATE RULE audit_log_no_update AS ON UPDATE TO audit_log DO INSTEAD NOTHING;
-CREATE RULE audit_log_no_delete AS ON DELETE TO audit_log DO INSTEAD NOTHING;
+CREATE FUNCTION reject_audit_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log is append-only' USING ERRCODE = 'P0001';
+END
+$$;
+CREATE TRIGGER audit_log_no_mutation BEFORE UPDATE OR DELETE ON audit_log
+FOR EACH ROW EXECUTE FUNCTION reject_audit_mutation();
+CREATE TRIGGER audit_log_no_truncate BEFORE TRUNCATE ON audit_log
+FOR EACH STATEMENT EXECUTE FUNCTION reject_audit_mutation();
 ```
 
-The application role has `INSERT` and `SELECT` only. The audit list screen is read-only and paginated/filterable; there is no purge action in v1 (retention is a DBA task).
+The application role has `INSERT` and `SELECT` only. REVOKE produces permission denial for app-role UPDATE/DELETE/TRUNCATE; append-only triggers raise a loud error for owner mutations too. Do not use unconditional no-op rules: PostgreSQL can rewrite those statements away before permission checks. A DBA must deliberately disable the triggers for exceptional retention work. The audit list screen is read-only and paginated/filterable; there is no purge action in v1 (retention is a DBA task).
 
-Audited actions include: login success/failure, logout, 2FA enable/disable, user create/deactivate, certificate create/import/update/status change, chain/leaf upload, renewal transition, CSR generation, key export, PFX export, deploy start/cancel, rollback, discovery run, scan run, settings change, master key rotation, admin bootstrap.
+Audited actions include: login success/failure, logout, 2FA enable/disable, user create/deactivate, certificate create/import/update/status change, chain/leaf upload, renewal transition, CSR generation, key export, PFX export, deploy start/cancel, rollback, discovery run, scan run, settings change, master key rotation, admin bootstrap, `trust_anchor.add`, `trust_anchor.remove`, and `certificate.chain_check` (status/validation time only).
 
 ### 4.17 Migrations and seed data
 
 - Alembic, one revision per change, `upgrade` only in production (no destructive auto-migrations on start; a `migrate` step runs in the deploy pipeline).
 - Seed: nothing except a bootstrap admin created by `python -m app.cli bootstrap-admin --username ... --email ...` (prompts for the password, or reads `BOOTSTRAP_ADMIN_PASSWORD` once). Default settings rows are inserted by the first migration.
 - Every table has `created_at`; mutable tables have `updated_at` maintained by a trigger.
+
+### 4.18 `trust_anchor`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | bigserial PK | |
+| `subject` | text not null | RFC 4514 subject |
+| `sha256_fingerprint` | char(64) not null unique | Lowercase SHA-256 of DER |
+| `pem` | text not null | One internal root CA certificate |
+| `source` | `trust_anchor_source` not null default `uploaded` | Enum includes `public_bundle`/`uploaded`; only uploaded anchors are persisted |
+| `notes` | text null | Operator context |
+| `created_by` | bigint null FK `user(id)` | Uploading admin |
+| `created_at` | timestamptz not null default now() | Immutable; removal is audited |
+
+This table, its enum, `certificate.chain_status`, and the public-bundle setting are created by the single initial v1 migration. Certifi is pinned in the lock file and loaded into memory; its public roots are never copied into this table. Add rejects anything except a single PEM root with BasicConstraints `CA:TRUE`, matching issuer/subject, a valid self-signature, and a KeyUsage extension with `keyCertSign`. Deduplicate by fingerprint. Delete removes the uploaded anchor and recomputes statuses in the same transaction; audit `trust_anchor.add/remove` records actor/fingerprint/subject/notes, not private material. Anchors contain public certificates only.
 
 ---
 
@@ -712,12 +748,12 @@ The master key never lives in the database. It is supplied as the Docker secret 
 - At most two versions are kept: the active one and the previous one, which exists only during a rotation window.
 - Startup validation: valid JSON, 32-byte decoded keys, `active` present in `keys`, max 16 versions parsed, no duplicate keys. Any failure aborts start-up.
 - Versions are monotonically increasing integers; the app never reuses a version number.
-- Generate with `python -m app.cli generate-master-key --version 1` (which calls `os.urandom(32)` and prints the JSON plus its SHA-256 for verification).
+- Generate with `python -m app.cli generate-master-key --version 1 --output /etc/cert-dashboard/secrets/master_key.v1.new` (which calls `os.urandom(32)`, exclusively creates a new `0400` file, fsyncs it, and prints only the SHA-256 plus path). Versions are `1..2147483647`. Existing paths and realpath aliases of the merge source are refused. Without `--output`, JSON goes to stdout with a stderr warning: never redirect onto the --merge path, because shell truncation occurs before Python reads it.
 
 ### 5.2 Encryption of private keys and TOTP secrets
 
 - Algorithm: AES-256-GCM, 12-byte random nonce per encryption operation, 16-byte authentication tag appended to the ciphertext (the `cryptography` library's default `AESGCM` layout).
-- Associated data (`aad`) is a context string that binds the ciphertext to its row and purpose: `private_key:<id>:<master_key_version>` and `user:<id>:totp:<master_key_version>`. Because the AAD contains the row id, the writer inserts the row first to obtain the id, encrypts, and sets the ciphertext in the same transaction; a rollback leaves no half-encrypted row. Copying ciphertext into a row with a different id (a manual data fix, or a re-insert with a new sequence) invalidates it by design, so key material cannot silently migrate between rows. A plain database restore keeps the ids and therefore still decrypts.
+- Associated data (`aad`) is a context string that binds the ciphertext to its row and purpose: `private_key:<id>:<master_key_version>` and `user:<id>:totp:<master_key_version>`. Because the AAD contains the row id, the writer reserves an ID from the private_key sequence, encrypts using that ID, and inserts the complete non-null encrypted row in the same transaction; a rollback leaves no half-encrypted row. Concurrent public-key dedupe uses a conflict-safe complete-row insert. Copying ciphertext into a row with a different id (a manual data fix, or a re-insert with a new sequence) invalidates it by design, so key material cannot silently migrate between rows. A plain database restore keeps the ids and therefore still decrypts.
 - Plaintext is the PEM-encoded unencrypted key (`TraditionalOpenSSL`/PKCS#8 without a passphrase) or the base32 TOTP secret; it exists only in memory for the duration of the operation.
 - `master_key_version` is stored per row so a rotation can find stale rows: `SELECT count(*) FROM private_key WHERE master_key_version <> $active`. Every version referenced by a row must still be present in the keyring; removing a version that rows still reference makes those rows unreadable, which the Status panel warns about before rotation completes.
 - Decryption failures (wrong key, tampered row, wrong AAD) raise a single `KeyUnwrapError` that the UI reports as "key material cannot be decrypted with the configured master key" and that the audit log records. The app never falls back to a different version silently and never returns partial plaintext.
@@ -727,7 +763,7 @@ The master key never lives in the database. It is supplied as the Docker secret 
 ### 5.3 Key generation, matching, and export
 
 - Generation: RSA 2048/3072/4096 (`public_exponent=65537`) or ECDSA P-256 (`secp256r1`/`prime256v1`) / P-384 (`secp384r1`). Default RSA 2048 for compatibility with the CA portals in use; the UI states the trade-off.
-- CSR: SANs from the renewal's CN/SANs, `subject` with CN only, SHA-256 signature. The CSR and its SHA-256 are displayed so the operator can compare them with the CA portal.
+- CSR: `subject` contains CN only, with a SHA-256 signature and fingerprint of DER CSR bytes. Canonical CN is always included once in SANs; reject an empty supplied SAN list and enforce at most 100 supplied entries and final unique identities after CN inclusion. DNS is lower-case IDNA using locked `idna` non-transitional UTS #46/STD3 (Unicode and A-label forms deduplicate; ß remains distinct from ss). Each DNS label is at most 63 ASCII bytes and the complete name at most 253; reject invalid/empty labels, underscores, leading/trailing hyphens and trailing root dots. Only a complete left-most wildcard label is allowed. CN is DNS/IP and must fit X.509's 64-byte CN limit; longer valid hostnames can remain SANs. IPv4/IPv6 SANs use IPAddress, including a CN added to SANs; numeric DNS-encoded IPs, scoped IPs and malformed dotted quads are rejected. Typed `DNS:`, `IP:`, `email:` and `URI:` inputs are accepted; email and absolute ASCII URI values preserve case/type. Canonical storage uses unprefixed DNS/IP and email:/URI: prefixes, with comparisons over typed canonical sets. The CSR PEM and its SHA-256 are displayed so the operator can compare them with the CA portal.
 - Key/certificate matching is always by `public_key_sha256` (SHA-256 of the DER `SubjectPublicKeyInfo`). Uploaded issued certificates whose public key does not match the renewal's key are rejected, with the two fingerprints shown.
 - Export:
   - PEM leaf, chain, full chain (leaf+chain), and PFX are offered from the certificate detail screen.
@@ -771,7 +807,7 @@ v1: all authenticated, active users are admins. There is no per-object permissio
 | Master key leaked without DB | No certificates to combine, keys useless alone | Key and DB backups are stored separately (Section 11) |
 | Web container compromised | Full admin session, but no SSH access | Web holds no Ansible SSH key, has no inventory checkout, and cannot run jobs directly |
 | Worker container compromised | SSH to managed servers, can decrypt keys | Worker has no public port; runs as non-root; plaintext key files live only on its private volume and are deleted after use |
-| Malicious insider | Mass deploy or key theft | Argon2id, optional TOTP, mandatory re-auth for PFX export, append-only audit, canary-first rollout |
+| Malicious insider | Mass deploy or key theft | Argon2id, optional TOTP, mandatory re-auth for PFX export, audit REVOKE + append-only triggers (including owner mutation errors), canary-first rollout |
 | Log exfiltration | Indirect secret leak | `no_log` on all key tasks, redaction logging filter, no secrets in payloads or error messages |
 | Wrong certificate deployed | Outage at the vhost | Key-match validation, drift precheck, configtest, live fingerprint verification, automatic rollback |
 | Replay/CSRF | Unauthorized state change on a logged-in admin | SameSite=Lax, per-session CSRF token, POST-only mutations |
@@ -783,6 +819,21 @@ v1: all authenticated, active users are admins. There is no per-object permissio
 - Ansible connects over SSH with a dedicated key, dedicated user, and `StrictHostKeyChecking=yes` against a `known_hosts` file baked into the worker image at build time (or mounted). Host key changes fail the job rather than being accepted.
 - No outbound internet access is required except SMTP, the CA portals (browser side only), and the inventory Git remote.
 - `db` accepts connections only from the compose network, with a strong password from a secret.
+
+### 5.8 Offline trust-anchor path validation
+
+Use `cryptography.x509.verification.PolicyBuilder` and `Store`: build leaf → supplied/stored intermediates → a configured anchor at an explicit UTC `validation_time` (current time for import/recheck/deploy, never backdated to bypass expiry). Include the pinned certifi bundle only when `trust.include_public_bundle=true` (default); merge it in memory with uploaded roots. Verification enforces signatures, CA constraints, and the validity of the leaf and intermediates; choose the server identity from the certificate's DNS/IP SANs consistently. No network, AIA, OCSP, or CRL checks run.
+
+Persist one `certificate.chain_status`:
+
+- `trusted`: PolicyBuilder verifies a path to an enabled anchor at validation_time.
+- `untrusted_root`: no trusted path, but a cryptographically connected path reaches a supplied/known self-signed root not in the enabled anchor set. An uploaded bundle's root is diagnostic, not an automatic trust grant.
+- `incomplete`: no valid path (including a missing intermediate, an expired intermediate, or another policy failure); show the missing issuer/policy diagnostic. Policy failures carry a recognizable reason suffix (`policy_failure:expired_anchor`, `:anchor_not_yet_valid`, `:name_constraint`, `:missing_aki`, `:missing_key_usage`); a structurally truncated chain reports `chain_truncated` rather than `policy_failure`. When no terminal root is available, do not guess it is a root: use incomplete.
+- `unchecked`: no assessment has run yet; never treat it as trusted.
+
+Import and issued upload display non-trusted results inline and on certificate detail but continue after their existing parse/key/CSR/leaf-validity gates pass. Recompute on chain changes, anchor add/remove, and public-bundle toggle through `recheck_chain_statuses(db, validation_time, diagnostic_roots=())`; when removing an anchor, retain the removed public root in memory for that recheck's untrusted-root diagnosis. The cached status reflects the last assessment; a later assessment may report incomplete if a formerly supplied untrusted root is no longer available. Each changed persisted status gets a metadata-only certificate.chain_check audit with validation_time.
+
+Plan 1 performs these rechecks synchronously (at most ~500 certificates). Plan 2 may move the same service into a registered background recheck action; no additional v1 job enum/table is required. Plan 3 revalidates at current time before deploy and requires trusted unless an admin explicitly supplies a required reason for an audited `deploy.chain_override` (certificate, previous status, actor, job, reason). A trust override never bypasses key/leaf-validity/drift/config-test guardrails.
 
 ---
 
@@ -906,6 +957,8 @@ Notes:
 Triggered from the Deploy screen with: certificate, optional server filter (groups/hosts), batch percent, pause-after-canary, and an optional deploy window.
 
 Planning (`services.deploy.plan`):
+
+Before resolving targets, revalidate the certificate path at current UTC time (§5.8). Require `chain_status=trusted` or an explicit, reasoned, audited deploy.chain_override; repeat at execution if trust changed after preview.
 
 1. Resolve target bindings: all active bindings whose `certificate_id` is the certificate being replaced (`renews_id` of the new certificate), or the explicit selection the operator made. Exclude bindings with `match_state` in `key_mismatch`, `missing_file`; include `unknown` only if the operator explicitly overrides, which is audited.
 2. Group bindings by `server_id`; a server appears once.
@@ -1069,7 +1122,7 @@ Filters: search (CN/SAN/serial/fingerprint), status, expiry bucket, issuer, team
 - Endpoints panel: expected vs observed certificate, last scan status and time, "Scan now" button.
 - History panel: renewal lineage timeline (each certificate and each state transition with actor and time) plus related audit entries.
 - Actions: edit owner/team/notes, mark `superseded`/`revoked` (with a required reason), start renewal, deploy this certificate, import a chain.
-- Validation panel when the chain is incomplete: lists the missing issuer CN so the operator knows exactly which intermediate to fetch.
+- Validation panel always shows chain_status and the last path-assessment diagnostics. Incomplete/untrusted_root/unchecked display a warning naming the missing issuer, expired intermediate, or untrusted root, with a link to Settings → Trust anchors. These warnings do not block import/issued upload; deploy requires trusted or an audited override.
 
 ### 8.5 Renewal wizard (`/renewals/new?from={cert_id}`, `/renewals/{id}`)
 
@@ -1078,7 +1131,7 @@ Steps, one screen each, state persisted so the operator can leave and come back:
 1. **Basics** — source certificate, CN and SANs prefilled and editable (read-only after CSR generation), key algorithm and size, CA name, notes.
 2. **CSR** — generated on submit; shows the CSR PEM, its SHA-256, and copy/download buttons plus a checklist for the CA portal ("order a certificate, paste this CSR, complete validation, download the certificate and any intermediate"). The CSR hash is displayed on later steps too, so the operator can prove they submitted the right request.
 3. **Submitted** — order reference (required), date; the state becomes `submitted` and the certificate detail shows "issued externally, awaiting upload".
-4. **Upload issued certificate** — paste or upload the leaf and optional chain (PEM/CRT; PFX is not accepted here because the key must be the one the app generated). Validation runs immediately: parse, public-key match against `key_id`, CSR subject/SAN match, validity window, chain completeness. Errors are shown per check, so the operator knows to re-download from the CA or fetch a missing intermediate. Valid files are stored as a `certificate` row with `renews_id = previous_certificate_id` only after all checks pass.
+4. **Upload issued certificate** — paste or upload the leaf and optional chain (PEM/CRT; PFX is not accepted here because the key must be the one the app generated). Validation runs immediately: parse, public-key match against `key_id`, CSR subject/SAN match, validity window, and trust-anchor path assessment. Trust warnings do not block issued upload; parse/key/CSR/leaf-validity errors do. Diagnostics are shown per check, so the operator knows to re-download from the CA or fetch a missing intermediate. Files passing the blocking checks are stored as a `certificate` row with `renews_id = previous_certificate_id` and their assessed chain_status, including non-trusted warnings.
 5. **Ready to deploy** — a summary plus a "Deploy" button that opens the Deploy screen preloaded with this certificate and the bindings of the previous one.
 6. **Done** — after a successful deploy: mark `done`; options to keep the previous certificate as `superseded` (default) or `revoked` if the CA revoked it.
 
@@ -1121,10 +1174,11 @@ Job screen (live, polls `/jobs/{id}/progress` every 2 s):
 
 ### 8.10 Users & settings (`/settings`, `/users`)
 
-- Settings tabs: SMTP (with test send), Alerts (thresholds, recipients, digest on/off), Inventory (repo URL, ref, path, webserver var, "Test pull" button), Deployment (default batch percent, concurrency, pause-after-canary, pause timeout, backup retention days, per-host timeout), Scanning (timeout, daily time), Schedule (daily times), General (display timezone, retention), Status (worker heartbeat, keyring version, DB size, queue depth, last runs).
+- Settings tabs: SMTP (with test send), Alerts (thresholds, recipients, digest on/off), Inventory (repo URL, ref, path, webserver var, "Test pull" button), Deployment (default batch percent, concurrency, pause-after-canary, pause timeout, backup retention days, per-host timeout), Scanning (timeout, daily time), Schedule (daily times), General (display timezone, retention), Trust anchors (include-public-bundle toggle, pinned certifi version, uploaded internal roots), Status (worker heartbeat, keyring version, DB size, queue depth, last runs).
 - Dangerous actions are isolated in a "Maintenance" panel with a typed confirmation: rotate master key instructions (the actual rotation is a CLI command, with the UI showing the current state and required steps), prune old jobs.
 - Users: list, create (local), edit email/display name, deactivate, reset password, reset 2FA, view last login. Deactivating the last active user is refused. The UI names the auth backend per user and disables password actions for non-local backends.
 - Every settings change is audited with the before/after values (excluding secrets, which are not settable here).
+- Trust anchors: upload a single PEM internal root (CA:TRUE and self-signed verification), view fingerprint/subject/source/notes, delete with confirmation; audit trust_anchor.add/remove and synchronously recheck stored chain statuses. Public roots are read-only in-memory bundle entries, never uploaded-anchor rows.
 
 ---
 
@@ -1155,7 +1209,7 @@ Job screen (live, polls `/jobs/{id}/progress` every 2 s):
 ### 9.3 Validation errors (user input)
 
 - All forms validate server-side and re-render with inline messages and the previous input preserved. htmx forms receive a `422` fragment that replaces the form.
-- Certificate uploads report *all* validation failures at once (parse error, key mismatch, CN/SAN mismatch, expired, incomplete chain), not just the first.
+- Certificate uploads report *all* validation failures at once (parse error, key mismatch, CN/SAN mismatch, expired), not just the first. Chain trust/completeness failures are separate non-blocking warnings with persisted chain_status.
 - Wrong file type (PFX uploaded where PEM is required), oversized files (limit 1 MB per uploaded object), and malformed base64 are explicit messages.
 - Importing a certificate whose fingerprint already exists offers "view existing" instead of creating a duplicate.
 - A name/path that would escape the artifacts or key-staging directory is rejected.
@@ -1230,11 +1284,11 @@ Ansible-level errors that are not host-related (playbook syntax, missing collect
 **Crypto (`app/crypto`)**
 
 - RSA 2048/3072/4096 and ECDSA P-256/P-384 key generation: correct type, size, curve, and non-exportable-format errors.
-- CSR: subject CN, all SAN types (DNS, IP, email), signature verifies against the generated key, SHA-256 of the CSR matches the stored value, SANs are preserved exactly.
+- CSR: subject CN, all SAN types (DNS, IP, email), signature verifies against the generated key, SHA-256 of DER CSR matches the stored value, SAN types are preserved, DNS/IDNA is canonical, and CN is included exactly once. Reject empty/overfull SAN lists, invalid names/wildcards and label/name length violations; compare public-key identity across PEM/DER/PKCS8 representations.
 - Key matching: matching key/certificate accepted; a different-but-same-algorithm key rejected; RSA 2048 vs 3072 mismatch rejected; ECDSA curve mismatch rejected.
 - AES-256-GCM: encrypt/decrypt round trip; nonce uniqueness across N operations; tampered ciphertext, tampered nonce, wrong AAD, wrong key version all raise `KeyUnwrapError` (never return garbage); ciphertext of the same plaintext differs across calls.
 - Master keyring: parse valid/invalid JSON shapes, reject 16-byte keys, reject a missing `active`, round-trip rotation of a batch of rows (data encrypted with v1 decrypts after v2 becomes active; `master_key_version` updated).
-- Chain builder: leaf→intermediate→root order resolution; reversed input; missing intermediate (explicit error naming the issuer); duplicate root dropped; wrong issuer rejected.
+- Chain builder: reversed input and duplicate/root removal; unresolved intermediate order reports a diagnostic; a forged supplied issuer link is rejected. Trust: internal root uploaded → trusted; same supplied root absent from anchors → untrusted_root; missing/expired intermediate → incomplete; non-CA/invalid-self-signature anchor rejected. All fixtures are local; certifi access reads its pinned packaged file only.
 - PFX build: `pkcs12.load_key_and_certificates` returns the key, leaf, and full chain; the PFX requires the chosen password; the key's public hash matches the certificate after extraction.
 - Parsing: PEM/DER/PFX ingestion, fingerprint equals an independently computed SHA-256, SAN extraction with wildcards and IPs, expired certificate detection, self-signed handling, garbage input rejected with a typed error.
 
@@ -1242,7 +1296,7 @@ Ansible-level errors that are not host-related (playbook syntax, missing collect
 
 - Every legal transition succeeds and is audited exactly once.
 - Every illegal transition (e.g. `draft -> issued`, `done -> submitted`, `cancelled -> csr_generated`) raises a typed `InvalidTransition` and leaves the row unchanged.
-- Issued-upload validation: wrong key rejected, wrong CN rejected, wrong SAN set rejected, expired rejected, missing chain accepted only when the leaf is self-signed or already chains to the stored intermediates, duplicate fingerprint rejected.
+- Issued-upload validation: wrong key rejected, wrong CN rejected, wrong SAN set rejected, expired rejected, missing/untrusted/expired-intermediate chain accepted with warning and stored chain_status, duplicate fingerprint rejected. Leaf expiry still blocks issuance.
 - `issued -> deployed` only after a succeeded deploy job that included the certificate.
 
 **Rollout planning**
@@ -1305,7 +1359,7 @@ Scenarios:
 
 ### 10.3 Test data and environments
 
-- Fixtures generate a throwaway CA, a root, two intermediates, wildcard and IP-SAN leaves, RSA and ECDSA keys, an expired certificate, and a not-yet-valid certificate — all under `tests/fixtures/certificates/` (generated at session start, not committed).
+- Fixtures generate a throwaway CA, a root, two intermediates, wildcard and IP-SAN leaves, RSA and ECDSA keys, an expired certificate, and a not-yet-valid certificate — all generated in memory by `tests/fixtures/certificates.py` at session scope; no private-key fixture files are committed.
 - Database: a throwaway Postgres container per test session with migrations applied; each test runs in a transaction that is rolled back, except queue/concurrency tests, which use isolated schemas.
 - No test reaches the internet; the SMTP target is a local capture server; the Git inventory is a local bare repository created by the fixture.
 - CI: `ruff check`, `pytest -q` with coverage, `docker build`, and a `docker compose -f docker-compose.test.yml config` sanity check. Coverage gates: 85% on `app/crypto`, `app/services/renewals.py`, `app/services/deploy.py`, `app/ansible/parse_*`; 70% overall.
@@ -1336,8 +1390,25 @@ Scenarios:
 ### 11.2 First installation
 
 1. Clone the private repo onto the host (deploy key).
-2. Create the secret files under `/etc/cert-dashboard/secrets/`, `chmod 0400`, `chown root:root` (`db_password`, `master_key`, `session_secret`, `ansible_ssh_key`, optional `ansible_vault_password`, `inventory_git_token`, `smtp_password`). Generate `master_key` with `docker run --rm cert-dashboard python -m app.cli generate-master-key --version 1` and **immediately** follow 11.6.
-3. `docker compose up -d db`, then `docker compose run --rm web alembic upgrade head`.
+2. Provision secret files under `/etc/cert-dashboard/secrets/` (`db_password`, distinct `db_owner_password`, `master_key`, `session_secret`, and optional worker SSH/vault/Git/SMTP credentials). Generate the first master key with the built runtime image as follows, running host provisioning commands as root. The temporary directory is writable only by UID 10001; stdout contains only the digest and path, never the keyring. The command also works with Docker's `--read-only` option: `/out` is the explicit writable bind mount.
+
+   ```sh
+   set -eu
+   install -d -m 0711 -o 0 -g 0 /etc/cert-dashboard/secrets
+   tmp="$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)"
+   install -d -m 0700 -o 10001 -g 10001 "$tmp"
+   metadata="$(docker run --rm -v "$tmp":/out cert-dashboard python -m app.cli generate-master-key --version 1 --output /out/master_key.new)"
+   printf '%s\n' "$metadata"
+   expected="${metadata%% *}"
+   expected="${expected#sha256=}"
+   printf '%s  %s\n' "$expected" "$tmp/master_key.new" | sha256sum --check -
+   install -m 0400 -o 10001 -g 10001 "$tmp/master_key.new" /etc/cert-dashboard/secrets/master_key
+   shred -u -- "$tmp/master_key.new"
+   rmdir -- "$tmp"
+   ```
+
+   Only install after the host digest check succeeds. Then run `sh scripts/install-secrets.sh /etc/cert-dashboard/secrets` as root: directory root:root 0711; app secrets 10001:10001 0400; owner password 999:999 0400; shared db_password 10001:999 0440. No runtime copies are created. **Immediately** follow 11.6. Never redirect onto a `--merge` source. `--output` sets exact 0400 mode independently of umask, syncs both file and parent directory, and removes only its own partial inode on write/sync failure. Symlink-resolution errors are reported as configuration errors.
+3. `docker compose up -d db`, then `docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`.
 4. `docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal` (prompts for the password with confirmation, enforces the 12-character minimum).
 5. `docker compose up -d web worker`.
 6. Log in, enroll 2FA, configure SMTP, alert recipients, and the inventory repo; press "Test pull" and "Send test email".
@@ -1349,7 +1420,7 @@ Scenarios:
 
 | Task | Procedure |
 | --- | --- |
-| Upgrade | Pull the image tag, `docker compose run --rm web alembic upgrade head`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
+| Upgrade | Pull the image tag, `docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate`, then `docker compose up -d web worker`. Migrations are forward-only; take a DB backup first |
 | Roll back an app upgrade | Re-pin the previous image tag and restart. If the migration is not backward compatible, restore the DB backup taken before the upgrade (documented per release in the release notes) |
 | Add a server | Add it to the inventory repo, wait for the nightly discovery or press "Discover now"; confirm the server appears and its bindings are matched |
 | Remove a server | Remove it from the inventory; the next discovery marks it inactive (history preserved) |
@@ -1372,11 +1443,11 @@ Scenarios:
 
 The keyring supports two live versions so rotation needs no downtime window longer than a restart.
 
-1. Generate version N+1 with the existing keyring as input: `python -m app.cli generate-master-key --version 2 --merge /etc/cert-dashboard/secrets/master_key`. It prints the new keyring JSON (old key retained) and its SHA-256; it does not modify the file.
-2. Write the new keyring to the `master_key` secret file, keep a copy of the old file in the backup location (per 11.6), and `docker compose up -d web worker`. New encryptions now use version 2.
-3. Run `docker compose run --rm web python -m app.cli rotate-master-key`. It re-encrypts every `private_key` and `user.totp_secret_*` row with a new nonce and the active version, in batches of 100, and prints the remaining count. It is idempotent and resumable.
-4. Verify `SELECT count(*) FROM private_key WHERE master_key_version <> 2` returns 0 and the Status panel shows the active version.
-5. Remove version 1 from the secret file, restart, and destroy the old key copy **only after** step 4 and a successful PFX export.
+1. Generate version N+1 into a new file: `python -m app.cli generate-master-key --version 2 --merge /etc/cert-dashboard/secrets/master_key --output /etc/cert-dashboard/secrets/master_key.v2.new`. The old key is retained in the new keyring; the merge source is unchanged. The output file is exclusively created as `0400` and fsynced; stdout contains only its SHA-256 and path. Verify that digest with `sha256sum /etc/cert-dashboard/secrets/master_key.v2.new`. **Never redirect onto the --merge path**: the shell would truncate the live keyring before Python could read it.
+2. Keep a copy of the old file in the backup location (per 11.6), then install the verified new file with host privileges: `install -m 0400 -o 10001 -g 10001 /etc/cert-dashboard/secrets/master_key.v2.new /etc/cert-dashboard/secrets/master_key`, and `docker compose up -d --force-recreate web worker`. Force recreation rereads the startup snapshot and remounts replaced file secrets. New encryptions now use version 2.
+3. Run `docker compose run --rm web python -m app.cli rotate-master-key`. It re-encrypts every `private_key` and `user.totp_secret_*` row with a new nonce and the active version, in batches of 100, and prints the remaining count. Each completed batch is committed with a counts-only audit; a failure rolls back the current batch and earlier batches remain committed. It is idempotent and resumable; one row-scoped helper holds plaintext at a time, without files or plaintext SQL/logging. After the loop a fresh transaction checks missing versions and stale key/TOTP counts; if any remain, the CLI exits non-zero with metadata only. Reload legacy writers and rerun before retiring a version; this check observes a fresh snapshot and cannot prevent future old-version writes.
+4. Verify both `SELECT count(*) FROM private_key WHERE master_key_version <> 2` and `SELECT count(*) FROM "user" WHERE totp_secret_ciphertext IS NOT NULL AND totp_secret_version IS DISTINCT FROM 2` return 0. Run `python -m app.cli verify-key --certificate-id ID` for a keyed certificate; it prints only metadata/success. The Status panel shows the active version.
+5. Remove version 1 from the secret file, force-recreate web/worker as in step 2, and destroy the old key copy **only after** both counts in step 4 are zero and a successful PFX export.
 6. Rotation triggers: a custodian leaves, the key file may have been exposed, or annually (`Assumption`: annual rotation is the default policy).
 
 ### 11.6 Master key backup procedure (critical)
@@ -1388,7 +1459,7 @@ Procedure:
 1. **Generate** the keyring on the dashboard host with the CLI (11.2 step 2). Do not generate it on a laptop and email it.
 2. **Fingerprint it.** Record the SHA-256 of the keyring file and the JSON's `active` version in the operations record (a ticket, not the same place as the key).
 3. **Store three copies in two physically separate, access-controlled locations:**
-   - Copy A: the Docker secret on the dashboard host (`/etc/cert-dashboard/secrets/master_key`, `0400 root:root`) — the working copy.
+   - Copy A: the Docker secret on the dashboard host (`/etc/cert-dashboard/secrets/master_key`, `0400`, owner `10001:10001`) — the working copy.
    - Copy B: the organization's secret manager (Vault/KeePass/1Password or a sealed envelope in a safe) held by custodian 1.
    - Copy C: a second sealed envelope or secret-manager entry in a different location, held by custodian 2.
    Custodians are named in the operations record; at least two people must be able to produce the key, and neither copy may be stored with the database backups.
@@ -1408,7 +1479,7 @@ Procedure:
 - Containers run as non-root `app` (uid 10001), `read_only: true` with `tmpfs` for `/tmp` on `web`; `worker` keeps writable volumes only for `/srv/inventory` and `/srv/artifacts`.
 - Decrypted keys exist only on the worker's tmpfs mount `/run/cert-keys` (`mode=0700`, `uid=10001`, `noexec`, `nosuid`, `nodev`, `size=16m`), as `0600` files deleted in a `finally` block and wiped at worker startup. The artifacts volume and container filesystem never hold key material.
 - `no-new-privileges: true`, dropped capabilities, explicit memory limits.
-- Secrets mounted as files under `/run/secrets`, mode `0444` inside the container (the container is the security boundary).
+- Secrets under `/run/secrets` are read-only file bind mounts retaining host modes: app/worker 10001:10001 0400; db_owner_password 999:999 0400; shared db_password 10001:999 0440. Host directory root:root 0711. Run scripts/install-secrets.sh after provisioning/replacing files; Compose mode remapping is not used outside Swarm. The Debian Postgres image is digest-pinned and its postgres UID/GID 999 verified.
 - SSH `known_hosts` pinned; host key changes fail jobs.
 - Postgres not exposed; the app DB user is not a superuser and cannot `UPDATE`/`DELETE` on `audit_log`.
 - All dashboard access over TLS via the front proxy; HTTP redirects to HTTPS there.
@@ -1461,7 +1532,7 @@ These are the decisions this spec makes where the approved input was silent. Eac
 | A3 | All timestamps stored in UTC; UI renders local; emails state the timezone | 4 |
 | A4 | Renewal states add `cancelled`; scan status adds `expired` | 4.2 |
 | A5 | `submitted` requires a CA order reference | 4.6 |
-| A6 | Chains exclude roots; leaf-to-root order enforced on ingest | 4.4 |
+| A6 | Chains exclude roots; offline PolicyBuilder/Store path validation uses pinned certifi plus uploaded roots, persists trusted/incomplete/untrusted_root/unchecked; import/issued upload warn, deploy requires trusted or audited override | 4.4, 4.18, 5.8 |
 | A7 | Endpoints created from bindings always get an expected certificate | 4.10 |
 | A8 | A host with several affected vhosts gets one `job_host` row per binding, executed as one Ansible run | 4.11 |
 | A9 | Session idle 8 h, absolute 24 h | 4.13 |
@@ -1486,6 +1557,7 @@ These are the decisions this spec makes where the approved input was silent. Eac
 | A28 | Annual master key rotation by default | 11.5 |
 | A29 | JSON export for lists and audit; no CSV | 8.3, 8.9 |
 | A30 | SMTP TLS verification is on by default, with an explicitly unsafe opt-out | 7.6 |
+| A31 | Audit immutability uses REVOKE + append-only triggers; app-role mutations are denied, owner UPDATE/DELETE/TRUNCATE raise an exception unless a DBA deliberately disables the triggers | 4.16, 5.6 |
 
 ## Appendix B — Glossary
 
