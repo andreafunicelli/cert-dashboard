@@ -464,6 +464,34 @@ def test_cleanup_removes_expired_and_revoked_sessions_only(queue_factory, cleanu
         assert set(db.scalars(select(UserSession.id))) == {"c" * 64}
 
 
+def test_cleanup_prunes_sessions_idle_for_eight_hours_but_keeps_just_inside_the_boundary(
+    queue_factory, cleanup_context, now
+):
+    with queue_factory.begin() as db:
+        user = User(username="idle-user", email="idle@example.test")
+        db.add(user)
+        db.flush()
+
+        def session(name, last_seen):
+            db.add(
+                UserSession(
+                    id=name * 64,
+                    user_id=user.id,
+                    csrf_token="c" * 64,
+                    last_seen_at=last_seen,
+                    expires_at=now + timedelta(hours=15),  # absolute expiry still in the future
+                )
+            )
+
+        session("a", now - timedelta(hours=9))  # idle-expired for the app: must go
+        session("b", now - timedelta(hours=8))  # boundary: resolve_session rejects at exactly 8 h
+        session("c", now - timedelta(hours=8) + timedelta(seconds=1))  # still live
+        session("d", now - timedelta(hours=1))  # live control
+    assert cleanup(cleanup_context, {})["sessions"] == 2
+    with queue_factory() as db:
+        assert set(db.scalars(select(UserSession.id))) == {"c" * 64, "d" * 64}
+
+
 def test_cleanup_prunes_stale_login_counters_but_keeps_active_buckets(queue_factory, cleanup_context, now):
     stale = now - timedelta(days=1, minutes=1)
     keep = {

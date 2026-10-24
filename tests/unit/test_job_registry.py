@@ -108,6 +108,16 @@ def test_unknown_or_poison_payload_is_a_validation_failure(job_type, payload):
     assert caught.value.retryable is False
 
 
+def test_unrecognized_job_type_is_a_sanitized_validation_failure():
+    registry = JobRegistry()
+    registry.register(JobType.SCAN, ok_handler, validator=accept)
+    with pytest.raises(JobFailure) as caught:
+        registry.dispatch(make_context(), Job(id=uuid4(), type="unrecognized", payload={}))
+    assert caught.value.error_class == "validation"
+    assert caught.value.retryable is False
+    assert "unrecognized" not in str(caught.value)
+
+
 def test_validator_exception_is_a_sanitized_validation_failure():
     def explode(payload):
         raise RuntimeError("password=fixture-validator-secret")

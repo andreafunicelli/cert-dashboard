@@ -21,6 +21,8 @@ DEFAULT_RETENTION_DAYS = 90
 SCAN_RESULT_RETENTION = timedelta(days=90)
 LOGIN_COUNTER_RETENTION = timedelta(days=1)
 ARTIFACT_RETENTION = timedelta(days=30)
+# Mirrors the idle rule in app.auth.sessions.resolve_session (last_seen_at + 8 h).
+SESSION_IDLE_LIMIT = timedelta(hours=8)
 _REASONS = frozenset({"scheduled", "manual_prune"})
 _FINISHED = (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)
 
@@ -102,7 +104,11 @@ def cleanup(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[st
         ).rowcount
         sessions = db.execute(
             delete(UserSession).where(
-                or_(UserSession.expires_at < now, UserSession.revoked_at.is_not(None))
+                or_(
+                    UserSession.expires_at <= now,
+                    UserSession.last_seen_at <= now - SESSION_IDLE_LIMIT,
+                    UserSession.revoked_at.is_not(None),
+                )
             )
         ).rowcount
         login_counters = db.execute(

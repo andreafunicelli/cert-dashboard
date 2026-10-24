@@ -80,7 +80,11 @@ class JobRegistry:
         action = payload.get("action", "default")
         if not isinstance(action, str):
             raise JobFailure("validation", _INVALID_PAYLOAD)
-        entry = self._entries.get((JobType(job.type), action))
+        try:
+            job_type = JobType(job.type)
+        except ValueError:
+            raise JobFailure("validation", _UNKNOWN_HANDLER) from None
+        entry = self._entries.get((job_type, action))
         if entry is None:
             raise JobFailure("validation", _UNKNOWN_HANDLER)
         validator, handler = entry
