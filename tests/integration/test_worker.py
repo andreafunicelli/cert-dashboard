@@ -1063,9 +1063,9 @@ def test_the_grace_period_is_capped_at_25_seconds(queue_factory, make_worker):
     assert runtime.effective_grace_seconds == 25
 
 
-def test_run_worker_stops_on_sigterm_and_releases_everything(queue_factory, tmp_path):
+def process_settings(queue_factory, tmp_path):
     url = queue_factory.kw["bind"].url
-    settings = Settings(
+    return Settings(
         profile="worker",
         db_password=url.password.encode(),
         db_host=url.host,
@@ -1077,6 +1077,71 @@ def test_run_worker_stops_on_sigterm_and_releases_everything(queue_factory, tmp_
         artifacts_root=tmp_path / "artifacts",
         key_staging_dir=tmp_path / "missing-keys",
     )
+
+
+def test_run_worker_drains_running_slots_once_within_the_grace_bound(queue_factory, tmp_path, monkeypatch):
+    waits = []
+
+    def never_idle(self, timeout):
+        waits.append(timeout)
+        return False  # a slot is still running when the grace expires
+
+    monkeypatch.setattr(worker.Worker, "wait_idle", never_idle)
+    settings = process_settings(queue_factory, tmp_path)
+    timer = threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGTERM))
+    timer.start()
+    try:
+        run_worker(settings, build_registry())
+    finally:
+        timer.cancel()
+    assert len(waits) == 1  # run() and run_worker() must not each wait for the full grace
+    assert waits[0] <= 25
+
+
+def test_an_explicit_close_grace_is_capped_at_25_seconds(queue_factory, make_worker, monkeypatch):
+    waits = []
+    runtime = make_worker(queue_factory)
+    monkeypatch.setattr(runtime, "wait_idle", lambda timeout: waits.append(timeout) or True)
+    runtime.close(grace_seconds=600)
+    runtime.close(grace_seconds=600)  # repeated closes never drain again
+    assert waits == [25]
+
+
+def test_a_completion_inside_the_grace_period_is_written(queue_factory, make_worker, clock, gate):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    threading.Timer(0.3, gate.release.set).start()
+    runtime.close(grace_seconds=10)
+    assert job_state(queue_factory, job_id)[0] == JobStatus.SUCCEEDED
+
+
+def test_a_completion_after_the_grace_expired_is_fenced_out_and_the_job_stays_for_the_reaper(
+    queue_factory, make_worker, clock, gate, caplog
+):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    runtime.close(grace_seconds=0)  # grace expires with the job still running
+    with caplog.at_level(logging.INFO):
+        gate.release.set()  # the handler finishes long before the 1800 s queue timeout
+        assert runtime.wait_idle(10)
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.RUNNING, None, None)
+    with queue_factory() as db:
+        written = db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "job.succeeded"))
+    assert written == 0
+    assert "abandoned" in caplog.text.lower()
+    clock.advance(seconds=1801)
+    reaper = make_worker(queue_factory)
+    reaper.tick()
+    assert job_state(queue_factory, job_id)[:2] == (JobStatus.FAILED, "timeout")
+
+
+def test_run_worker_stops_on_sigterm_and_releases_everything(queue_factory, tmp_path):
+    settings = process_settings(queue_factory, tmp_path)
     previous = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)
     timer = threading.Timer(2.0, os.kill, (os.getpid(), signal.SIGTERM))
     timer.start()

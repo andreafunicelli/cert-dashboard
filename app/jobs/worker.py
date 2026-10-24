@@ -393,6 +393,8 @@ class Worker:
         self._wake = threading.Event()
         self._sleep = sleep or self._wake.wait
         self._stop_requested = False
+        self._closed = False  # the drain happens once, however many times close() is called
+        self._abandoned = False  # grace expired with slots still running: their results are fenced
         self._slots = threading.Condition()
         self._running: dict[UUID, JobType] = {}
         self._lock_connection: Connection | None = None
@@ -501,20 +503,31 @@ class Worker:
             self.close()
 
     def close(self, grace_seconds: float | None = None) -> None:
-        """Stop claiming, give running jobs a bounded grace, then drop the scheduler lock.
+        """Stop claiming, give running jobs one bounded grace, then drop the scheduler lock.
 
-        Jobs still running afterwards are reaped by timeout later; their late result is fenced
-        out by ``finish``. Safe to call repeatedly.
+        The drain runs only on the first call (``run()`` and ``run_worker()`` both close, which
+        must not double the grace) and ``grace_seconds`` is capped at ``MAX_GRACE_SECONDS``. Jobs
+        still running when the grace expires are abandoned: ``_finish`` refuses to write their
+        late result, so they stay ``running`` until the reaper times them out. Safe to repeat.
         """
         self.stop()
-        grace = self.effective_grace_seconds if grace_seconds is None else grace_seconds
-        if not self.wait_idle(grace):
-            _LOG.warning(
-                "shutdown grace expired with jobs still running",
-                extra={"worker_id": self.worker_id, "running": len(self._running)},
-            )
+        with self._slots:
+            first, self._closed = not self._closed, True
+        if first:
+            grace = self.grace_seconds if grace_seconds is None else grace_seconds
+            grace = min(max(grace, 0.0), MAX_GRACE_SECONDS)
+            if not self.wait_idle(grace):
+                with self._slots:
+                    self._abandoned = bool(self._running)
+                    running = len(self._running)
+                if running:
+                    _LOG.warning(
+                        "shutdown grace expired with jobs still running",
+                        extra={"worker_id": self.worker_id, "running": running},
+                    )
         self._drop_scheduler_lock()
-        _LOG.info("worker stopped", extra={"worker_id": self.worker_id})
+        if first:
+            _LOG.info("worker stopped", extra={"worker_id": self.worker_id})
 
     # -- heartbeat and scheduler lock ----------------------------------------------------------
 
@@ -621,6 +634,14 @@ class Worker:
         )
 
     def _finish(self, job_id: UUID, status: Literal["succeeded", "failed"], **details) -> str:
+        with self._slots:
+            abandoned = self._abandoned
+        if abandoned:
+            _LOG.warning(
+                "job result discarded: shutdown abandoned the job; the reaper will time it out",
+                extra={"worker_id": self.worker_id, "job_id": str(job_id)},
+            )
+            return "abandoned"
         try:
             with self.factory.begin() as db:
                 finish(db, job_id, self.worker_id, status, self.clock(), **details)
