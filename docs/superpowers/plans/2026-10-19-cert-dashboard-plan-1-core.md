@@ -400,7 +400,7 @@ def test_bootstrap_requires_cli(client):
 
 **Interfaces:** Consumes: `transaction(factory: sessionmaker[Session]) -> ContextManager[Session]`, `JobType`, `Job`, `JobHost`, `Actor`, Task 3 audit contract. Produces: `enqueue(db: Session, job_type: JobType, payload: Mapping[str, JSONValue], actor: Actor, *, priority: int, run_after: datetime, max_attempts: int = 3) -> Job`; `claim(db: Session, worker_id: str, now: datetime, timeout_seconds: Callable[[Session, Job], int], *, eligible_types: frozenset[JobType] | None = None) -> Job | None`; `finish(db: Session, job_id: UUID, worker_id: str, status: Literal['succeeded','failed','cancelled'], now: datetime, *, result: Mapping[str, JSONValue] | None = None, error_class: str | None = None, error_message: str | None = None) -> None`; `reap(db: Session, now: datetime) -> int`; `retry_due(db: Session, now: datetime) -> int`; `JobFailure(error_class: str, message: str, retryable: bool = False)`.
 
-- [ ] Write failing real-DB multi-connection tests:
+- [x] Write failing real-DB multi-connection tests:
 
 ```python
 def test_claims_are_exclusive(queue_factory, seeded_jobs, now):
@@ -414,10 +414,10 @@ def test_claims_are_exclusive(queue_factory, seeded_jobs, now):
 ```
 
   Pin priority/time/FIFO order, locked-head skip, future run_after exclusion, attempt increment, wrong-owner/late finish rejection after reaping, failed running hosts `worker_lost`, paused exclusion, deploy no retry, transient retry delays 30/120, non-retryable classes, and audit atomicity. Jobs exhausted at attempt 3 never receive a fourth claim.
-- [ ] Run `uv run pytest tests/integration/test_queue.py -q`; expect FAIL, queue primitives absent.
-- [ ] Implement the spec's single-statement SKIP LOCKED claim order, filtering optional eligible_types and setting timeout in the same transaction. Ownership checks fence stale completions after timeout. Reaper fails running jobs past timeout, clears claim metadata, marks running hosts failed/worker_lost, and records timeout audit; advisory lock cleanup belongs to worker connection lifetime, never pretend SQL clears another live connection's lock. Policies: discover/scan 3 attempts only transient_network; alert/digest 3 only SMTP 4xx/timeout; cleanup 2 retryable operational attempts; deploy 1. Non-retryable auth/validation/config_invalid/key_unwrap/internal. The spec's 30/120/300 delay sequence is capped by 3 **total** attempts, so only 30 and 120 are used; timeout/worker_lost is not automatically retried. No secrets permitted in payloads/results/errors.
-- [ ] Run `uv run pytest tests/integration/test_queue.py -q`; expect PASS.
-- [ ] Commit: `git add app/jobs tests/integration/test_queue.py`; `git commit -m "feat: add transactional Postgres job queue and timeout reaper"`.
+- [x] Run `uv run pytest tests/integration/test_queue.py -q`; expect FAIL, queue primitives absent.
+- [x] Implement the spec's single-statement SKIP LOCKED claim order, filtering optional eligible_types and setting timeout in the same transaction. Ownership checks fence stale completions after timeout. Reaper fails running jobs past timeout, clears claim metadata, marks running hosts failed/worker_lost, and records timeout audit; advisory lock cleanup belongs to worker connection lifetime, never pretend SQL clears another live connection's lock. Policies: discover/scan 3 attempts only transient_network; alert/digest 3 only SMTP 4xx/timeout; cleanup 2 retryable operational attempts; deploy 1. Non-retryable auth/validation/config_invalid/key_unwrap/internal. The spec's 30/120/300 delay sequence is capped by 3 **total** attempts, so only 30 and 120 are used; timeout/worker_lost is not automatically retried. No secrets permitted in payloads/results/errors.
+- [x] Run `uv run pytest tests/integration/test_queue.py -q`; expect PASS.
+- [x] Commit: `git add app/jobs tests/integration/test_queue.py`; `git commit -m "feat: add transactional Postgres job queue and timeout reaper"`.
 
 ### Task 13: Worker registry, scheduler shell, liveness, and cleanup
 

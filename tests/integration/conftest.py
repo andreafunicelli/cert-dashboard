@@ -345,3 +345,64 @@ def csrf(client):
     response = client.get("/login")
     assert response.status_code == 200
     return re.search(r'name="csrf_token" value="([^"]+)"', response.text).group(1)
+
+
+@pytest.fixture(scope="session")
+def queue_template(owner_engine):
+    """Migrated template database; each queue test gets a cheap private copy of it."""
+    import uuid
+
+    name = "fixture_queue_template_" + uuid.uuid4().hex
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql(f'CREATE DATABASE "{name}"')
+    config = Config(str(ROOT / "alembic.ini"))
+    config.attributes["database_url"] = owner_engine.url.set(database=name)
+    command.upgrade(config, "head")
+    yield name
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql(f'DROP DATABASE "{name}" WITH (FORCE)')
+
+
+@pytest.fixture
+def queue_factory(owner_engine, database_urls, queue_template):
+    """App-role sessionmaker on a private database.
+
+    Queue tests commit real data over several connections; the private database keeps that
+    away from the rollback-per-test ``db`` fixture and from every other test's rows.
+    """
+    import uuid
+
+    from sqlalchemy.orm import sessionmaker
+
+    name = "fixture_queue_" + uuid.uuid4().hex
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql(f'CREATE DATABASE "{name}" TEMPLATE "{queue_template}"')
+    engine = create_engine(database_urls[1].set(database=name), pool_size=12)
+    yield sessionmaker(engine, expire_on_commit=False)
+    engine.dispose()
+    with owner_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.exec_driver_sql(f'DROP DATABASE "{name}" WITH (FORCE)')
+
+
+@pytest.fixture
+def seeded_jobs(queue_factory, now):
+    """Eight committed, immediately claimable ``scan`` jobs (ids in creation order)."""
+    from datetime import timedelta
+
+    from app.models import Job
+    from app.models.enums import JobType
+
+    ids = []
+    with queue_factory.begin() as db:
+        for index in range(8):
+            job = Job(
+                type=JobType.SCAN,
+                priority=100,
+                payload={"index": index},
+                run_after=now - timedelta(minutes=1),
+                max_attempts=3,
+            )
+            db.add(job)
+            db.flush()
+            ids.append(job.id)
+    return ids
