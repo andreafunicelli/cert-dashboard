@@ -4,7 +4,12 @@ Feature routes live in ``app/web/<area>.py`` and import from here; ``app.main``
 re-exports these names for backward compatibility.
 """
 
+import base64
+import hashlib
+import hmac
+import json
 import secrets
+from collections.abc import Iterable
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -33,6 +38,56 @@ _MESSAGES = {
     500: "An unexpected error occurred.",
     503: "Service temporarily unavailable.",
 }
+
+
+FLASH_COOKIE = "cd_flash"
+_FLASH_MAX_NOTES = 6
+_FLASH_NOTE_CHARS = 240
+_FLASH_MAX_AGE = 120
+
+
+def _flash_signature(payload: str, secret: bytes) -> str:
+    return hmac.new(secret, ("flash:" + payload).encode("ascii"), hashlib.sha256).hexdigest()
+
+
+def set_flash(response: Response, secret: bytes, notes: Iterable[str]) -> None:
+    """Carry short, non-secret, non-blocking notes to the next full page (one-shot, signed cookie)."""
+    trimmed = [note[:_FLASH_NOTE_CHARS] for note in notes][:_FLASH_MAX_NOTES]
+    if not trimmed:
+        return
+    payload = base64.urlsafe_b64encode(json.dumps(trimmed).encode("utf-8")).decode("ascii")
+    response.set_cookie(
+        FLASH_COOKIE,
+        payload + "." + _flash_signature(payload, secret),
+        max_age=_FLASH_MAX_AGE,
+        path="/",
+        secure=True,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def read_flash(request: Request) -> tuple[str, ...]:
+    """Notes from a validly signed flash cookie; anything else (tampered, malformed) yields nothing."""
+    raw = request.cookies.get(FLASH_COOKIE)
+    secret = request.app.state.settings.session_secret
+    if not raw or secret is None or len(raw) > 4096 or not raw.isascii():
+        return ()
+    payload, _, signature = raw.partition(".")
+    if not hmac.compare_digest(signature, _flash_signature(payload, secret)):
+        return ()
+    try:
+        notes = json.loads(base64.urlsafe_b64decode(payload.encode("ascii")))
+    except ValueError:
+        return ()
+    if not isinstance(notes, list):
+        return ()
+    return tuple(note[:_FLASH_NOTE_CHARS] for note in notes if isinstance(note, str))[:_FLASH_MAX_NOTES]
+
+
+def _consume_flash(request: Request, response: Response) -> None:
+    if FLASH_COOKIE in request.cookies:
+        response.delete_cookie(FLASH_COOKIE, path="/", secure=True, httponly=True, samesite="lax")
 
 
 def format_datetime(value: datetime, timezone_name: str = "UTC") -> str:
@@ -97,8 +152,11 @@ def _error_response(request: Request, status: int, headers=None):
         user=getattr(request.state, "user", None),
         navigation=request.app.state.navigation,
         status_banner=request.app.state.status_banner,
+        flash=read_flash(request),
     )
-    return HTMLResponse(content, status, response_headers)
+    response = HTMLResponse(content, status, response_headers)
+    _consume_flash(request, response)
+    return response
 
 
 def _actor(request: Request, user_id: int | None = None, label: str | None = None) -> Actor:
@@ -120,9 +178,11 @@ def _render(request: Request, name: str, status: int = 200, **context) -> HTMLRe
             "user": request.state.user,
             "navigation": app.state.navigation,
             "status_banner": app.state.status_banner,
+            "flash": read_flash(request),
             **context,
         },
     )
+    _consume_flash(request, response)
     response.headers["Cache-Control"] = "no-store"
     return response
 

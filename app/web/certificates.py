@@ -19,7 +19,7 @@ from app.services.certificates import (
     import_upload,
     validate_upload,
 )
-from app.web.common import _render, _transact
+from app.web.common import _render, _transact, set_flash
 
 _TEMPLATE = "import.html.j2"
 _CHUNK = 64 * 1024
@@ -50,6 +50,10 @@ def _describe_warning(code: str) -> str | None:
     return code.replace("_", " ").capitalize()
 
 
+def _notes(result: ImportResult) -> tuple[str, ...]:
+    return tuple(note for note in (_describe_warning(code) for code in result.warnings) if note)
+
+
 def _read_file(upload: UploadFile) -> bytes:
     """Chunked read that stops one byte past the cap, so oversized input is cheap to reject."""
     chunks, total = [], 0
@@ -74,8 +78,12 @@ def _read_object(
     if not isinstance(text, str) or not text.strip():
         return None
     if base64_text:
+        # Cap the raw pasted text first: base64 inflates by a third, so a decoded size check is not enough.
+        raw = text.encode("utf-8")
+        if len(raw) > MAX_INPUT_BYTES:
+            return raw[: MAX_INPUT_BYTES + 1]
         try:
-            return base64.b64decode("".join(text.split()), validate=True)[: MAX_INPUT_BYTES + 1]
+            return base64.b64decode("".join(text.split()), validate=True)
         except (binascii.Error, ValueError):
             raise _BadBase64 from None
     return text.encode("utf-8")[: MAX_INPUT_BYTES + 1]
@@ -170,12 +178,17 @@ def _handle_upload(request: Request, form: FormData) -> Response:
     assert result is not None
     location = f"/certificates/{result.certificate.id}"
     if result.created or result.key_attached:
+        notes = _notes(result)
+        secret = request.app.state.settings.session_secret
         if _is_htmx(request):
             # A 303 would be followed by XHR itself; HX-Redirect makes htmx navigate the browser.
-            return Response(status_code=200, headers={"HX-Redirect": location})
-        return RedirectResponse(location, status_code=303)
-    notes = tuple(note for note in (_describe_warning(code) for code in result.warnings) if note)
-    duplicate = {"id": result.certificate.id, "notes": notes, "key_attachable": result.key_attachable}
+            response = Response(status_code=200, headers={"HX-Redirect": location})
+        else:
+            response = RedirectResponse(location, status_code=303)
+        # Non-blocking trust warnings ride a one-shot signed cookie to the next full page.
+        set_flash(response, secret, notes)
+        return response
+    duplicate = {"id": result.certificate.id, "notes": _notes(result), "key_attachable": result.key_attachable}
     return _page(request, 200, form=values, duplicate=duplicate)
 
 

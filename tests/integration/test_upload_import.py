@@ -615,3 +615,79 @@ def test_service_imports_pfx_with_key_in_one_call(db, keyring, actor, fresh):
 def test_service_accepts_a_ca_certificate_as_an_inventory_item(db, keyring, actor, fresh):
     root_pem = fresh.root.public_bytes(serialization.Encoding.PEM)
     assert import_upload(db, keyring, UploadInput(root_pem, "pem"), CertificateMetadata(), actor).created
+
+
+# --- review round 1: pasted base64 text cap and success-path trust warnings ---------------------
+
+
+def _paste_pfx(client, text):
+    return client.post(
+        UPLOAD,
+        data={"format": "pfx", "csrf_token": client.fixture_csrf, "file_text": text},
+        follow_redirects=False,
+    )
+
+
+def test_pasted_base64_over_the_text_limit_is_rejected_before_decoding(signed_in, web_factory):
+    before = _counts(web_factory)
+    # 800,000 decoded bytes encode to 1,066,668 pasted bytes: below the cap once decoded, above it as text.
+    text = base64.b64encode(b"A" * 800_000).decode()
+    assert len(text) > LIMIT
+    response = _paste_pfx(signed_in, text)
+    assert response.status_code == 422 and "file" in _field_errors(response.text)
+    assert "too large" in response.text.lower()
+    assert before == _counts(web_factory)
+
+
+def test_pasted_base64_text_boundary_is_one_mebibyte_of_raw_text(signed_in, web_factory):
+    exact = base64.b64encode(b"A" * (LIMIT // 4 * 3)).decode()
+    assert len(exact) == LIMIT
+    at_limit = _paste_pfx(signed_in, exact)
+    assert at_limit.status_code == 422 and "too large" not in at_limit.text.lower()
+    assert "file" in _field_errors(at_limit.text)  # parsed (and refused as a PFX), not size-rejected
+    over = _paste_pfx(signed_in, exact + "A")
+    assert over.status_code == 422 and "too large" in over.text.lower()
+
+
+def test_pasted_whitespace_counts_toward_the_text_limit(signed_in, web_factory):
+    text = base64.b64encode(b"A" * 1000).decode() + "\n" * LIMIT
+    response = _paste_pfx(signed_in, text)
+    assert response.status_code == 422 and "too large" in response.text.lower()
+
+
+def _flash_cookie(response):
+    return response.cookies.get("cd_flash")
+
+
+def test_new_import_carries_trust_warnings_to_the_redirect_target(signed_in, web_factory, fresh):
+    response = _post(signed_in, file=fresh.leaf_pem)  # leaf only: the issuer is missing
+    location = response.headers["location"]
+    assert re.fullmatch(r"/certificates/\d+", location)
+    assert _flash_cookie(response)
+    target = signed_in.get(location, follow_redirects=False)
+    assert "missing" in target.text.lower() and 'data-banner="flash"' in target.text
+    assert 'class="form-error"' not in target.text
+    assert "cd_flash" in target.headers["set-cookie"] and "Max-Age=0" in target.headers["set-cookie"]
+    signed_in.cookies.delete("cd_flash")
+    assert 'data-banner="flash"' not in signed_in.get(location).text
+
+
+def test_htmx_import_carries_trust_warnings_with_hx_redirect(signed_in, web_factory, fresh):
+    response = _post(signed_in, file=fresh.leaf_pem, headers={"HX-Request": "true"})
+    assert response.status_code == 200 and response.headers["hx-redirect"].startswith("/certificates/")
+    assert _flash_cookie(response)
+    target = signed_in.get(response.headers["hx-redirect"])
+    assert "missing" in target.text.lower() and 'data-banner="flash"' in target.text
+
+
+def test_tampered_flash_cookie_is_ignored(signed_in):
+    signed_in.cookies.set("cd_flash", "eyJub3RlcyI6WyI8Yj5ldmlsPC9iPiJdfQ.deadbeef")
+    page = signed_in.get("/certificates/import")
+    assert "evil" not in page.text and 'data-banner="flash"' not in page.text
+
+
+def test_flash_notes_are_escaped_and_never_contain_secrets(signed_in, web_factory, fresh):
+    response = _post(signed_in, file=fresh.leaf_pem, notes="<b>n</b>")
+    assert PFX_PASSWORD not in (response.headers.get("set-cookie") or "")
+    assert "n</b>" not in (response.headers.get("set-cookie") or "")  # notes are not echoed
+    assert "<b>" not in signed_in.get(response.headers["location"]).text
