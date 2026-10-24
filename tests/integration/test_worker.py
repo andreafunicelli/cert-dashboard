@@ -13,7 +13,7 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, func, insert, select, text, update
+from sqlalchemy import create_engine, event, func, insert, select, text, update
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
@@ -1060,7 +1060,7 @@ def test_shutdown_gives_up_after_the_grace_period_and_leaves_the_job_to_the_reap
 def test_the_grace_period_is_capped_at_25_seconds(queue_factory, make_worker):
     runtime = make_worker(queue_factory)
     runtime.grace_seconds = 600
-    assert runtime.effective_grace_seconds == 25
+    assert runtime.effective_grace_seconds + worker.COMMIT_SETTLE_SECONDS == 25
 
 
 def process_settings(queue_factory, tmp_path):
@@ -1095,7 +1095,7 @@ def test_run_worker_drains_running_slots_once_within_the_grace_bound(queue_facto
     finally:
         timer.cancel()
     assert len(waits) == 1  # run() and run_worker() must not each wait for the full grace
-    assert waits[0] <= 25
+    assert waits[0] + worker.COMMIT_SETTLE_SECONDS <= 25  # drain plus commit settle stay in the bound
 
 
 def test_an_explicit_close_grace_is_capped_at_25_seconds(queue_factory, make_worker, monkeypatch):
@@ -1104,7 +1104,7 @@ def test_an_explicit_close_grace_is_capped_at_25_seconds(queue_factory, make_wor
     monkeypatch.setattr(runtime, "wait_idle", lambda timeout: waits.append(timeout) or True)
     runtime.close(grace_seconds=600)
     runtime.close(grace_seconds=600)  # repeated closes never drain again
-    assert waits == [25]
+    assert waits == [25 - worker.COMMIT_SETTLE_SECONDS]
 
 
 def test_a_completion_inside_the_grace_period_is_written(queue_factory, make_worker, clock, gate):
@@ -1138,6 +1138,71 @@ def test_a_completion_after_the_grace_expired_is_fenced_out_and_the_job_stays_fo
     reaper = make_worker(queue_factory)
     reaper.tick()
     assert job_state(queue_factory, job_id)[:2] == (JobStatus.FAILED, "timeout")
+
+
+@pytest.mark.parametrize("pause_after_write", [False, True], ids=["before-write", "inside-open-transaction"])
+def test_an_in_flight_finish_is_fenced_when_the_grace_expires(
+    queue_factory, make_worker, clock, gate, monkeypatch, pause_after_write
+):
+    """A completion already inside ``finish`` when shutdown abandons its slot must not commit."""
+    entered, proceed = threading.Event(), threading.Event()
+    real_finish = worker.finish
+
+    def paused_finish(*args, **kwargs):
+        if not pause_after_write:
+            entered.set()
+            assert proceed.wait(20)
+        outcome = real_finish(*args, **kwargs)  # the UPDATE is now pending in the open transaction
+        if pause_after_write:
+            entered.set()
+            assert proceed.wait(20)
+        return outcome
+
+    monkeypatch.setattr(worker, "finish", paused_finish)
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    gate.release.set()
+    assert entered.wait(10)  # the slot is inside finish(), not yet committed
+    runtime.close(grace_seconds=0)  # shutdown abandons the still-running slot
+    proceed.set()
+    assert runtime.wait_idle(10)
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.RUNNING, None, None)
+    with queue_factory() as db:
+        written = db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "job.succeeded"))
+    assert written == 0
+    clock.advance(seconds=1801)
+    reaper = make_worker(queue_factory)
+    reaper.tick()
+    assert job_state(queue_factory, job_id)[:2] == (JobStatus.FAILED, "timeout")
+
+
+def test_shutdown_lets_a_commit_already_underway_complete_before_returning(queue_factory, make_worker, clock, gate):
+    """Past the last fence check the commit is atomic: close() waits for it instead of racing it."""
+    in_commit, proceed = threading.Event(), threading.Event()
+    engine = queue_factory.kw["bind"]
+
+    @event.listens_for(engine, "commit")
+    def pause_commit(connection):
+        if threading.current_thread().name.startswith("job-"):
+            in_commit.set()
+            assert proceed.wait(20)
+
+    try:
+        runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+        job_id = queue_job(queue_factory, JobType.SCAN, clock())
+        runtime.poll()
+        wait_until(lambda: gate.started)
+        gate.release.set()
+        assert in_commit.wait(10)
+        threading.Timer(0.3, proceed.set).start()
+        runtime.close(grace_seconds=0)
+        assert job_state(queue_factory, job_id)[0] == JobStatus.SUCCEEDED  # committed, not torn
+    finally:
+        proceed.set()
+        event.remove(engine, "commit", pause_commit)
 
 
 def test_run_worker_stops_on_sigterm_and_releases_everything(queue_factory, tmp_path):

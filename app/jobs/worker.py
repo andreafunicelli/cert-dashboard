@@ -356,6 +356,11 @@ def wipe_key_staging(path: Path) -> bool:
 CLAIM_POLL_SECONDS = 0.5
 TICK_INTERVAL_SECONDS = 30.0
 MAX_GRACE_SECONDS = 25.0
+# A commit already underway when the grace expires is atomic and cannot be recalled: close() waits
+# for it, but only this long (a hung database must not stall shutdown).
+COMMIT_SETTLE_SECONDS = 2.0
+# Running jobs get what is left of the shutdown bound once the commit settle time is reserved.
+MAX_DRAIN_SECONDS = MAX_GRACE_SECONDS - COMMIT_SETTLE_SECONDS
 # Discovery and scans share one concurrency budget (``max_parallel_jobs``).
 _CAPPED_TYPES = frozenset({JobType.DISCOVER, JobType.SCAN})
 # These need the SSH key; without it they are never claimed (scans and cleanup are unaffected).
@@ -397,6 +402,7 @@ class Worker:
         self._abandoned = False  # grace expired with slots still running: their results are fenced
         self._slots = threading.Condition()
         self._running: dict[UUID, JobType] = {}
+        self._committing: set[UUID] = set()  # past the last fence check: their COMMIT is in flight
         self._lock_connection: Connection | None = None
         self._lock_pid: int | None = None
 
@@ -412,7 +418,7 @@ class Worker:
 
     @property
     def effective_grace_seconds(self) -> float:
-        return min(max(self.grace_seconds, 0.0), MAX_GRACE_SECONDS)
+        return min(max(self.grace_seconds, 0.0), MAX_DRAIN_SECONDS)
 
     def eligible_types(self) -> frozenset[JobType]:
         """Job types that may be claimed *right now*: capacity is reserved before every claim."""
@@ -506,20 +512,25 @@ class Worker:
         """Stop claiming, give running jobs one bounded grace, then drop the scheduler lock.
 
         The drain runs only on the first call (``run()`` and ``run_worker()`` both close, which
-        must not double the grace) and ``grace_seconds`` is capped at ``MAX_GRACE_SECONDS``. Jobs
+        must not double the grace) and ``grace_seconds`` is capped at ``MAX_DRAIN_SECONDS``, so drain plus
+        commit settle never exceed ``MAX_GRACE_SECONDS``. Jobs
         still running when the grace expires are abandoned: ``_finish`` refuses to write their
-        late result, so they stay ``running`` until the reaper times them out. Safe to repeat.
+        late result, and a finish already inside its transaction rolls back at its pre-commit
+        check, so they stay ``running`` until the reaper times them out. Safe to repeat.
         """
         self.stop()
         with self._slots:
             first, self._closed = not self._closed, True
         if first:
             grace = self.grace_seconds if grace_seconds is None else grace_seconds
-            grace = min(max(grace, 0.0), MAX_GRACE_SECONDS)
+            grace = min(max(grace, 0.0), MAX_DRAIN_SECONDS)
             if not self.wait_idle(grace):
                 with self._slots:
+                    # Same lock as _finish's pre-commit check: a finish either sees the fence and
+                    # rolls back, or has already entered its (atomic) commit and is waited for.
                     self._abandoned = bool(self._running)
                     running = len(self._running)
+                    self._slots.wait_for(lambda: not self._committing, COMMIT_SETTLE_SECONDS)
                 if running:
                     _LOG.warning(
                         "shutdown grace expired with jobs still running",
@@ -634,24 +645,44 @@ class Worker:
         )
 
     def _finish(self, job_id: UUID, status: Literal["succeeded", "failed"], **details) -> str:
-        with self._slots:
-            abandoned = self._abandoned
-        if abandoned:
+        db = self.factory()
+        try:
+            with db.begin():
+                self._check_fence(job_id)  # cheap early exit: nothing written yet
+                finish(db, job_id, self.worker_id, status, self.clock(), **details)
+                # The fence is re-checked with the transaction still open and the job marked as
+                # committing under the same lock close() uses to abandon: shutdown either wins
+                # (rollback here) or waits for the commit that follows.
+                self._check_fence(job_id, committing=True)
+        except _Abandoned:
             _LOG.warning(
                 "job result discarded: shutdown abandoned the job; the reaper will time it out",
                 extra={"worker_id": self.worker_id, "job_id": str(job_id)},
             )
             return "abandoned"
-        try:
-            with self.factory.begin() as db:
-                finish(db, job_id, self.worker_id, status, self.clock(), **details)
         except StaleJobError:
             _LOG.warning(
                 "job result discarded: the job is no longer owned by this worker (stale)",
                 extra={"worker_id": self.worker_id, "job_id": str(job_id)},
             )
             return "stale"
+        finally:
+            with self._slots:
+                self._committing.discard(job_id)
+                self._slots.notify_all()
+            db.close()
         return status
+
+    def _check_fence(self, job_id: UUID, *, committing: bool = False) -> None:
+        with self._slots:
+            if self._abandoned:
+                raise _Abandoned
+            if committing:
+                self._committing.add(job_id)
+
+
+class _Abandoned(Exception):
+    """Shutdown gave up on this job: its result must not be written."""
 
 
 def _discard(connection: Connection) -> None:
