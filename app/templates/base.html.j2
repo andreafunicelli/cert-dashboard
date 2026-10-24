@@ -20,7 +20,7 @@
     <span aria-disabled="true" title="Available with user management">Users</span>
   </details>{% endif %}
 </header>
-{% block status_banner %}{% if status_banner %}<aside role="status">{{ status_banner }}</aside>{% endif %}{% endblock %}
+{% block status_banner %}{% if status_banner %}<aside role="status">{{ status_banner }}</aside>{% endif %}{% if request is defined and request.state.worker_stale %}<aside role="status" class="banner-critical" data-banner="worker">Worker is not running (last heartbeat > 5 minutes)</aside>{% endif %}{% endblock %}
 <main>{% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}
 </body>

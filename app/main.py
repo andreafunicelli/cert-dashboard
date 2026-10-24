@@ -5,7 +5,7 @@ import logging
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
@@ -50,6 +50,7 @@ from app.auth.sessions import (
 from app.config import ConfigurationError, Settings, load_settings
 from app.crypto.keyring import KeyUnwrapError
 from app.db import assert_database_ready, create_session_factory
+from app.jobs.worker import worker_liveness
 from app.models import User
 from app.services.audit import Actor, SecretRedactionFilter, record
 from app.services.certificates import missing_master_key_versions
@@ -201,6 +202,29 @@ def _acquire(factory):
                 raise
 
 
+# The worker banner is computed per request but the heartbeat is read at most this often.
+_WORKER_STATE_TTL = timedelta(seconds=30)
+
+
+def _probe_worker(app: FastAPI, now: datetime) -> bool:
+    """True when the worker is stale. Any failure fails closed: no banner, the page still renders."""
+    try:
+        with app.state.factory() as db:  # no connection retry: a failed probe just means no banner
+            return worker_liveness(db, now) == "stale"
+    except Exception as exc:  # noqa: BLE001 - a banner must never break a page
+        _LOG.warning("worker liveness check failed", extra={"error_class": type(exc).__name__})
+        return False
+
+
+async def _worker_is_stale(app: FastAPI, now: datetime) -> bool:
+    cached = getattr(app.state, "worker_state", None)
+    if cached is not None and timedelta(0) <= now - cached[0] < _WORKER_STATE_TTL:
+        return cached[1]
+    stale = await run_in_threadpool(_probe_worker, app, now)
+    app.state.worker_state = (now, stale)
+    return stale
+
+
 def _identity(app: FastAPI, cookie: str, now: datetime):
     db = _acquire(app.state.factory)
     try:
@@ -265,6 +289,7 @@ class _WebFoundation:
         request.state.request_id = secrets.token_hex(16)
         request.state.session, request.state.user = None, None
         request.state.must_change_password = False
+        request.state.worker_stale = False
         started, status = False, 500
 
         async def secured_send(message):
@@ -283,6 +308,8 @@ class _WebFoundation:
             path = scope["path"]
             probe = path in {"/health/live", "/health/ready", "/healthz"} or path.startswith("/static/")
             cookie = request.cookies.get("cd_session")
+            if not probe:
+                request.state.worker_stale = await _worker_is_stale(app, now)
             if cookie and not probe:
                 (
                     request.state.session,
@@ -794,7 +821,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/health/ready")
-    @app.get("/healthz")
     def ready():
         db = _acquire(app.state.factory)
         try:
@@ -802,6 +828,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             db.close()
         return {"status": "ok"}
+
+    @app.get("/healthz")
+    def healthz():
+        try:
+            db = _acquire(app.state.factory)
+            try:
+                liveness = worker_liveness(db, app.state.clock())
+            finally:
+                db.close()
+        except SQLAlchemyError:
+            return JSONResponse(
+                {"web": "ok", "worker": "unknown", "db": "unavailable"},
+                503,
+                {"Retry-After": "5"},
+            )
+        return {"web": "ok", "worker": liveness, "db": "ok"}
 
     return app
 

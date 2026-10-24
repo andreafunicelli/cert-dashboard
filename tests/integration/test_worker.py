@@ -2,6 +2,10 @@
 
 import logging
 import os
+import re
+import signal
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import UTC, datetime, timedelta
@@ -9,15 +13,23 @@ from threading import Barrier
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import func, insert, select, update
+from sqlalchemy import create_engine, event, func, insert, select, text, update
+from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
 from app.crypto.keyring import Keyring
 from app.jobs import worker
 from app.jobs.handlers import build_registry
 from app.jobs.handlers.cleanup import cleanup
-from app.jobs.queue import JobFailure, claim, enqueue, finish, retry_due
-from app.jobs.worker import JobContext, scheduler_tick
+from app.jobs.queue import RETRY_POLICY, JobFailure, claim, enqueue, finish, retry_due
+from app.jobs.worker import (
+    JobContext,
+    KeyStagingError,
+    run_worker,
+    scheduler_tick,
+    wipe_key_staging,
+    worker_liveness,
+)
 from app.models import (
     AppSetting,
     AuditLog,
@@ -30,6 +42,7 @@ from app.models import (
     Server,
     User,
     UserSession,
+    WorkerHeartbeat,
 )
 from app.models.enums import (
     EndpointSource,
@@ -608,3 +621,763 @@ def test_cleanup_never_updates_unrelated_job_columns(queue_factory, cleanup_cont
     cleanup(cleanup_context, {})
     with queue_factory() as db:
         assert db.get(Job, queued_id).status == JobStatus.QUEUED
+
+
+# --- worker runtime (plan Task 13, part B) --------------------------------------------------
+
+
+def wait_until(predicate, timeout=10.0, interval=0.02):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(interval)
+    raise AssertionError("condition not met in time")
+
+
+def payload_validator(payload):
+    return dict(payload)
+
+
+def queue_job(factory, job_type, now, payload=None, priority=100):
+    with factory.begin() as db:
+        job = enqueue(
+            db,
+            job_type,
+            payload or {},
+            Actor(None, "system"),
+            priority=priority,
+            run_after=now - timedelta(minutes=1),
+            max_attempts=RETRY_POLICY[job_type].max_attempts,
+        )
+        return job.id
+
+
+def job_state(factory, job_id):
+    with factory() as db:
+        job = db.get(Job, job_id)
+        return job.status, job.error_class, job.error_message, job.result
+
+
+def statuses(factory, job_ids):
+    return [job_state(factory, job_id)[0] for job_id in job_ids]
+
+
+def advisory_locks(factory):
+    with factory() as db:
+        return db.scalar(
+            text(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted "
+                "AND database = (SELECT oid FROM pg_database WHERE datname = current_database())"
+            )
+        )
+
+
+class Gate:
+    """A test job handler that blocks until released, recording which jobs started."""
+
+    def __init__(self):
+        self.release = threading.Event()
+        self.started = []
+        self._lock = threading.Lock()
+
+    def __call__(self, context, payload):
+        with self._lock:
+            self.started.append(context.job_id)
+        if not self.release.wait(20):
+            raise RuntimeError("gate never released")
+        return {"gated": True}
+
+
+@pytest.fixture
+def gate():
+    gate = Gate()
+    yield gate
+    gate.release.set()
+
+
+def registry_with(*pairs):
+    registry = build_registry()
+    for job_type, handler in pairs:
+        registry.register(job_type, handler, validator=payload_validator)
+    return registry
+
+
+def quick_registry(*job_types):
+    return registry_with(*((job_type, lambda context, payload: {"ran": True}) for job_type in job_types))
+
+
+# --- liveness -------------------------------------------------------------------------------
+
+
+def test_heartbeat_and_cleanup(worker_harness, client, clock):
+    worker_harness.tick()
+    assert client.get("/healthz").json() == {"web": "ok", "worker": "ok", "db": "ok"}
+    clock.advance(minutes=5, seconds=1)
+    assert client.get("/healthz").json()["worker"] == "stale"
+    assert worker_harness.registry.supports(JobType.CLEANUP)
+    assert not worker_harness.registry.supports(JobType.DEPLOY)
+
+
+def test_worker_liveness_uses_the_newest_heartbeat_within_five_minutes(db, now):
+    assert worker_liveness(db, now) == "stale"  # no rows at all
+    for name, age in (("old", timedelta(hours=2)), ("edge", timedelta(minutes=5))):
+        db.add(WorkerHeartbeat(worker_id=name, started_at=now - DAY, last_seen_at=now - age))
+    db.flush()
+    assert worker_liveness(db, now) == "ok"  # five minutes exactly still counts
+    assert worker_liveness(db, now + timedelta(seconds=1)) == "stale"
+    db.add(WorkerHeartbeat(worker_id="fresh", started_at=now - DAY, last_seen_at=now - timedelta(seconds=3)))
+    db.flush()
+    assert worker_liveness(db, now + timedelta(seconds=1)) == "ok"
+
+
+def test_the_worker_id_is_hostname_pid_and_a_boot_uuid(queue_factory, make_worker):
+    first, second = make_worker(queue_factory), make_worker(queue_factory)
+    pattern = re.compile(rf"^[^:]+:{os.getpid()}:[0-9a-f]{{8}}-[0-9a-f]{{4}}-4[0-9a-f]{{3}}-[0-9a-f]{{4}}-[0-9a-f]{{12}}$")
+    assert pattern.match(first.worker_id) and pattern.match(second.worker_id)
+    assert first.worker_id != second.worker_id
+
+
+def test_a_tick_upserts_a_single_heartbeat_row_and_advances_last_seen(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory)
+    runtime.tick()
+    clock.advance(seconds=30)
+    runtime.tick()
+    with queue_factory() as db:
+        rows = list(db.scalars(select(WorkerHeartbeat)))
+    assert [row.worker_id for row in rows] == [runtime.worker_id]
+    assert rows[0].started_at == clock.value - timedelta(seconds=30)
+    assert rows[0].last_seen_at == clock.value
+    assert rows[0].current_job_id is None
+
+
+def test_the_heartbeat_names_one_running_job_as_representative(queue_factory, make_worker, clock, gate):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    runtime.tick()
+    with queue_factory() as db:
+        assert db.scalar(select(WorkerHeartbeat.current_job_id)) == job_id
+    gate.release.set()
+    runtime.wait_idle(10)
+    runtime.tick()
+    with queue_factory() as db:
+        assert db.scalar(select(WorkerHeartbeat.current_job_id)) is None
+
+
+# --- capacity and claims --------------------------------------------------------------------
+
+
+def test_a_third_scan_stays_queued_while_cleanup_is_still_claimed(queue_factory, make_worker, clock, gate):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    scans = [queue_job(queue_factory, JobType.SCAN, clock()) for _ in range(3)]
+    cleanup_id = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
+
+    assert runtime.poll() == 3  # two scans and the cleanup; never the third scan
+    wait_until(lambda: len(gate.started) == 2)
+    wait_until(lambda: job_state(queue_factory, cleanup_id)[0] == JobStatus.SUCCEEDED)
+    assert statuses(queue_factory, scans).count(JobStatus.RUNNING) == 2
+    assert statuses(queue_factory, scans).count(JobStatus.QUEUED) == 1
+    assert runtime.poll() == 0  # still no discovery/scan capacity
+
+    gate.release.set()
+    runtime.wait_idle(10)
+    assert runtime.poll() == 1  # capacity returned: the third scan runs now
+    runtime.wait_idle(10)
+    assert statuses(queue_factory, scans) == [JobStatus.SUCCEEDED] * 3
+
+
+def test_the_discovery_scan_cap_counts_both_types_together(queue_factory, make_worker, clock, gate):
+    runtime = make_worker(
+        queue_factory,
+        registry=registry_with((JobType.SCAN, gate), (JobType.DISCOVER, gate)),
+        ansible_ssh_key=b"fixture-not-a-key",
+    )
+    jobs = [
+        queue_job(queue_factory, JobType.SCAN, clock()),
+        queue_job(queue_factory, JobType.DISCOVER, clock()),
+        queue_job(queue_factory, JobType.DISCOVER, clock()),
+    ]
+    assert runtime.poll() == 2
+    wait_until(lambda: len(gate.started) == 2)
+    states = statuses(queue_factory, jobs)
+    assert states.count(JobStatus.RUNNING) == 2 and states.count(JobStatus.QUEUED) == 1
+
+
+def test_at_most_worker_concurrency_jobs_run_at_once(queue_factory, make_worker, clock, gate):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.ALERT_EXPIRY, gate)))
+    jobs = [queue_job(queue_factory, JobType.ALERT_EXPIRY, clock()) for _ in range(5)]
+    assert runtime.poll() == 4
+    wait_until(lambda: len(gate.started) == 4)
+    assert statuses(queue_factory, jobs).count(JobStatus.QUEUED) == 1
+    assert runtime.poll() == 0
+    gate.release.set()
+    runtime.wait_idle(10)
+    assert runtime.run_queued() == 1
+    assert statuses(queue_factory, jobs) == [JobStatus.SUCCEEDED] * 5
+
+
+def test_types_without_a_registered_handler_are_never_claimed(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory)  # only cleanup is registered
+    ignored = [queue_job(queue_factory, JobType.DEPLOY, clock()), queue_job(queue_factory, JobType.DIGEST, clock())]
+    wanted = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
+    assert runtime.run_queued() == 1
+    assert statuses(queue_factory, ignored) == [JobStatus.QUEUED] * 2
+    assert job_state(queue_factory, wanted)[0] == JobStatus.SUCCEEDED
+
+
+def test_without_ssh_credentials_scans_run_but_discover_and_deploy_stay_queued(
+    queue_factory, make_worker, clock
+):
+    registry = quick_registry(JobType.SCAN, JobType.DISCOVER, JobType.DEPLOY)
+    runtime = make_worker(queue_factory, registry=registry)
+    assert not runtime.settings.ssh_available
+    scan = queue_job(queue_factory, JobType.SCAN, clock())
+    ineligible = [queue_job(queue_factory, JobType.DISCOVER, clock()), queue_job(queue_factory, JobType.DEPLOY, clock())]
+    assert runtime.run_queued() == 1
+    assert job_state(queue_factory, scan)[0] == JobStatus.SUCCEEDED
+    assert statuses(queue_factory, ineligible) == [JobStatus.QUEUED] * 2
+
+
+def test_with_ssh_credentials_discover_and_deploy_are_eligible(queue_factory, make_worker, clock):
+    registry = quick_registry(JobType.SCAN, JobType.DISCOVER, JobType.DEPLOY)
+    runtime = make_worker(queue_factory, registry=registry, ansible_ssh_key=b"fixture-not-a-key")
+    jobs = [queue_job(queue_factory, kind, clock()) for kind in (JobType.SCAN, JobType.DISCOVER, JobType.DEPLOY)]
+    assert runtime.run_queued() == 3
+    assert statuses(queue_factory, jobs) == [JobStatus.SUCCEEDED] * 3
+
+
+def test_a_stopped_worker_claims_nothing(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory)
+    job_id = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
+    runtime.stop()
+    assert runtime.poll() == 0
+    assert job_state(queue_factory, job_id)[0] == JobStatus.QUEUED
+
+
+# --- job outcomes ---------------------------------------------------------------------------
+
+
+def test_a_handler_result_is_stored_with_the_job(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, lambda c, p: {"seen": 3})))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.run_queued()
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.SUCCEEDED, None, {"seen": 3})
+
+
+def test_a_retryable_failure_is_requeued_and_a_non_retryable_one_is_not(queue_factory, make_worker, clock):
+    def transient(context, payload):
+        raise JobFailure("transient_network", "host unreachable", retryable=True)
+
+    def denied(context, payload):
+        raise JobFailure("auth", "credentials rejected")
+
+    runtime = make_worker(
+        queue_factory,
+        registry=registry_with((JobType.SCAN, transient), (JobType.DISCOVER, denied)),
+        ansible_ssh_key=b"fixture-not-a-key",
+    )
+    retryable = queue_job(queue_factory, JobType.SCAN, clock())
+    final = queue_job(queue_factory, JobType.DISCOVER, clock())
+    runtime.run_queued()
+    status, error_class, message, result = job_state(queue_factory, retryable)
+    assert (status, error_class, message, result) == (
+        JobStatus.FAILED,
+        "transient_network",
+        "host unreachable",
+        None,
+    )
+    assert job_state(queue_factory, final) == (
+        JobStatus.FAILED,
+        "auth",
+        "credentials rejected",
+        {"retryable": False},
+    )
+    with queue_factory.begin() as db:
+        assert retry_due(db, clock() + timedelta(minutes=5)) == 1  # only the retryable one
+    assert job_state(queue_factory, retryable)[0] == JobStatus.QUEUED
+    assert job_state(queue_factory, final)[0] == JobStatus.FAILED
+
+
+def test_an_unexpected_exception_fails_the_job_as_internal_without_leaking_its_text(
+    queue_factory, make_worker, clock, caplog
+):
+    def explode(context, payload):
+        raise RuntimeError("password=hunter2-should-never-be-stored")
+
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, explode)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    with caplog.at_level(logging.DEBUG):
+        runtime.run_queued()
+    status, error_class, message, _ = job_state(queue_factory, job_id)
+    assert (status, error_class, message) == (JobStatus.FAILED, "internal", "internal error")
+    assert "hunter2" not in caplog.text
+
+
+def test_a_result_that_cannot_be_stored_fails_the_job_instead_of_wedging_it(queue_factory, make_worker, clock):
+    runtime = make_worker(
+        queue_factory, registry=registry_with((JobType.SCAN, lambda c, p: {"password": "hunter2-leaked"}))
+    )
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.run_queued()
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.FAILED, "internal", {"retryable": False})
+
+
+def test_an_unknown_action_fails_validation_without_retry(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, lambda c, p: {})))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock(), {"action": "nope"})
+    runtime.run_queued()
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.FAILED, "validation", {"retryable": False})
+
+
+def test_a_reaped_jobs_late_completion_is_never_written(queue_factory, make_worker, clock, gate, caplog):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    clock.advance(seconds=1801)  # past the 1800 s scan timeout
+    runtime.tick()  # the scheduler holder reaps it
+    assert job_state(queue_factory, job_id)[:2] == (JobStatus.FAILED, "timeout")
+    with caplog.at_level(logging.INFO):
+        gate.release.set()
+        runtime.wait_idle(10)
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.FAILED, "timeout", None)
+    with queue_factory() as db:
+        succeeded = db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "job.succeeded"))
+    assert succeeded == 0
+    assert "stale" in caplog.text.lower()
+
+
+# --- scheduler lock -------------------------------------------------------------------------
+
+
+def test_only_one_worker_holds_the_scheduler_lock_and_another_takes_over(
+    queue_factory, make_worker, monkeypatch
+):
+    ticks = []
+    monkeypatch.setattr(worker, "scheduler_tick", lambda factory, registry, now: ticks.append(now))
+    first, second = make_worker(queue_factory), make_worker(queue_factory)
+    first.tick()
+    second.tick()
+    assert (first.holds_scheduler_lock, second.holds_scheduler_lock) == (True, False)
+    assert len(ticks) == 1 and advisory_locks(queue_factory) == 1
+    first.tick()  # re-attempts never stack or double-tick
+    second.tick()
+    assert len(ticks) == 2 and advisory_locks(queue_factory) == 1
+
+    first.close(grace_seconds=0)
+    wait_until(lambda: advisory_locks(queue_factory) == 0)  # connection closed -> lock released
+    second.tick()
+    assert second.holds_scheduler_lock and len(ticks) == 3
+    assert advisory_locks(queue_factory) == 1
+    with queue_factory() as db:
+        assert db.scalar(select(func.count()).select_from(WorkerHeartbeat)) == 2
+
+
+def test_closing_a_worker_is_idempotent_and_releases_the_lock(queue_factory, make_worker):
+    runtime = make_worker(queue_factory)
+    runtime.tick()
+    assert advisory_locks(queue_factory) == 1
+    runtime.close(grace_seconds=0)
+    runtime.close(grace_seconds=0)
+    wait_until(lambda: advisory_locks(queue_factory) == 0)
+    assert not runtime.holds_scheduler_lock
+
+
+def test_a_lost_lock_connection_is_replaced_by_a_new_acquisition(queue_factory, make_worker, monkeypatch):
+    ticks = []
+    monkeypatch.setattr(worker, "scheduler_tick", lambda factory, registry, now: ticks.append(now))
+    runtime = make_worker(queue_factory)
+    runtime.tick()
+    with queue_factory.begin() as db:
+        db.execute(text("SELECT pg_terminate_backend(:pid)"), {"pid": runtime.scheduler_lock_pid})
+    wait_until(lambda: advisory_locks(queue_factory) == 0)
+    runtime.tick()
+    assert runtime.holds_scheduler_lock and len(ticks) == 2
+    assert advisory_locks(queue_factory) == 1
+
+
+def test_the_scheduler_enqueues_cleanup_through_the_worker_tick(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory)
+    clock.value = FOUR_AM + timedelta(minutes=1)
+    runtime.tick()
+    assert len(jobs_of(queue_factory)) == 1
+
+
+# --- run loop and shutdown ------------------------------------------------------------------
+
+
+def test_the_run_loop_executes_jobs_and_stops_cleanly(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory)
+    thread = threading.Thread(target=runtime.run, daemon=True)
+    thread.start()
+    wait_until(lambda: advisory_locks(queue_factory) == 1)
+    job_id = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
+    wait_until(lambda: job_state(queue_factory, job_id)[0] == JobStatus.SUCCEEDED)
+    runtime.stop()
+    thread.join(10)
+    assert not thread.is_alive()
+    wait_until(lambda: advisory_locks(queue_factory) == 0)
+
+
+def test_shutdown_waits_for_a_running_job_within_the_grace_period(queue_factory, make_worker, clock, gate):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    thread = threading.Thread(target=runtime.run, daemon=True)
+    thread.start()
+    wait_until(lambda: gate.started)
+    runtime.stop()
+    time.sleep(0.3)
+    assert thread.is_alive()  # still draining the running job
+    gate.release.set()
+    thread.join(10)
+    assert not thread.is_alive()
+    assert job_state(queue_factory, job_id)[0] == JobStatus.SUCCEEDED
+
+
+def test_shutdown_gives_up_after_the_grace_period_and_leaves_the_job_to_the_reaper(
+    queue_factory, make_worker, clock, gate
+):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    runtime.grace_seconds = 0.3
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    thread = threading.Thread(target=runtime.run, daemon=True)
+    thread.start()
+    wait_until(lambda: gate.started)
+    runtime.stop()
+    thread.join(10)
+    assert not thread.is_alive()
+    wait_until(lambda: advisory_locks(queue_factory) == 0)
+    assert job_state(queue_factory, job_id)[0] == JobStatus.RUNNING  # reaped after its timeout
+
+
+def test_the_grace_period_is_capped_at_25_seconds(queue_factory, make_worker):
+    runtime = make_worker(queue_factory)
+    runtime.grace_seconds = 600
+    assert runtime.effective_grace_seconds + worker.COMMIT_SETTLE_SECONDS == 25
+
+
+def process_settings(queue_factory, tmp_path):
+    url = queue_factory.kw["bind"].url
+    return Settings(
+        profile="worker",
+        db_password=url.password.encode(),
+        db_host=url.host,
+        db_port=url.port,
+        db_user=url.username,
+        db_name=url.database,
+        keyring=Keyring(1, {1: bytes(range(32))}),
+        keyring_sha256="0" * 64,
+        artifacts_root=tmp_path / "artifacts",
+        key_staging_dir=tmp_path / "missing-keys",
+    )
+
+
+def test_run_worker_drains_running_slots_once_within_the_grace_bound(queue_factory, tmp_path, monkeypatch):
+    waits = []
+
+    def never_idle(self, timeout):
+        waits.append(timeout)
+        return False  # a slot is still running when the grace expires
+
+    monkeypatch.setattr(worker.Worker, "wait_idle", never_idle)
+    settings = process_settings(queue_factory, tmp_path)
+    timer = threading.Timer(1.0, os.kill, (os.getpid(), signal.SIGTERM))
+    timer.start()
+    try:
+        run_worker(settings, build_registry())
+    finally:
+        timer.cancel()
+    assert len(waits) == 1  # run() and run_worker() must not each wait for the full grace
+    assert waits[0] + worker.COMMIT_SETTLE_SECONDS <= 25  # drain plus commit settle stay in the bound
+
+
+def test_an_explicit_close_grace_is_capped_at_25_seconds(queue_factory, make_worker, monkeypatch):
+    waits = []
+    runtime = make_worker(queue_factory)
+    monkeypatch.setattr(runtime, "wait_idle", lambda timeout: waits.append(timeout) or True)
+    runtime.close(grace_seconds=600)
+    runtime.close(grace_seconds=600)  # repeated closes never drain again
+    assert waits == [25 - worker.COMMIT_SETTLE_SECONDS]
+
+
+def test_a_completion_inside_the_grace_period_is_written(queue_factory, make_worker, clock, gate):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    threading.Timer(0.3, gate.release.set).start()
+    runtime.close(grace_seconds=10)
+    assert job_state(queue_factory, job_id)[0] == JobStatus.SUCCEEDED
+
+
+def test_a_completion_after_the_grace_expired_is_fenced_out_and_the_job_stays_for_the_reaper(
+    queue_factory, make_worker, clock, gate, caplog
+):
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    runtime.close(grace_seconds=0)  # grace expires with the job still running
+    with caplog.at_level(logging.INFO):
+        gate.release.set()  # the handler finishes long before the 1800 s queue timeout
+        assert runtime.wait_idle(10)
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.RUNNING, None, None)
+    with queue_factory() as db:
+        written = db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "job.succeeded"))
+    assert written == 0
+    assert "abandoned" in caplog.text.lower()
+    clock.advance(seconds=1801)
+    reaper = make_worker(queue_factory)
+    reaper.tick()
+    assert job_state(queue_factory, job_id)[:2] == (JobStatus.FAILED, "timeout")
+
+
+@pytest.mark.parametrize("pause_after_write", [False, True], ids=["before-write", "inside-open-transaction"])
+def test_an_in_flight_finish_is_fenced_when_the_grace_expires(
+    queue_factory, make_worker, clock, gate, monkeypatch, pause_after_write
+):
+    """A completion already inside ``finish`` when shutdown abandons its slot must not commit."""
+    entered, proceed = threading.Event(), threading.Event()
+    real_finish = worker.finish
+
+    def paused_finish(*args, **kwargs):
+        if not pause_after_write:
+            entered.set()
+            assert proceed.wait(20)
+        outcome = real_finish(*args, **kwargs)  # the UPDATE is now pending in the open transaction
+        if pause_after_write:
+            entered.set()
+            assert proceed.wait(20)
+        return outcome
+
+    monkeypatch.setattr(worker, "finish", paused_finish)
+    runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+    job_id = queue_job(queue_factory, JobType.SCAN, clock())
+    runtime.poll()
+    wait_until(lambda: gate.started)
+    gate.release.set()
+    assert entered.wait(10)  # the slot is inside finish(), not yet committed
+    runtime.close(grace_seconds=0)  # shutdown abandons the still-running slot
+    proceed.set()
+    assert runtime.wait_idle(10)
+    status, error_class, _, result = job_state(queue_factory, job_id)
+    assert (status, error_class, result) == (JobStatus.RUNNING, None, None)
+    with queue_factory() as db:
+        written = db.scalar(select(func.count()).select_from(AuditLog).where(AuditLog.action == "job.succeeded"))
+    assert written == 0
+    clock.advance(seconds=1801)
+    reaper = make_worker(queue_factory)
+    reaper.tick()
+    assert job_state(queue_factory, job_id)[:2] == (JobStatus.FAILED, "timeout")
+
+
+def test_shutdown_lets_a_commit_already_underway_complete_before_returning(queue_factory, make_worker, clock, gate):
+    """Past the last fence check the commit is atomic: close() waits for it instead of racing it."""
+    in_commit, proceed = threading.Event(), threading.Event()
+    engine = queue_factory.kw["bind"]
+
+    @event.listens_for(engine, "commit")
+    def pause_commit(connection):
+        if threading.current_thread().name.startswith("job-"):
+            in_commit.set()
+            assert proceed.wait(20)
+
+    try:
+        runtime = make_worker(queue_factory, registry=registry_with((JobType.SCAN, gate)))
+        job_id = queue_job(queue_factory, JobType.SCAN, clock())
+        runtime.poll()
+        wait_until(lambda: gate.started)
+        gate.release.set()
+        assert in_commit.wait(10)
+        threading.Timer(0.3, proceed.set).start()
+        runtime.close(grace_seconds=0)
+        assert job_state(queue_factory, job_id)[0] == JobStatus.SUCCEEDED  # committed, not torn
+    finally:
+        proceed.set()
+        event.remove(engine, "commit", pause_commit)
+
+
+def test_run_worker_stops_on_sigterm_and_releases_everything(queue_factory, tmp_path):
+    settings = process_settings(queue_factory, tmp_path)
+    previous = signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)
+    timer = threading.Timer(2.0, os.kill, (os.getpid(), signal.SIGTERM))
+    timer.start()
+    try:
+        run_worker(settings, build_registry())
+    finally:
+        timer.cancel()
+    assert (signal.getsignal(signal.SIGTERM), signal.getsignal(signal.SIGINT)) == previous
+    with queue_factory() as db:
+        assert db.scalar(select(func.count()).select_from(WorkerHeartbeat)) == 1
+    wait_until(lambda: advisory_locks(queue_factory) == 0)
+
+
+# --- key staging wipe -----------------------------------------------------------------------
+
+
+def test_wipe_removes_files_and_directories_but_keeps_the_staging_directory(tmp_path):
+    staging = tmp_path / "keys"
+    (staging / "nested" / "deeper").mkdir(parents=True)
+    (staging / "a.pem").write_bytes(b"fixture")
+    (staging / ".hidden").write_bytes(b"fixture")
+    (staging / "nested" / "deeper" / "b.key").write_bytes(b"fixture")
+    assert wipe_key_staging(staging) is True
+    assert staging.is_dir() and list(staging.iterdir()) == []
+
+
+def test_wipe_unlinks_symlinks_without_touching_their_targets(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_bytes(b"precious")
+    staging = tmp_path / "keys"
+    (staging / "real").mkdir(parents=True)
+    (staging / "link-to-dir").symlink_to(outside, target_is_directory=True)
+    (staging / "link-to-file").symlink_to(outside / "keep.txt")
+    (staging / "dangling").symlink_to(tmp_path / "does-not-exist")
+    (staging / "real" / "inner-link").symlink_to(outside, target_is_directory=True)
+    wipe_key_staging(staging)
+    assert list(staging.iterdir()) == []
+    assert (outside / "keep.txt").read_bytes() == b"precious"
+
+
+def test_wipe_refuses_a_symlinked_staging_directory(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_bytes(b"precious")
+    staging = tmp_path / "keys"
+    staging.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(KeyStagingError):
+        wipe_key_staging(staging)
+    assert (outside / "keep.txt").read_bytes() == b"precious"
+    assert staging.is_symlink()
+
+
+def test_wipe_refuses_a_staging_path_that_is_not_a_directory(tmp_path):
+    staging = tmp_path / "keys"
+    staging.write_bytes(b"fixture")
+    with pytest.raises(KeyStagingError):
+        wipe_key_staging(staging)
+    assert staging.read_bytes() == b"fixture"
+
+
+def test_wipe_of_a_missing_directory_warns_and_continues(tmp_path, caplog):
+    with caplog.at_level(logging.WARNING):
+        assert wipe_key_staging(tmp_path / "absent") is False
+    assert "does not exist" in caplog.text
+
+
+def test_wipe_fails_loudly_when_a_child_cannot_be_removed(tmp_path, monkeypatch):
+    staging = tmp_path / "keys"
+    staging.mkdir()
+    (staging / "a.pem").write_bytes(b"fixture")
+
+    def refuse(*args, **kwargs):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(os, "unlink", refuse)
+    with pytest.raises(KeyStagingError):
+        wipe_key_staging(staging)
+
+
+def test_run_worker_refuses_to_start_on_an_unsafe_staging_directory(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    staging = tmp_path / "keys"
+    staging.symlink_to(outside, target_is_directory=True)
+    # The wipe runs before any database access: these settings point nowhere.
+    settings = worker_settings(key_staging_dir=staging)
+    with pytest.raises(KeyStagingError):
+        run_worker(settings, build_registry())
+
+
+def test_main_exits_non_zero_when_the_staging_directory_is_unsafe(tmp_path, monkeypatch, caplog):
+    staging = tmp_path / "keys"
+    staging.symlink_to(tmp_path, target_is_directory=True)
+    monkeypatch.setattr(worker, "load_settings", lambda *args, **kwargs: worker_settings(key_staging_dir=staging))
+    assert worker.main() == 1
+
+
+def test_main_exits_non_zero_on_a_configuration_error(monkeypatch):
+    def broken(*args, **kwargs):
+        raise worker.ConfigurationError("master_key: required secret missing")
+
+    monkeypatch.setattr(worker, "load_settings", broken)
+    assert worker.main() == 2
+
+
+# --- web: healthz and the stale-worker banner -----------------------------------------------
+
+STALE_TEXT = "Worker is not running (last heartbeat > 5 minutes)"
+KEY_TEXT = "key material cannot be decrypted"
+
+
+def test_healthz_reports_a_stale_worker_when_no_heartbeat_exists(client):
+    response = client.get("/healthz")
+    assert response.status_code == 200
+    assert response.json() == {"web": "ok", "worker": "stale", "db": "ok"}
+
+
+def test_healthz_is_503_when_the_database_is_unavailable(client, web_app):
+    dead = create_engine("postgresql+psycopg://nobody:none@127.0.0.1:1/none", connect_args={"connect_timeout": 1})
+    web_app.state.factory = sessionmaker(dead)
+    response = client.get("/healthz")
+    assert response.status_code == 503
+    assert response.json() == {"web": "ok", "worker": "unknown", "db": "unavailable"}
+    assert client.get("/health/live").status_code == 200  # liveness never needs the database
+
+
+def test_the_other_health_endpoints_are_unchanged(client):
+    assert client.get("/health/live").json() == {"status": "ok"}
+    assert client.get("/health/ready").json() == {"status": "ok"}
+
+
+def test_the_banner_is_shown_when_the_worker_is_stale_and_absent_when_it_is_fresh(
+    signed_in, worker_harness, clock
+):
+    worker_harness.tick()
+    assert STALE_TEXT not in signed_in.get("/_test/page").text
+    clock.advance(minutes=5, seconds=1)
+    page = signed_in.get("/_test/page")
+    assert page.status_code == 200 and STALE_TEXT in page.text
+
+
+def test_the_stale_banner_is_shown_on_error_pages_too(signed_in):
+    response = signed_in.get("/_test/error/403", headers={"Accept": "text/html"})
+    assert response.status_code == 403 and STALE_TEXT in response.text
+
+
+def test_the_worker_banner_combines_with_the_key_material_banner(signed_in, web_app):
+    web_app.state.status_banner = "key material cannot be decrypted with the configured master key"
+    # The fixture page passes its own empty status_banner; the real renderer passes the app's.
+    response = signed_in.get("/_test/error/403", headers={"Accept": "text/html"})
+    assert KEY_TEXT in response.text and STALE_TEXT in response.text
+
+
+def test_the_worker_state_is_cached_for_thirty_seconds(signed_in, worker_harness, web_factory, clock):
+    worker_harness.tick()
+    assert STALE_TEXT not in signed_in.get("/_test/page").text
+    with web_factory.begin() as db:
+        db.execute(update(WorkerHeartbeat).values(last_seen_at=clock() - timedelta(hours=1)))
+    clock.advance(seconds=29)
+    assert STALE_TEXT not in signed_in.get("/_test/page").text  # served from the cache
+    clock.advance(seconds=2)
+    assert STALE_TEXT in signed_in.get("/_test/page").text  # cache expired
+
+
+def test_pages_still_render_without_a_worker_banner_when_the_liveness_query_fails(signed_in, monkeypatch):
+    from sqlalchemy.exc import OperationalError
+
+    def broken(db, now):
+        raise OperationalError("fixture-query", {}, Exception("fixture: database down"))
+
+    monkeypatch.setattr("app.main.worker_liveness", broken)
+    page = signed_in.get("/_test/page")
+    assert page.status_code == 200 and STALE_TEXT not in page.text

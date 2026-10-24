@@ -406,3 +406,57 @@ def seeded_jobs(queue_factory, now):
             db.flush()
             ids.append(job.id)
     return ids
+
+
+# --- worker runtime ---------------------------------------------------------------------------
+
+
+def _worker_settings(tmp_path, **overrides):
+    from app.config import Settings
+    from app.crypto.keyring import Keyring
+
+    values = {
+        "profile": "worker",
+        "db_password": b"fixture-not-used",
+        "keyring": Keyring(1, {1: bytes(range(32))}),
+        "keyring_sha256": "0" * 64,
+        "artifacts_root": tmp_path / "artifacts",
+        "key_staging_dir": tmp_path / "keys",
+    }
+    return Settings(**(values | overrides))
+
+
+@pytest.fixture
+def make_worker(tmp_path, clock):
+    """Build worker runtimes on any session factory; every one is closed (lock released) at teardown."""
+    from app.jobs.handlers import build_registry
+    from app.jobs.worker import Worker
+
+    built = []
+
+    def build(factory, *, registry=None, settings=None, **settings_overrides):
+        runtime = Worker(
+            settings or _worker_settings(tmp_path, **settings_overrides),
+            registry or build_registry(),
+            factory,
+            clock=clock,
+        )
+        built.append(runtime)
+        return runtime
+
+    yield build
+    for runtime in built:
+        runtime.close(grace_seconds=0)
+
+
+@pytest.fixture
+def worker_harness(web_factory, make_worker):
+    """A worker bound to the same database and clock as the ``client`` fixture."""
+    from app.models import WorkerHeartbeat
+
+    runtime = make_worker(web_factory)
+    yield runtime
+    runtime.close(grace_seconds=0)
+    with web_factory.begin() as db:
+        for row in db.query(WorkerHeartbeat):
+            db.delete(row)
