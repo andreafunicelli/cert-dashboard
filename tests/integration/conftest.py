@@ -580,3 +580,65 @@ def pull_certs(now):
 def tls_server(tls_servers, pull_certs):
     """A listener serving the leaf plus both intermediates (never the root)."""
     return tls_servers(pull_certs.leaf, pull_certs.leaf_key, pull_certs.intermediates)
+
+
+# --- Renewal state-machine fixtures (Task 18) ---------------------------------
+
+
+@pytest.fixture(scope="session")
+def ca():
+    from datetime import UTC, datetime
+
+    from tests.fixtures.ca import FixtureCA
+
+    return FixtureCA(datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
+
+
+@pytest.fixture
+def keyring():
+    from app.crypto.keyring import Keyring
+
+    return Keyring(1, {1: bytes(range(32))})
+
+
+@pytest.fixture
+def previous_certificate(db, ca, actor, now):
+    """An active, key-less inventory certificate (with chain and ownership) that gets renewed."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app.crypto.chain import order_chain
+    from app.crypto.parse import parse_certificates
+    from app.services.certificates import CertificateMetadata, save_certificate
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = ca.issue(
+        public_key=key.public_key(),
+        common_name="www.example.internal",
+        sans=["www.example.internal", "api.example.internal"],
+        not_before=now.replace(year=2025),
+        not_after=now.replace(year=2027),
+    )
+    leaf = parse_certificates(pem)[0]
+    chain = order_chain(leaf.cert, [x509.load_pem_x509_certificate(ca.chain_pem)])
+    metadata = CertificateMetadata(owner_name="Ada", owner_email="ada@example.test", team="web")
+    return save_certificate(
+        db, leaf, chain, metadata, actor, source="upload_pem", validation_time=now
+    ).certificate
+
+
+@pytest.fixture
+def submitted_renewal(db, ca, keyring, previous_certificate, actor, now):
+    """A renewal of ``previous_certificate`` waiting for the CA's issued certificate."""
+    from app.crypto.keys import KeySpec
+    from app.services.renewals import (
+        RenewalBasics,
+        create_draft,
+        generate_csr,
+        mark_submitted,
+    )
+
+    basics = RenewalBasics("www.example.internal", ("www.example.internal", "api.example.internal"), "TestCA")
+    renewal = create_draft(db, previous_certificate.id, basics, actor, now)
+    generate_csr(db, renewal.id, KeySpec(kind="ecdsa"), keyring, actor, now)
+    return mark_submitted(db, renewal.id, "ORDER-1", actor, now)
