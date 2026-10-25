@@ -577,7 +577,7 @@ def test_wrong_issued_key_is_atomic(db, submitted_renewal, certs, actor, now):
 
 **Interfaces:** Consumes: `create_draft(db: Session, previous_id: int | None, basics: RenewalBasics, actor: Actor, now: datetime) -> Renewal` and every exact Task 18 transition signature. Produces: GET/POST `/renewals/new?from={cert_id}`; GET `/renewals/{id}?step={basics|csr|submitted|upload|ready|done}`; POST `/renewals/{id}/{edit|generate-csr|submit|issued|finalize|cancel}`; GET `/renewals/{id}/csr.pem`.
 
-- [ ] Write failing form-only end-to-end tests using a fixture CA to issue from the generated CSR:
+- [x] Write failing form-only end-to-end tests using a fixture CA to issue from the generated CSR:
 
 ```python
 def test_wizard_resumes_and_freezes_names(signed_in, wizard, ca):
@@ -591,10 +591,10 @@ def test_wizard_resumes_and_freezes_names(signed_in, wizard, ca):
 ```
 
   Define `wizard` fixture as HTTP form helpers adding CSRF and returning ORM rows through a fresh test transaction; `ca.issue` returns valid leaf+chain with matching CSR fields. Assert leave/re-enter each step, CSR download/hash persists later, PFX upload rejected here, all independent blocking errors and non-blocking trust warnings visible, state unchanged on blocking validation failure, cancellation reason required, and no unaudited or manual `issued→deployed` HTTP action exists. Seed a succeeded deploy job only to test final confirmation; this does not simulate actual deployment success.
-- [ ] Run `uv run pytest tests/integration/test_renewal_wizard.py -q`; expect FAIL, wizard routes/templates absent.
-- [ ] Implement persisted one-transition-per-POST forms, 303 redirects, htmx 422 fragments and non-JS equivalents. Prefill CN/SAN/CA/notes from source; algorithm default RSA 2048 and compatibility trade-off text; display exact CA checklist and CSR hash throughout. Upload accepts pasted/uploaded PEM/CRT plus optional chain, never PFX; server applies Task 18's key/CSR/leaf-validity gate and displays persisted non-trusted chain warnings before showing ready. Ready links `/deploy?certificate_id={id}` only when Plan 3 is registered, otherwise explains deployment is unavailable and leaves `issued` intact. Done requires automatic deployed evidence plus manual confirmation, previous certificate superseded by default; cancellation keeps key/history. CSR download is public-only, audited, safe filename, no-store.
-- [ ] Run `uv run pytest tests/integration/test_renewal_wizard.py -q`; expect PASS.
-- [ ] Commit: `git add app/main.py app/templates/certificates/detail.html.j2 app/templates/renewals tests/integration/test_renewal_wizard.py`; `git commit -m "feat: guide resumable manual certificate renewals"`.
+- [x] Run `uv run pytest tests/integration/test_renewal_wizard.py -q`; expect FAIL, wizard routes/templates absent.
+- [x] Implement persisted one-transition-per-POST forms, 303 redirects, htmx 422 fragments and non-JS equivalents. Prefill CN/SAN/CA/notes from source; algorithm default RSA 2048 and compatibility trade-off text; display exact CA checklist and CSR hash throughout. Upload accepts pasted/uploaded PEM/CRT plus optional chain, never PFX; server applies Task 18's key/CSR/leaf-validity gate and displays persisted non-trusted chain warnings before showing ready. Ready links `/deploy?certificate_id={id}` only when Plan 3 is registered, otherwise explains deployment is unavailable and leaves `issued` intact. Done requires automatic deployed evidence plus manual confirmation, previous certificate superseded by default; cancellation keeps key/history. CSR download is public-only, audited, safe filename, no-store.
+- [x] Run `uv run pytest tests/integration/test_renewal_wizard.py -q`; expect PASS.
+- [x] Commit: `git add app/main.py app/templates/certificates/detail.html.j2 app/templates/renewals tests/integration/test_renewal_wizard.py`; `git commit -m "feat: guide resumable manual certificate renewals"`.
 
 ### Task 20: Audited PEM/chain/PFX downloads
 

@@ -1,0 +1,35 @@
+{% macro field_error(errors, name) %}{% if errors.get(name) %}<div class="form-error" data-field="{{ name }}" role="alert">{% for message in errors[name] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}{% endmacro %}
+
+{# The shared heading: title, step navigation, state and the CSR hash that proves what was submitted. #}
+{% macro header(r, state, step, steps, previous, tz) %}
+<h1>{% if r %}Renew {{ r.common_name }}{% else %}Start a renewal{% endif %}</h1>
+<ol class="steps" aria-label="Renewal steps">
+  {% for item in steps %}
+  <li{% if item.name == step %} aria-current="step"{% endif %}>{% if item.url and item.name != step %}<a href="{{ item.url }}">{{ item.label }}</a>{% else %}{% if item.name == step %}<strong>{{ item.label }}</strong>{% else %}{{ item.label }}{% endif %}{% endif %}</li>
+  {% endfor %}
+</ol>
+<p>State: <span class="badge badge-renewal-{{ state }}">{{ state }}</span>
+  {% if previous %}· Renewing <a href="/certificates/{{ previous.id }}">{{ previous.common_name }}</a>
+  (valid until {{ time_tag(previous.not_after, tz) }}){% endif %}</p>
+{% if r and r.csr_sha256 %}
+<p>CSR SHA-256: <code data-csr-sha256>{{ r.csr_sha256 }}</code> · <a href="/renewals/{{ r.id }}/csr.pem">Download CSR</a></p>
+{% endif %}
+{% endmacro %}
+
+{% macro general_errors(errors) %}{% if errors.get("form") %}<div class="form-error" data-field="form" role="alert">{% for message in errors["form"] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}{% endmacro %}
+
+{# Cancelling needs a reason and keeps the key, CSR and history. #}
+{% macro cancel_form(r, errors, csrf_token) %}
+<details class="cancel"{% if errors.get("reason") %} open{% endif %}>
+  <summary>Cancel this renewal</summary>
+  <form method="post" action="/renewals/{{ r.id }}/cancel"
+        hx-post="/renewals/{{ r.id }}/cancel" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="cancel_reason">Reason (required)</label>
+    <textarea id="cancel_reason" name="reason" rows="2" cols="60" maxlength="1000" required></textarea>
+    {{ field_error(errors, "reason") }}
+    <p class="hint">The private key, the CSR and the history are kept; the renewal is closed and the reason is audited.</p>
+    <button type="submit">Cancel renewal</button>
+  </form>
+</details>
+{% endmacro %}

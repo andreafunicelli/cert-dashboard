@@ -1,0 +1,40 @@
+{% extends "renewals/_layout.html.j2" %}
+{% block title %}Upload · {{ r.common_name }} · Cert Dashboard{% endblock %}
+{% block panel %}
+{% from "renewals/_macros.html.j2" import header, general_errors, cancel_form %}
+<section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
+  {{ header(r, state, step, steps, previous, tz) }}
+  <h2>Upload the issued certificate</h2>
+  {% if errors and not errors.get("form") %}
+  <div class="form-error" role="alert" id="upload-checks">
+    <p>The certificate was not accepted and nothing was saved. Every check that failed is listed below.</p>
+    <ul class="checks">
+      {% for key, messages in errors.items() %}
+      <li data-check="{{ key }}"><strong>{{ checks[key][0] if key in checks else key }}</strong>
+        {% for message in messages %}<br>{{ message }}{% endfor %}
+        {% if key in checks %}<br><em>{{ checks[key][1] }}</em>{% endif %}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+  {{ general_errors(errors) }}
+  <form method="post" action="/renewals/{{ r.id }}/issued" enctype="multipart/form-data"
+        hx-post="/renewals/{{ r.id }}/issued" hx-encoding="multipart/form-data" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="leaf_file">Issued certificate (PEM, CRT or DER file)</label>
+    <input id="leaf_file" name="leaf_file" type="file">
+    <label for="leaf_text">…or paste it (PEM)</label>
+    <textarea id="leaf_text" name="leaf_text" rows="6" cols="60" spellcheck="false" autocomplete="off">{{ form.leaf_text }}</textarea>
+    <label for="chain_file">Intermediate certificates (optional file)</label>
+    <input id="chain_file" name="chain_file" type="file">
+    <label for="chain_text">…or paste them (PEM)</label>
+    <textarea id="chain_text" name="chain_text" rows="4" cols="60" spellcheck="false" autocomplete="off">{{ form.chain_text }}</textarea>
+    <p class="hint">Each input is limited to 1 MiB. PFX/PKCS#12 bundles are not accepted: the key must be the one generated here. Without a chain, the previous certificate's stored chain is reused when it matches.</p>
+    <p class="hint">Checked on upload: it parses, matches the generated key and the CSR (names and public key), is inside its validity period and is not self-signed. Trust problems are reported as warnings and do not block.</p>
+    <button type="submit">Check and attach</button>
+  </form>
+  <p><a href="/renewals/{{ r.id }}?step=submitted">Back to the order</a></p>
+
+  {% if can_cancel %}{{ cancel_form(r, errors, csrf_token) }}{% endif %}
+</section>
+{% endblock %}
