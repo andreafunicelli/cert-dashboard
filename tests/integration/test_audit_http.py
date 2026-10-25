@@ -335,3 +335,28 @@ def test_audit_rows_stay_unchanged_after_browsing(web_factory, signed_in, audite
     with web_factory() as db:
         rows = db.scalars(select(AuditLog).where(AuditLog.target_type == audited_changes.kind)).all()
     assert len(rows) == 5 and {str(row.id) for row in rows} == set(audited_changes.ids)
+
+
+def test_subsecond_timestamps_round_trip_in_export_and_html(web_factory, signed_in):
+    tag = uuid.uuid4().hex[:8]
+    moment = datetime(2026, 3, 1, 12, 0, 0, 123456, tzinfo=UTC)
+    with web_factory.begin() as db:
+        _stage(db, f"frac-{tag}", "frac.row", f"frac{tag}", "1", moment)
+    (row,) = _export(signed_in, actor=f"frac-{tag}")
+    assert row["created_at"] == "2026-03-01T12:00:00.123456Z"
+    assert datetime.fromisoformat(row["created_at"]) == moment
+    html = _page_actions(signed_in, actor=f"frac-{tag}").text
+    assert html.count("2026-03-01T12:00:00.123456Z") == 2  # <time datetime> machine value + expanded UTC value
+
+
+def test_any_page_number_is_valid_and_out_of_range_pages_are_empty(web_factory, signed_in):
+    tag = uuid.uuid4().hex[:8]
+    with web_factory.begin() as db:
+        _stage(db, f"far-{tag}", "far.row", f"far{tag}", "1", BASE)
+    for page in (1_000_001, 10**12, 10**30):
+        response = signed_in.get("/audit", params={"actor": f"far-{tag}", "page": page})
+        assert response.status_code == 200, (page, response.text[:200])
+        assert response.text.count("data-audit-row") == 0
+    with web_factory() as db:
+        rows, total = list_audit(db, AuditFilters(actor=f"far-{tag}"), page=10**30, page_size=100)
+    assert rows == [] and total == 1

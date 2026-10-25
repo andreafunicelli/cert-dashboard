@@ -14,18 +14,20 @@ from fastapi.responses import JSONResponse
 
 from app.models import AuditLog
 from app.services.audit import AuditFilters, export_audit, list_audit
-from app.web.common import _render, display_timezone, install_template_helpers
+from app.web.common import _render, display_timezone, format_datetime, install_template_helpers
 
 DEFAULT_PAGE_SIZE = 50
 MAX_PAGE_SIZE = 100
-MAX_PAGE = 1_000_000
 EXPORT_LIMIT = 5_000
 _DATE_CHARS = 64
 _FILTER_NAMES = ("actor", "action_prefix", "target_type", "target_id", "start", "end", "ip")
 
 
 def _iso(value: datetime) -> str:
-    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """UTC ISO-8601; sub-second precision is kept (microseconds, only when non-zero)."""
+    moment = value.astimezone(UTC)
+    fraction = f".{moment.microsecond:06d}" if moment.microsecond else ""
+    return moment.strftime("%Y-%m-%dT%H:%M:%S") + fraction + "Z"
 
 
 def _parse_moment(raw: str) -> datetime:
@@ -35,13 +37,13 @@ def _parse_moment(raw: str) -> datetime:
     return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment
 
 
-def _query_int(raw: str | None, default: int, low: int, high: int) -> int:
+def _query_int(raw: str | None, default: int, low: int, high: int | None = None) -> int:
     if raw is None:
         return default
     if not (raw.isascii() and raw.isdigit()):
         raise ValueError("not a number")
     value = int(raw)
-    if not low <= value <= high:
+    if value < low or (high is not None and value > high):
         raise ValueError("out of range")
     return value
 
@@ -69,7 +71,7 @@ def _parse_query(request: Request) -> _Query:
                 "end": _parse_moment(values["end"]) if values["end"] else None,
             }
         )
-        page = _query_int(raw("page"), 1, 1, MAX_PAGE)
+        page = _query_int(raw("page"), 1, 1)
         page_size = _query_int(raw("page_size"), DEFAULT_PAGE_SIZE, 1, MAX_PAGE_SIZE)
     except ValueError:
         raise HTTPException(422) from None
@@ -118,6 +120,7 @@ def _list_page(request: Request):
         {
             "row": row,
             "utc": _iso(row.created_at),
+            "local": format_datetime(row.created_at, timezone_name),
             "ip": _ip_text(row.ip),
             "details_json": json.dumps(row.details, indent=2, sort_keys=True, ensure_ascii=False),
         }

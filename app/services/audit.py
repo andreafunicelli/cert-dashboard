@@ -291,12 +291,15 @@ def list_audit(
         raise ValueError("page must be >= 1 and page_size between 1 and 100")
     clauses = _audit_clauses(filters)
     total = db.scalar(select(func.count()).select_from(AuditLog).where(*clauses)) or 0
+    offset = (page - 1) * page_size
+    if offset >= total:  # also keeps absurd page numbers away from the database's bigint OFFSET
+        return [], total
     rows = db.scalars(
         select(AuditLog)
         .where(*clauses)
         .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
         .limit(page_size)
-        .offset((page - 1) * page_size)
+        .offset(offset)
     ).all()
     return list(rows), total
 

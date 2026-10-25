@@ -36,7 +36,7 @@
   {% for item in items %}
   {% set row = item.row %}
   <tr data-audit-row>
-    <td>{{ time_tag(row.created_at, tz) }}</td>
+    <td><time datetime="{{ item.utc }}">{{ item.local }}</time></td>
     <td>{{ row.actor_label }}</td>
     <td>{{ row.action }}</td>
     <td>{{ row.target_type }}{% if row.target_id is not none %} <small>{{ row.target_id }}</small>{% endif %}</td>
