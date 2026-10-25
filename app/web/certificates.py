@@ -30,6 +30,7 @@ from app.services.certificates import (
     allowed_status_changes,
     attach_chain,
     certificate_detail,
+    export_certificates,
     import_upload,
     list_certificates,
     set_status,
@@ -507,7 +508,7 @@ def _export_json(request: Request) -> JSONResponse:
     query = _list_query(request)  # validated like the list; paging is ignored
     now = request.app.state.clock()
     with request.app.state.factory() as db:
-        page = list_certificates(db, query.filters, 1, EXPORT_LIMIT, query.sort, now)
+        page = export_certificates(db, query.filters, query.sort, now, EXPORT_LIMIT)
     body = {
         "total": page.total,
         "truncated": page.total > len(page.items),

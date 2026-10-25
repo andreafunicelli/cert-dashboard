@@ -16,7 +16,7 @@ from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from sqlalchemy import and_, exists, func, or_, select, text
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -27,7 +27,18 @@ from app.crypto.parse import MAX_INPUT_BYTES, ParsedCertificate, ParseError, par
 from app.crypto.pfx import PFXError, _is_ca
 from app.crypto.pfx_isolated import read_encrypted_key_isolated, read_pfx_isolated
 from app.crypto.trust import ChainAssessment, assess_chain
-from app.models import AuditLog, Binding, Certificate, Endpoint, JSONValue, PrivateKey, Renewal, Server, User
+from app.models import (
+    AuditLog,
+    Binding,
+    Certificate,
+    Endpoint,
+    JSONValue,
+    PrivateKey,
+    Renewal,
+    ScanResult,
+    Server,
+    User,
+)
 from app.models.enums import CertificateStatus, ChainStatus, RenewalState
 from app.services.audit import Actor, record
 from app.services.trust_anchors import enabled_anchors
@@ -854,6 +865,7 @@ def import_upload(
 # --------------------------------------------------------------------------
 
 EXPORT_LIMIT = 5_000
+PAGE_SIZE_LIMIT = 100
 EXPIRY_BUCKETS = ("expired", "lt7", "lt30", "lt60")
 TEXT_FILTER_LIMIT = 200
 _BUCKET_DAYS = {"lt7": (0, 7), "lt30": (7, 30), "lt60": (30, 60)}
@@ -968,22 +980,13 @@ def _filter_clauses(filters: CertificateFilters, now: datetime) -> list:
     return clauses
 
 
-def list_certificates(
-    db: Session,
-    filters: CertificateFilters,
-    page: int = 1,
-    page_size: int = 50,
-    sort: str = "not_after",
-    now: datetime | None = None,
+def _select_page(
+    db: Session, filters: CertificateFilters, page: int, page_size: int, sort: str, moment: datetime
 ) -> CertificatePage:
-    """One page of certificates; each item carries ``binding_count`` (active bindings), no N+1."""
     if type(page) is not int or page < 1:
         raise ValueError("page must be at least 1")
-    if type(page_size) is not int or not 1 <= page_size <= EXPORT_LIMIT:
-        raise ValueError(f"page_size must be between 1 and {EXPORT_LIMIT}")
     if not isinstance(sort, str) or sort not in _SORTS:
         raise ValueError("unsupported sort")
-    moment = now or datetime.now(UTC)
     clauses = _filter_clauses(filters, moment)
     total = db.scalar(select(func.count()).select_from(Certificate).where(*clauses)) or 0
     bound = (
@@ -1005,6 +1008,33 @@ def list_certificates(
         row.binding_count = int(count)  # presentation attribute, not a column
         items.append(row)
     return CertificatePage(items, total, page, page_size)
+
+
+def list_certificates(
+    db: Session,
+    filters: CertificateFilters,
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "not_after",
+    now: datetime | None = None,
+) -> CertificatePage:
+    """One page (1-100 rows) of certificates; each item carries ``binding_count``, no N+1."""
+    if type(page_size) is not int or not 1 <= page_size <= PAGE_SIZE_LIMIT:
+        raise ValueError(f"page_size must be between 1 and {PAGE_SIZE_LIMIT}")
+    return _select_page(db, filters, page, page_size, sort, now or datetime.now(UTC))
+
+
+def export_certificates(
+    db: Session,
+    filters: CertificateFilters,
+    sort: str = "not_after",
+    now: datetime | None = None,
+    limit: int = EXPORT_LIMIT,
+) -> CertificatePage:
+    """Every matching certificate up to ``limit`` (at most 5,000) in one page, for the JSON export."""
+    if type(limit) is not int or not 1 <= limit <= EXPORT_LIMIT:
+        raise ValueError(f"limit must be between 1 and {EXPORT_LIMIT}")
+    return _select_page(db, filters, 1, limit, sort, now or datetime.now(UTC))
 
 
 def expiry_counts(db: Session, now: datetime) -> dict[str, int]:
@@ -1055,19 +1085,10 @@ def diagnose_chain(db: Session, row: Certificate, moment: datetime) -> ChainDiag
             intermediates = [item.cert for item in parse_certificates(row.chain_pem.encode("ascii"))]
         except (ParseError, UnicodeError):
             return ChainDiagnostics(None, ("unparseable_chain",))
+    # Report the assessment as it is now. Stored chains omit roots (spec 5.8), so a cached
+    # ``untrusted_root`` recorded at import may legitimately come back ``incomplete`` here.
     assessment = assess_chain(leaf, intermediates, enabled_anchors(db), moment)
-    messages = assessment.messages
-    if (
-        row.chain_status == ChainStatus.UNTRUSTED_ROOT
-        and assessment.status == ChainStatus.INCOMPLETE
-        and len(messages) == 2
-        and messages[0] == "missing_issuer"
-        and messages[1].startswith("issuer:")
-    ):
-        # Stored chains omit the root. The import that recorded untrusted_root saw it, and no enabled
-        # anchor has since covered it, so name that root instead of reporting a spurious gap.
-        return ChainDiagnostics(ChainStatus.UNTRUSTED_ROOT, ("untrusted_root", "root:" + messages[1][7:]))
-    return ChainDiagnostics(assessment.status, messages)
+    return ChainDiagnostics(assessment.status, assessment.messages)
 
 
 @dataclass(frozen=True)
@@ -1157,6 +1178,12 @@ class EndpointView:
     is_active: bool
     last_scan_status: str | None
     last_scan_at: datetime | None
+    observed_fingerprint: str | None = None
+    observed_common_name: str | None = None
+    observed_issuer_cn: str | None = None
+    observed_not_after: datetime | None = None
+    scan_error: str | None = None
+    matches_expected: bool | None = None  # None: no certificate was observed (not scanned / failed)
 
 
 @dataclass(frozen=True)
@@ -1183,6 +1210,25 @@ def _audit_summary(action: str, details: object) -> str:
     if action == "certificate.status_change" and isinstance(details, dict):
         return f"{details.get('from', '?')} → {details.get('to', '?')}: {details.get('reason', '')}"
     return ""
+
+
+def _endpoint_view(item: Endpoint, scan: ScanResult | None, expected_fingerprint: str) -> EndpointView:
+    """An endpoint with what its latest scan observed, compared with the certificate it expects."""
+    observed = scan.observed_fingerprint if scan is not None else None
+    return EndpointView(
+        host=item.host,
+        port=item.port,
+        sni=item.sni,
+        is_active=item.is_active,
+        last_scan_status=item.last_scan_status.value if item.last_scan_status is not None else None,
+        last_scan_at=item.last_scan_at,
+        observed_fingerprint=observed,
+        observed_common_name=scan.observed_common_name if scan is not None else None,
+        observed_issuer_cn=scan.observed_issuer_cn if scan is not None else None,
+        observed_not_after=scan.observed_not_after if scan is not None else None,
+        scan_error=(scan.error or "")[:300] or None if scan is not None else None,
+        matches_expected=None if observed is None else observed.lower() == expected_fingerprint.lower(),
+    )
 
 
 def certificate_detail(db: Session, certificate_id: int, now: datetime) -> CertificateDetail:
@@ -1220,6 +1266,17 @@ def certificate_detail(db: Session, certificate_id: int, now: datetime) -> Certi
         .order_by(Endpoint.host, Endpoint.port, Endpoint.id)
         .limit(500)
     ).all()
+    latest_scans = {}
+    if endpoints:
+        latest_scans = {
+            scan.endpoint_id: scan
+            for scan in db.scalars(
+                select(ScanResult)
+                .where(ScanResult.endpoint_id.in_([item.id for item in endpoints]))
+                .ext(distinct_on(ScanResult.endpoint_id))
+                .order_by(ScanResult.endpoint_id, ScanResult.checked_at.desc(), ScanResult.id.desc())
+            )
+        }
     return CertificateDetail(
         certificate=CertificateView(
             id=row.id,
@@ -1289,15 +1346,5 @@ def certificate_detail(db: Session, certificate_id: int, now: datetime) -> Certi
             )
             for binding, hostname in bindings
         ],
-        endpoints=[
-            EndpointView(
-                host=item.host,
-                port=item.port,
-                sni=item.sni,
-                is_active=item.is_active,
-                last_scan_status=item.last_scan_status.value if item.last_scan_status is not None else None,
-                last_scan_at=item.last_scan_at,
-            )
-            for item in endpoints
-        ],
+        endpoints=[_endpoint_view(item, latest_scans.get(item.id), row.sha256_fingerprint) for item in endpoints],
     )

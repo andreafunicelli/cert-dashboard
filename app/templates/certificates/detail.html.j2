@@ -61,7 +61,8 @@
   {% else %}
   <p class="hint">Re-assessed just now against the enabled trust anchors: <strong>{{ detail.diagnostics.status.value }}</strong>.</p>
   {% if recheck_differs %}
-  <p class="notice">The cached status ({{ c.chain_status.value }}) differs from the current assessment ({{ detail.diagnostics.status.value }}); it is refreshed by the next trust re-check.</p>
+  <p class="notice">The cached status ({{ c.chain_status.value }}) differs from the current assessment ({{ detail.diagnostics.status.value }}); it is refreshed by the next trust re-check.
+    {% if c.chain_status.value == "untrusted_root" %}An untrusted root is only visible while it is supplied: stored chains omit the root, so it cannot be re-verified from the stored data.{% endif %}</p>
   {% endif %}
   {% endif %}
   {% if warnings %}
@@ -97,10 +98,10 @@
     <thead><tr><th scope="col">Server</th><th scope="col">Virtual host</th><th scope="col">Port</th><th scope="col">Certificate file</th><th scope="col">On-disk fingerprint</th><th scope="col">Match</th><th scope="col">Last seen</th></tr></thead>
     <tbody>
     {% for b in detail.bindings %}
-    <tr{% if b.match_state != "match" or not b.is_active %} class="row-attention"{% endif %}>
+    <tr{% if b.match_state in ("key_mismatch", "missing_file") %} class="row-attention"{% elif not b.is_active %} class="row-inactive"{% endif %}>
       <td>{{ b.server }}</td><td>{{ b.vhost_name }}{% if not b.is_active %} <small>(inactive)</small>{% endif %}</td><td>{{ b.port }}</td>
       <td><code>{{ b.cert_path }}</code></td><td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
-      <td>{{ b.match_state }}</td><td>{{ time_tag(b.last_seen_at, tz) }}</td>
+      <td>{{ b.match_state }}{% if b.match_state == "key_mismatch" %} — the key at the configured path does not belong to this certificate{% elif b.match_state == "missing_file" %} — the certificate file is missing or unreadable{% endif %}</td><td>{{ time_tag(b.last_seen_at, tz) }}</td>
     </tr>
     {% endfor %}
     </tbody>
@@ -114,10 +115,21 @@
   <h2>Endpoints</h2>
   {% if detail.endpoints %}
   <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Endpoint</th><th scope="col">SNI</th><th scope="col">Last scan</th><th scope="col">Active</th></tr></thead>
+    <thead><tr><th scope="col">Endpoint</th><th scope="col">SNI</th><th scope="col">Expected certificate</th><th scope="col">Observed certificate</th><th scope="col">Last scan</th><th scope="col">Active</th></tr></thead>
     <tbody>
     {% for e in detail.endpoints %}
-    <tr><td>{{ hostport(e.host, e.port) }}</td><td>{{ e.sni or "—" }}</td>
+    <tr{% if e.matches_expected is sameas false %} class="row-attention"{% endif %}>
+      <td>{{ hostport(e.host, e.port) }}</td><td>{{ e.sni or "—" }}</td>
+      <td><span class="label">Expected</span> {{ c.common_name }}<br><code>{{ c.sha256_fingerprint }}</code></td>
+      <td><span class="label">Observed</span>
+        {% if e.observed_fingerprint %}
+        {{ e.observed_common_name or "—" }}{% if e.observed_issuer_cn %} · issued by {{ e.observed_issuer_cn }}{% endif %}
+        {% if e.observed_not_after %} · expires {{ time_tag(e.observed_not_after, tz) }}{% endif %}<br>
+        <code>{{ e.observed_fingerprint }}</code>
+        {% if e.matches_expected is sameas false %}<br><strong>Differs from the expected certificate</strong>{% endif %}
+        {% elif e.last_scan_status %}
+        No certificate observed{% if e.scan_error %}: {{ e.scan_error }}{% endif %}
+        {% else %}—{% endif %}</td>
       <td>{% if e.last_scan_status %}{{ e.last_scan_status }} {{ time_tag(e.last_scan_at, tz) }}{% else %}not scanned yet{% endif %}</td>
       <td>{{ "yes" if e.is_active else "no" }}</td></tr>
     {% endfor %}

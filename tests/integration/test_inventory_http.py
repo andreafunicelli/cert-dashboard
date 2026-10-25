@@ -21,6 +21,7 @@ from app.models import (
     Endpoint,
     PrivateKey,
     Renewal,
+    ScanResult,
     Server,
 )
 from app.models.enums import (
@@ -28,13 +29,16 @@ from app.models.enums import (
     ChainStatus,
     EndpointSource,
     RenewalState,
+    ScanStatus,
     WebserverType,
 )
 from app.services.audit import Actor
 from app.services.certificates import (
     CertificateFilters,
     CertificateMetadata,
+    diagnose_chain,
     expiry_counts,
+    export_certificates,
     list_certificates,
     save_certificate,
 )
@@ -104,7 +108,7 @@ def _cert(session, common_name, now, *, delta=timedelta(days=20), key=False, **f
     return row
 
 
-def _binding(session, certificate_id, server_id, name, *, active=True):
+def _binding(session, certificate_id, server_id, name, *, active=True, match_state="matched"):
     row = Binding(
         server_id=server_id,
         webserver=WebserverType.NGINX,
@@ -115,7 +119,7 @@ def _binding(session, certificate_id, server_id, name, *, active=True):
         cert_path=f"/etc/ssl/{name}.pem",
         key_path=f"/etc/ssl/{name}.key",
         certificate_id=certificate_id,
-        match_state="match",
+        match_state=match_state,
         last_seen_at=datetime(2026, 10, 19, tzinfo=UTC),
         is_active=active,
     )
@@ -228,7 +232,7 @@ def db_inventory(db, now):
 def _clean_web_inventory(web_factory):
     """The web database is shared by the whole module: start every test from an empty inventory."""
     with web_factory.begin() as session:
-        for model in (Endpoint, Binding, Renewal, Certificate, PrivateKey, Server):
+        for model in (ScanResult, Endpoint, Binding, Renewal, Certificate, PrivateKey, Server):
             session.execute(delete(model))
         session.execute(delete(AppSetting).where(AppSetting.key == "ui.timezone"))
     yield
@@ -419,10 +423,26 @@ def test_paging_is_stable_with_ties_and_reports_total(db, db_inventory, now):
     assert list_certificates(db, CertificateFilters(), page=6, page_size=2, now=now).items == []
 
 
-@pytest.mark.parametrize(("page", "size"), [(0, 50), (-1, 50), (1, 0), (1, 5001)])
+@pytest.mark.parametrize(("page", "size"), [(0, 50), (-1, 50), (1, 0), (1, 101), (1, 5000), (1, 5001)])
 def test_service_rejects_bad_paging(db, page, size):
     with pytest.raises(ValueError):
         list_certificates(db, CertificateFilters(), page=page, page_size=size)
+
+
+def test_service_accepts_the_inclusive_page_size_limits(db, db_inventory, now):
+    assert len(list_certificates(db, CertificateFilters(), page_size=1, now=now).items) == 1
+    assert list_certificates(db, CertificateFilters(), page_size=100, now=now).page_size == 100
+
+
+def test_export_service_is_distinct_from_the_page_api_and_capped(db, db_inventory, now):
+    everything = export_certificates(db, CertificateFilters(), sort="common_name", now=now)
+    assert everything.total == 7 and len(everything.items) == 7
+    assert [row.common_name for row in everything.items] == sorted(row.common_name for row in everything.items)
+    capped = export_certificates(db, CertificateFilters(), now=now, limit=2)
+    assert capped.total == 7 and len(capped.items) == 2
+    for bad in (0, 5001):
+        with pytest.raises(ValueError):
+            export_certificates(db, CertificateFilters(), now=now, limit=bad)
 
 
 def test_search_input_longer_than_200_characters_is_rejected(db):
@@ -774,6 +794,102 @@ def test_detail_bindings_and_endpoints_panels_are_read_only(signed_in, inventory
     assert "www.infra.example.test:443" in endpoints and "<form" not in endpoints
 
 
+def _row_for(panel, needle):
+    for row in re.findall(r"<tr[^>]*>.*?</tr>", panel, re.DOTALL):
+        if needle in row:
+            return row
+    raise AssertionError(f"no row mentions {needle}")
+
+
+def test_detail_marks_only_real_binding_mismatches_red(signed_in, inventory, web_factory):
+    with web_factory.begin() as session:
+        _binding(session, inventory.www, inventory.server, "broken.infra.example.test", match_state="key_mismatch")
+        _binding(session, inventory.www, inventory.server, "gone.infra.example.test", match_state="missing_file")
+    page = signed_in.get(f"/certificates/{inventory.www}")
+    panel = re.search(r'<section[^>]*id="bindings-panel".*?</section>', page.text, re.DOTALL).group(0)
+    normal = _row_for(panel, "/etc/ssl/portal.infra.example.test.pem")
+    assert "matched" in normal and "row-attention" not in normal
+    for name, state in (("broken", "key_mismatch"), ("gone", "missing_file")):
+        row = _row_for(panel, f"/etc/ssl/{name}.infra.example.test.pem")
+        assert 'class="row-attention"' in row and state in row
+    assert "row-attention" not in _row_for(panel, "/etc/ssl/retired.infra.example.test.pem")
+
+
+def _endpoint(session, certificate_id, host):
+    row = Endpoint(host=host, port=443, source=EndpointSource.MANUAL, expected_certificate_id=certificate_id)
+    session.add(row)
+    session.flush()
+    return row
+
+
+def _scan(session, endpoint, status, checked_at, **fields):
+    session.add(ScanResult(endpoint_id=endpoint.id, status=status, source="fixture", checked_at=checked_at, **fields))
+    endpoint.last_scan_status = status
+    endpoint.last_scan_at = checked_at
+    session.flush()
+
+
+def _endpoints_panel(client, certificate_id):
+    page = client.get(f"/certificates/{certificate_id}")
+    return re.search(r'<section[^>]*id="endpoints-panel".*?</section>', page.text, re.DOTALL).group(0)
+
+
+def test_endpoints_panel_shows_expected_against_the_matching_observed_certificate(
+    signed_in, inventory, web_factory, now
+):
+    expected = "abcdef0123456789" + "0" * 48
+    with web_factory.begin() as session:
+        endpoint = _endpoint(session, inventory.www, "ok.infra.example.test")
+        _scan(
+            session,
+            endpoint,
+            ScanStatus.OK,
+            now,
+            observed_fingerprint=expected,
+            observed_common_name="www.infra.example.test",
+            observed_issuer_cn="Fixture CA One",
+            observed_not_after=now + timedelta(days=20),
+        )
+    row = _row_for(_endpoints_panel(signed_in, inventory.www), "ok.infra.example.test")
+    assert "Expected" in row and "Observed" in row
+    assert row.count(expected) >= 2 and "row-attention" not in row
+
+
+def test_endpoints_panel_flags_an_observed_certificate_that_differs(signed_in, inventory, web_factory, now):
+    other = "f" * 64
+    with web_factory.begin() as session:
+        endpoint = _endpoint(session, inventory.www, "drift.infra.example.test")
+        _scan(session, endpoint, ScanStatus.OK, now - timedelta(days=1), observed_fingerprint="1" * 64)
+        _scan(
+            session,
+            endpoint,
+            ScanStatus.MISMATCH,
+            now,
+            observed_fingerprint=other,
+            observed_common_name="other.example.test",
+            observed_issuer_cn="Rogue CA",
+        )
+    row = _row_for(_endpoints_panel(signed_in, inventory.www), "drift.infra.example.test")
+    assert 'class="row-attention"' in row and "mismatch" in row
+    assert other in row and "other.example.test" in row and "Rogue CA" in row  # latest scan only
+    assert "1" * 64 not in row
+    assert "abcdef0123456789" + "0" * 48 in row  # expected side
+
+
+def test_endpoints_panel_without_an_observation_says_so(signed_in, inventory, web_factory, now):
+    with web_factory.begin() as session:
+        _endpoint(session, inventory.www, "never.infra.example.test")
+        down = _endpoint(session, inventory.www, "down.infra.example.test")
+        _scan(session, down, ScanStatus.UNREACHABLE, now, error="connection refused <b>x</b>")
+    panel = _endpoints_panel(signed_in, inventory.www)
+    never = _row_for(panel, "never.infra.example.test")
+    assert "not scanned yet" in never and "row-attention" not in never
+    unreachable = _row_for(panel, "down.infra.example.test")
+    assert "unreachable" in unreachable and "No certificate observed" in unreachable
+    assert "connection refused &lt;b&gt;x&lt;/b&gt;" in unreachable and "<b>x</b>" not in unreachable
+    assert "<form" not in panel and "<button" not in panel
+
+
 def test_detail_empty_panels_have_explanatory_text(signed_in, inventory):
     page = signed_in.get(f"/certificates/{inventory.far}")
     assert "No bindings recorded" in page.text and "No endpoints" in page.text
@@ -801,19 +917,29 @@ def test_detail_validation_panel_names_missing_issuer_and_links_trust_anchors(
     assert "leaf.example.test" in page.text and "fixture@example.test" in page.text
 
 
-def test_detail_validation_panel_names_untrusted_root(signed_in, web_factory, fresh, now):
+def test_detail_reports_the_current_assessment_when_the_diagnostic_root_is_gone(
+    signed_in, web_factory, fresh, now
+):
+    """Stored chains omit roots: after import the cached untrusted_root cannot be re-derived (spec 5.8)."""
     certificate_id = _real_certificate(web_factory, fresh, now)
     chain = b"".join(
         cert.public_bytes(serialization.Encoding.PEM) for cert in (*fresh.intermediates, fresh.root)
     )
-    page = signed_in.get(f"/certificates/{certificate_id}")
-    assert 'href="/settings?tab=trust"' in page.text
     response = _post(signed_in, f"/certificates/{certificate_id}/chain", chain_text=chain.decode())
     assert response.status_code == 303
+    with web_factory() as session:
+        row = session.get(Certificate, certificate_id)
+        assert row.chain_status == ChainStatus.UNTRUSTED_ROOT
+        diagnostics = diagnose_chain(session, row, now)
+    assert diagnostics.status == ChainStatus.INCOMPLETE  # the actual current assessment
+    assert "missing_issuer" in diagnostics.messages
+    assert not any(message.startswith("root:") or message == "untrusted_root" for message in diagnostics.messages)
     page = signed_in.get(f"/certificates/{certificate_id}")
     panel = re.search(r'<section[^>]*id="validation-panel".*?</section>', page.text, re.DOTALL).group(0)
-    assert "untrusted_root" in panel and "not a configured trust anchor" in panel
-    assert "Fixture Root" in panel and 'href="/settings?tab=trust"' in panel
+    assert "cached status (untrusted_root)" in panel and "current assessment (incomplete)" in panel
+    assert "not a configured trust anchor" not in panel  # nothing is claimed about a root we cannot see
+    assert "issuer certificate is missing" in panel.lower()
+    assert 'href="/settings?tab=trust"' in panel
 
 
 def test_detail_validation_recomputes_at_render_time(signed_in, web_factory, fresh, now):

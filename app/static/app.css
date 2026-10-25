@@ -49,6 +49,7 @@ table { width: 100%; border-collapse: collapse; }
 th, td { padding: .5rem .75rem; text-align: left; vertical-align: top; border-bottom: 1px solid #e6ebf3; }
 th { font-size: .85rem; background: #eef1f7; }
 .row-attention { background: #fde8e8; }
+.row-inactive { color: #6b7280; }
 .chip, .badge { display: inline-block; padding: 0 .5rem; font-size: .8rem; font-weight: 600; border-radius: 1rem; background: #eef1f7; }
 .chip-expired { color: white; background: #b42323; }
 .chip-critical { color: #7a1d1d; background: #fde8e8; }
