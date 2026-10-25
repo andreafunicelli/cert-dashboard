@@ -1156,6 +1156,16 @@ def test_maintenance_shows_cli_rotation_instructions_and_keyring_state_only(sign
     source = inspect.getsource(cli)
     for token in ('"rotate-master-key"', '"verify-key"', '"--certificate-id"'):
         assert token in source
+    # the displayed invocation runs the generator inside a container whose /secrets and /out mounts it
+    # creates itself, from a 0700 temp dir owned by the container user; a bare host command would fail
+    assert (
+        'docker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v "$tmp":/out cert-dashboard:local \\ '
+        "python -m app.cli generate-master-key --version 2 --merge /secrets/master_key "
+        "--output /out/master_key.v2.new"
+    ) in flat
+    assert 'install -d -m 0700 -o 10001 -g 10001 "$tmp"' in flat
+    assert "docs/operations.md" in flat and "as root" in flat
+    assert "from the repository checkout" not in flat
     # no keyring edit or rotation control: the only form is the typed-confirmed prune
     assert re.findall(r'<form[^>]*\saction="([^"]+)"', text) == [PRUNE]
     assert "<textarea" not in text and 'type="file"' not in text

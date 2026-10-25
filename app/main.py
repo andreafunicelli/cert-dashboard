@@ -49,6 +49,7 @@ from app.crypto.keyring import KeyUnwrapError
 from app.db import assert_database_ready, create_session_factory
 from app.jobs.worker import worker_liveness
 from app.models import User
+from app.models.enums import JobType
 from app.services.audit import SecretRedactionFilter, record
 from app.services.certificates import missing_master_key_versions
 from app.web.audit import register_audit_routes
@@ -63,6 +64,7 @@ from app.web.common import (
     format_datetime,
     require_admin,
     require_user,
+    unsupported_reason,
 )
 from app.web.overview import register_overview_routes
 from app.web.renewals import register_renewal_routes
@@ -635,6 +637,12 @@ def _register_auth_routes(app: FastAPI) -> None:
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
+    from app.jobs.handlers import build_registry  # late: handlers import the worker module
+
+    registry = build_registry()  # capability checks for the navigation only; the worker owns execution
+    deploy_reason = unsupported_reason(registry, "Plan 3", (JobType.DEPLOY, "default")) or "Available in a later plan"
+    scan_reason = unsupported_reason(registry, "Plan 2", (JobType.SCAN, "default")) or "Available in a later plan"
+
     @asynccontextmanager
     async def lifespan(app):
         snapshot = settings or load_settings("web", os.environ, Path("/run/secrets"))
@@ -674,8 +682,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ("Overview", "/", True, ""),
             ("Certificates", "/certificates", True, ""),
             ("Servers", "/servers", False, "Available in a later plan"),
-            ("Deploy", "/deploy", False, "Available in a later plan"),
-            ("Scans", "/scans", False, "Available in a later plan"),
+            ("Deploy", "/deploy", False, deploy_reason),
+            ("Scans", "/scans", False, scan_reason),
             ("Audit", "/audit", True, ""),
             ("Settings", "/settings", True, ""),
         ]

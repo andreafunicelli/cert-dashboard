@@ -77,6 +77,7 @@ from app.web.common import (
     install_template_helpers,
     render_block,
     set_flash,
+    unsupported_reason,
 )
 
 _MAX_FIELD = 20_000
@@ -250,19 +251,16 @@ def _is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
-def _missing_handlers(*required: tuple[JobType, str]) -> list[str]:
-    registry = build_registry()
-    return [f"{job_type.value}/{action}" for job_type, action in required if not registry.supports(job_type, action)]
-
-
 def _capabilities() -> dict[str, str]:
     """Why a control is disabled: computed from what the worker registry can actually run."""
-    reasons = {}
-    if missing := _missing_handlers((JobType.ALERT_EXPIRY, "default"), (JobType.DIGEST, "default")):
-        reasons["test_email"] = f"handler {', '.join(missing)} not registered (Plan 2)"
-    if missing := _missing_handlers((JobType.DISCOVER, "default")):
-        reasons["test_pull"] = f"handler {', '.join(missing)} not registered (Plan 3)"
-    return reasons
+    registry = build_registry()
+    reasons = {
+        "test_email": unsupported_reason(
+            registry, "Plan 2", (JobType.ALERT_EXPIRY, "default"), (JobType.DIGEST, "default")
+        ),
+        "test_pull": unsupported_reason(registry, "Plan 3", (JobType.DISCOVER, "default")),
+    }
+    return {key: reason for key, reason in reasons.items() if reason}
 
 
 _WARNINGS = {

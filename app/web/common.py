@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.auth.base import UserRecord
 from app.auth.local import PasswordChangeError, allow_login_attempt
 from app.auth.sessions import issue_login_csrf
+from app.models.enums import JobType
 from app.services.audit import Actor
 from app.services.settings import get_setting
 
@@ -160,6 +161,12 @@ def _error_response(request: Request, status: int, headers=None):
     response = HTMLResponse(content, status, response_headers)
     _consume_flash(request, response)
     return response
+
+
+def unsupported_reason(registry, plan: str, *required: tuple[JobType, str]) -> str:
+    """Why a control is disabled: the registered-handler gap as text, or "" when everything exists."""
+    missing = [f"{job_type.value}/{action}" for job_type, action in required if not registry.supports(job_type, action)]
+    return f"handler {', '.join(missing)} not registered ({plan})" if missing else ""
 
 
 def _actor(request: Request, user_id: int | None = None, label: str | None = None) -> Actor:

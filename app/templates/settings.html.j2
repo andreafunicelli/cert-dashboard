@@ -124,12 +124,20 @@
     <li>Rows not yet on the active version: {{ k.stale_rows }}</li>
     <li>Versions referenced by stored keys but missing from the keyring: {{ k.missing_versions | join(", ") or "none" }}</li>
   </ul>
-  <p>Run these on the dashboard host from the repository checkout (full procedure: <code>docs/operations.md</code>, section 6). Take a database backup first.</p>
+  <p>Run these on the dashboard host as root (full procedure: <code>docs/operations.md</code>, section 6). Take a database backup first.</p>
   <ol>
-    <li>Generate the next version into a new file, merging the current keyring (live limit: two versions):
-      <pre><code>python -m app.cli generate-master-key --version {{ next_version }} --merge /secrets/master_key --output /out/master_key.v{{ next_version }}.new</code></pre></li>
-    <li>Install the verified file as the <code>master_key</code> secret, then restart so new writes use it:
-      <pre><code>docker compose up -d --force-recreate web worker</code></pre></li>
+    <li>Generate the next version into a <strong>new</strong> file in a temporary <code>0700</code> directory owned by the container user, merging the current keyring (live limit: two versions). The current <code>master_key</code> is mounted read-only at <code>/secrets</code> and the new file is written to <code>/out</code>; both paths exist only inside this one <code>docker run</code>:
+      <pre><code>set -eu
+tmp="$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)"
+install -d -m 0700 -o 10001 -g 10001 "$tmp"
+docker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v "$tmp":/out cert-dashboard:local \
+  python -m app.cli generate-master-key --version {{ next_version }} --merge /secrets/master_key --output /out/master_key.v{{ next_version }}.new
+sha256sum "$tmp/master_key.v{{ next_version }}.new"</code></pre>
+      The command prints only <code>sha256=&lt;digest&gt; path=&lt;file&gt;</code>; the digest must equal the <code>sha256sum</code> output.</li>
+    <li>Keep a copy of the old file in the backup location, install the verified file as the <code>master_key</code> secret and restart so new writes use it:
+      <pre><code>install -m 0400 -o 10001 -g 10001 "$tmp/master_key.v{{ next_version }}.new" /etc/cert-dashboard/secrets/master_key
+shred -u -- "$tmp/master_key.v{{ next_version }}.new" &amp;&amp; rmdir -- "$tmp"
+docker compose up -d --force-recreate web worker</code></pre></li>
     <li>Re-encrypt every key and TOTP seed (batched, idempotent, resumable):
       <pre><code>docker compose run --rm web python -m app.cli rotate-master-key</code></pre></li>
     <li>Verify a keyed certificate (metadata only is printed):
