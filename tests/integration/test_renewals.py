@@ -607,7 +607,8 @@ def test_invalid_stored_csr_signature_is_blocking(db, submitted_renewal, ca, act
     db.flush()
     leaf = ca.issue(csr.public_bytes(serialization.Encoding.PEM).decode())
     errors = _attach_expecting_errors(db, submitted_renewal, leaf, ca.chain_pem, actor, now)
-    assert set(errors) == {"csr_signature"}
+    # The corrupted DER also no longer hashes to the frozen csr_sha256.
+    assert set(errors) == {"csr_signature", "csr_hash"}
 
 
 def test_unparseable_stored_csr_is_blocking(db, submitted_renewal, ca, actor, now):
@@ -616,6 +617,54 @@ def test_unparseable_stored_csr_is_blocking(db, submitted_renewal, ca, actor, no
     db.flush()
     errors = _attach_expecting_errors(db, submitted_renewal, leaf, ca.chain_pem, actor, now)
     assert set(errors) == {"csr_signature"}
+
+
+def _resign_stored_csr(db, renewal, keyring, common_name, sans, *, update_hash):
+    """Replace the stored CSR by a validly signed one made with the renewal's own key."""
+    key = unwrap_key(db.get(PrivateKey, renewal.key_id), keyring)
+    material = build_csr(key, common_name, sans)
+    renewal.csr_pem = material.pem
+    if update_hash:
+        renewal.csr_sha256 = material.sha256
+    db.flush()
+
+
+@pytest.mark.parametrize(
+    ("common_name", "sans"),
+    [
+        ("other.example.internal", ["other.example.internal"]),
+        (NAMES[0], [NAMES[0], "extra.example.internal"]),
+        (NAMES[0], [NAMES[0]]),
+    ],
+    ids=["other_cn_and_san", "extra_san", "missing_san"],
+)
+def test_signed_csr_with_other_identity_is_blocking(
+    db, submitted_renewal, ca, keyring, actor, now, common_name, sans
+):
+    leaf = ca.issue(submitted_renewal.csr_pem)
+    _resign_stored_csr(db, submitted_renewal, keyring, common_name, sans, update_hash=True)
+    errors = _attach_expecting_errors(db, submitted_renewal, leaf, ca.chain_pem, actor, now)
+    assert set(errors) == {"csr_identity"}
+
+
+def test_stored_csr_hash_must_match_the_stored_csr(db, submitted_renewal, ca, keyring, actor, now):
+    leaf = ca.issue(submitted_renewal.csr_pem)
+    _resign_stored_csr(
+        db, submitted_renewal, keyring, submitted_renewal.common_name, submitted_renewal.sans, update_hash=False
+    )
+    errors = _attach_expecting_errors(db, submitted_renewal, leaf, ca.chain_pem, actor, now)
+    assert set(errors) == {"csr_hash"}
+
+
+def test_csr_identity_and_hash_errors_are_reported_with_leaf_errors(
+    db, submitted_renewal, ca, keyring, actor, now
+):
+    leaf = ca.issue(submitted_renewal.csr_pem, common_name="wrong.example.internal", sans=["wrong.example.internal"])
+    _resign_stored_csr(
+        db, submitted_renewal, keyring, "other.example.internal", ["other.example.internal"], update_hash=False
+    )
+    errors = _attach_expecting_errors(db, submitted_renewal, leaf, ca.chain_pem, actor, now)
+    assert set(errors) == {"csr_identity", "csr_hash", "common_name", "sans"}
 
 
 def test_pfx_is_rejected_by_content(db, submitted_renewal, ca, actor, now):

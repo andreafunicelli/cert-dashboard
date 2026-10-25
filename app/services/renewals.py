@@ -10,6 +10,7 @@ Typed failures (mapped to HTTP 4xx by the wizard):
 together) and ``RenewalError`` (``not_found``, ``previous_not_active``).
 """
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,12 +20,13 @@ from uuid import UUID
 
 from cryptography import x509
 from cryptography.exceptions import UnsupportedAlgorithm
+from cryptography.hazmat.primitives import serialization
 from cryptography.x509.oid import NameOID
 from sqlalchemy import and_, exists, or_, select
 from sqlalchemy.orm import Session
 
 from app.crypto.chain import ChainError, ChainResult, order_chain
-from app.crypto.csr import _identity, build_csr, canonical_sans
+from app.crypto.csr import _identity, build_csr, canonical_sans, validate_csr
 from app.crypto.keyring import Keyring
 from app.crypto.keys import KeySpec, generate_key, public_key_sha256
 from app.crypto.parse import ParsedCertificate, ParseError, parse_certificates
@@ -388,9 +390,25 @@ def _check_keys(db: Session, row: Renewal, leaf: ParsedCertificate, errors: dict
         csr = x509.load_pem_x509_csr((row.csr_pem or "").encode("ascii"))
         signature_valid = csr.is_signature_valid
         csr_hash = public_key_sha256(csr.public_key())
+        csr_der_sha256 = hashlib.sha256(csr.public_bytes(serialization.Encoding.DER)).hexdigest()
     except (ValueError, UnicodeError, UnsupportedAlgorithm, TypeError):
         errors.setdefault("csr_signature", []).append("The stored CSR could not be read or verified.")
         return
+    if csr_der_sha256 != row.csr_sha256:
+        errors.setdefault("csr_hash", []).append(
+            f"The stored CSR (SHA-256 {csr_der_sha256}) does not match the frozen CSR hash "
+            f"({row.csr_sha256})."
+        )
+    # The CSR must still say exactly what the renewal froze: CN-only subject and the SAN set.
+    identity = [
+        message
+        for message in validate_csr(row.csr_pem, row.common_name, row.sans, csr_hash)
+        if "subject" in message or "SANs" in message
+    ]
+    if identity:
+        errors.setdefault("csr_identity", []).append(
+            "The stored CSR subject/SANs do not match the renewal's frozen names: " + "; ".join(identity) + "."
+        )
     if not signature_valid:
         errors.setdefault("csr_signature", []).append("The stored CSR signature is invalid.")
     if leaf.public_key_sha256 != csr_hash:
