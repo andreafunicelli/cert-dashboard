@@ -189,9 +189,10 @@ keyring copy does not match the dump: treat the backup as broken and fix it befo
 
 ## 5. Master key backup (critical)
 
-**Losing every copy of the master key makes every private key it wrapped permanently
-unrecoverable.** Certificates (public material) survive; the wrapped keys do not, and those
-certificates must be re-keyed and re-issued through the CA.
+**Losing every copy of the master keyring — or of a version that rows still reference — makes
+every private key wrapped under that version permanently unrecoverable.** Certificates (public
+material) survive; the wrapped keys do not, and those certificates must be re-keyed and re-issued
+through the CA.
 
 1. **Generate** the keyring on the dashboard host with the CLI (2.1). Never on a laptop and never
    sent by e-mail.
@@ -209,29 +210,74 @@ certificates must be re-keyed and re-issued through the CA.
 6. **Update all copies together** on rotation: after the verification in 6 step 4, replace B and C
    with the new keyring (it still contains the previous version until step 5), re-record the
    fingerprint, and destroy the superseded copies only after the next restore drill passes.
-7. **If the master key is lost or incomplete:** the response depends on the case.
+7. **If the master key is lost or incomplete:** decide which case applies before touching a file,
+   and never destroy a surviving copy while you work. List the versions the database still needs
+   (metadata only; no key material is printed):
+
+   ```sh
+   docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT master_key_version FROM private_key UNION SELECT totp_secret_version FROM \"user\" WHERE totp_secret_version IS NOT NULL ORDER BY 1"
+   ```
+
+   **Settings → Status → Keyring** shows the installed file's `active_version`, its
+   `loaded_versions` and the referenced `missing_versions`. A keyring holds at most two live
+   versions and `active` must be one of them; the CLI cannot merge two files, because
+   `generate-master-key --merge` takes a single source and only adds one new version. **Any keyring
+   you install must contain every referenced version that still exists in some copy, plus a valid
+   `active` version.** Never install an older or freshly generated single-version file that drops
+   one of them: rows that decrypt today would become unreadable.
+
    - *`master_key` missing, unreadable or malformed — or an active version that is not a 32-byte
      key:* the dashboard cannot start. The secret is required, so startup of `web`, `worker` and the
      configuration-dependent CLI commands (`rotate-master-key`, `verify-key`, `bootstrap-admin`)
      aborts with a configuration error (see `docker compose logs web`). Only `generate-master-key`
-     still works, because it reads no configured secret. Restore one of the copies above; do not
-     generate a new keyring unless every copy of a needed version is gone (last bullet).
-   - *The file loads but a referenced version is missing* (a stored key or TOTP seed names a version
-     the keyring does not contain): the application starts, shows a persistent banner on every page,
-     disables the dependent PFX actions, lists the missing versions in **Settings → Status**, and
-     certificates already deployed keep working. This case is **recoverable**: install the keyring
-     copy that still holds that version as `/etc/cert-dashboard/secrets/master_key`, keep its owner
-     and mode (re-run `scripts/install-secrets.sh`), then
-     `docker compose up -d --force-recreate web worker` and confirm the warning is gone. Re-key
-     nothing before you have tried this.
-   - *Every copy of a needed version is gone:* the rows wrapped under that version are permanently
-     unrecoverable — no key you still hold can decrypt them. Treat the old keys as compromised and
-     record the incident. Generate a fresh keyring with the recipe in 2.1, choosing a version number
-     higher than any the database records (version numbers are never reused), install it with the
-     canonical owner and mode, and restart `web` and `worker` so that it is loaded: the renewal
-     wizard wraps new keys under the active version, so renewals cannot start until that restart has
-     happened. Then generate new keys and CSRs for every affected certificate, re-issue them through
-     the CA, and plan the work around the earliest expiry date in the inventory.
+     still works, because it reads no configured secret. Restore one of the copies above and restart
+     both services; generate a new keyring only when no copy of a needed version exists (last case).
+   - *Partial loss — the file loads but a referenced version is missing from it* (a stored key or
+     TOTP seed names a version the keyring does not contain): the application starts, shows a
+     persistent banner on every page, disables the dependent PFX actions, lists the missing versions
+     in **Settings → Status**, and certificates already deployed keep working. This case is
+     **recoverable** while some copy still holds that version. Pick the single copy that contains
+     the missing version **and** every other referenced version you can still recover; check it
+     without installing it (this prints version numbers only, never key material):
+
+     ```sh
+     docker run --rm --user 0 -v /absolute/path/to/candidate:/ring:ro cert-dashboard:local \
+       python -c 'import json; d = json.load(open("/ring")); print(d["active"], sorted(map(int, d["keys"])))'
+     ```
+
+     Install that file as `/etc/cert-dashboard/secrets/master_key` (`0400`, `10001:10001`; re-run
+     `scripts/install-secrets.sh /etc/cert-dashboard/secrets`), then
+     `docker compose up -d --force-recreate web worker` and confirm the warning is gone. Keep the
+     replaced file as a copy until the next restore drill passes: it may be the only copy of a
+     version rows still reference. Do **not** install a copy that holds the missing version but
+     lacks a version that is still referenced — that makes other rows unreadable. If no single copy
+     contains all recoverable referenced versions, **stop**: install nothing, generate nothing and
+     do not hand-merge key material; preserve every copy and reconcile under the custody procedure
+     in this section (two custodians, recorded fingerprint, no key sent by chat or e-mail). Once the
+     restored ring is running, move new writes onto a fresh version by generating a merged keyring
+     into a new file with the commands in section 6 steps 1–2, replacing their example version with
+     `--version N`, where **N is higher than every version listed above** (versions are never
+     reused); do not reuse the `--version 1` first-install command from 2.1. If it refuses because
+     the merge source already holds two live versions, do not delete a version by hand: keep the
+     restored ring running (its active version still serves new writes) and complete or re-plan that
+     rotation with the custodians first.
+   - *A referenced version is lost from every copy, but other versions survive:* the rows wrapped
+     under the lost version are permanently unrecoverable — no key you still hold can decrypt them.
+     Keep the survivors: install the copy that holds every recoverable referenced version exactly as
+     in the partial case, and never replace it with a fresh single-version keyring, which would make
+     those rows unreadable too. Treat the lost keys as compromised, record the incident, and plan
+     re-keying and re-issuance of the affected certificates through the CA, working back from the
+     earliest expiry date in the inventory. To move new writes to a fresh active version, generate
+     **merged** from the installed file with a version number higher than every recorded version, as
+     above.
+   - *Complete loss — no copy of the keyring remains:* every wrapped key is unrecoverable. Generate
+     a fresh keyring with a version number higher than every version the database records (the
+     maximum of the list above; versions are never reused — do not copy `--version 1` from 2.1),
+     install it with the canonical owner and mode, and restart `web` and `worker` so that it is
+     loaded: the renewal wizard wraps new keys under the active version, so renewals cannot start
+     until that restart has happened. Then generate new keys and CSRs for every certificate that had
+     a stored key, re-issue them through the CA, and plan the work around the earliest expiry date
+     in the inventory.
 8. **If a copy leaks** (without the database): rotate immediately (section 6). The old key becomes
    useless once every row is re-encrypted and the old version is removed.
 
