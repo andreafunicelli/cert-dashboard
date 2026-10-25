@@ -25,34 +25,68 @@ Field map per tab (form field -> setting key)::
 
 POST semantics are PATCH: only submitted fields change. Booleans are rendered as a hidden ``false``
 plus a checkbox ``true`` (the last value wins) and are optional for API-style posts. Any other field
-name (``smtp_password`` included) refuses the whole post with 422 and writes nothing. ``trust.*``,
-Status and Maintenance belong to part B and render a placeholder until then.
+name (``smtp_password`` included) refuses the whole post with 422 and writes nothing.
+
+Part B adds the three remaining tabs and their actions (every POST is CSRF-protected, audited and 303s
+back to the tab; refusals are 422 and change nothing)::
+
+    trust        POST /settings/trust                          include_public_bundle (toggle + recheck)
+                 POST /settings/trust-anchors                  file | pem, notes   (add_anchor + recheck)
+                 POST /settings/trust-anchors/{id}/delete      confirm=DELETE      (remove_anchor + recheck)
+    status       read-only ``status_snapshot``
+    maintenance  POST /settings/maintenance/prune              confirm=PRUNE OLD JOBS (enqueue cleanup)
 """
 
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
+from importlib.metadata import version as package_version
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from starlette.datastructures import FormData
+from starlette.datastructures import FormData, UploadFile
 
+from app.crypto.parse import MAX_INPUT_BYTES
 from app.jobs.handlers import build_registry
-from app.models import JSONValue
+from app.jobs.queue import enqueue
+from app.models import Certificate, JSONValue, TrustAnchor, User
 from app.models.enums import JobType
+from app.services.audit import record
 from app.services.settings import (
     SettingsValidationError,
     get_setting,
     is_valid_setting,
+    status_snapshot,
     update_settings,
 )
-from app.web.common import _render, _transact, install_template_helpers, render_block
+from app.services.trust_anchors import (
+    AnchorValidationError,
+    add_anchor,
+    public_bundle_anchors,
+    recheck_chain_statuses,
+    remove_anchor,
+)
+from app.web.common import (
+    _render,
+    _transact,
+    display_timezone,
+    install_template_helpers,
+    render_block,
+    set_flash,
+)
 
 _MAX_FIELD = 20_000
+_MAX_NOTES = 1_000
 _INTEGER = re.compile(r"[+-]?[0-9]{1,9}")
 _TRUE, _FALSE = frozenset({"true", "on", "1"}), frozenset({"false", "off", "0"})
+_DELETE_CONFIRMATION = "DELETE"
+_PRUNE_CONFIRMATION = "PRUNE OLD JOBS"
+_PRUNE_PRIORITY = 10
+_UNRECOGNISED = "Unrecognised fields were submitted; nothing was saved."
 
 
 @dataclass(frozen=True)
@@ -162,7 +196,6 @@ _TAB_LABELS = {
     "status": "Status",
     "maintenance": "Maintenance",
 }
-_PLACEHOLDER_TABS = frozenset({"trust", "status", "maintenance"})  # part B replaces these
 _TAB_LINKS = [{"name": name, "label": label} for name, label in _TAB_LABELS.items()]
 
 
@@ -217,15 +250,87 @@ def _is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
+def _missing_handlers(*required: tuple[JobType, str]) -> list[str]:
+    registry = build_registry()
+    return [f"{job_type.value}/{action}" for job_type, action in required if not registry.supports(job_type, action)]
+
+
 def _capabilities() -> dict[str, str]:
     """Why a control is disabled: computed from what the worker registry can actually run."""
-    registry = build_registry()
     reasons = {}
-    if not (registry.supports(JobType.DIGEST) and registry.supports(JobType.ALERT_EXPIRY)):
-        reasons["test_email"] = "requires the alert/digest handler (Plan 2)"
-    if not registry.supports(JobType.DISCOVER):
-        reasons["test_pull"] = "requires the discovery handler (Plan 3)"
+    if missing := _missing_handlers((JobType.ALERT_EXPIRY, "default"), (JobType.DIGEST, "default")):
+        reasons["test_email"] = f"handler {', '.join(missing)} not registered (Plan 2)"
+    if missing := _missing_handlers((JobType.DISCOVER, "default")):
+        reasons["test_pull"] = f"handler {', '.join(missing)} not registered (Plan 3)"
     return reasons
+
+
+_WARNINGS = {
+    "smtp_not_configured": "SMTP is not configured: alert and digest e-mails cannot be sent.",
+    "inventory_not_configured": "No inventory repository is configured: discovery cannot run.",
+    "no_alert_recipients": "No alert recipients are set and some active certificates have no owner e-mail.",
+    "missing_key_versions": "Stored key material refers to master-key versions that are not in the keyring.",
+    "worker_stale": "The worker has not sent a heartbeat for more than 5 minutes.",
+}
+
+
+def _human_bytes(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if value < 1024:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} TiB"
+
+
+def _when(value: str | None) -> datetime | None:
+    return None if value is None else datetime.fromisoformat(value)
+
+
+def _trust_context(db: Session) -> dict:
+    rows = db.execute(
+        select(TrustAnchor, User.username)
+        .outerjoin(User, User.id == TrustAnchor.created_by)
+        .order_by(TrustAnchor.id)
+    ).all()
+    anchors = [
+        {
+            "id": anchor.id,
+            "subject": anchor.subject,
+            "fingerprint": anchor.sha256_fingerprint,
+            "source": getattr(anchor.source, "value", anchor.source),
+            "notes": anchor.notes or "",
+            "created_at": anchor.created_at,
+            "created_by": username or "—",
+        }
+        for anchor, username in rows
+    ]
+    return {
+        "anchors": anchors,
+        "bundle": {
+            "version": package_version("certifi"),
+            "roots": len(public_bundle_anchors()),
+            "enabled": get_setting(db, "trust.include_public_bundle") is not False,
+        },
+        "timezone": display_timezone(db),
+        "max_notes": _MAX_NOTES,
+    }
+
+
+def _status_context(request: Request, db: Session) -> dict:
+    settings = request.app.state.settings
+    snapshot = status_snapshot(
+        db, settings.keyring, request.app.state.clock(), keyring_sha256=settings.keyring_sha256
+    )
+    return {
+        "snapshot": snapshot,
+        "warning_text": _WARNINGS,
+        "db_size": _human_bytes(snapshot["db_size_bytes"]),
+        "timezone": display_timezone(db),
+        "when": _when,
+        "next_version": max(settings.keyring.keys) + 1,
+        "prune_confirmation": _PRUNE_CONFIRMATION,
+    }
 
 
 def _page(
@@ -239,7 +344,6 @@ def _page(
         "tab": tab,
         "tab_label": _TAB_LABELS[tab],
         "tabs": _TAB_LINKS,
-        "placeholder": tab in _PLACEHOLDER_TABS,
         "fields": _TAB_FIELDS.get(tab, ()),
         "errors": errors or {},
         "saved": request.query_params.get("saved") == "1" and status == 200,
@@ -248,10 +352,14 @@ def _page(
         "values": {},
         "tls_unsafe": False,
     }
-    if tab not in _PLACEHOLDER_TABS:
-        with request.app.state.factory() as db:
+    with request.app.state.factory() as db:
+        if tab in _TAB_FIELDS:
             context["values"] = _current_values(db, tab) | dict(values or {})
             context["tls_unsafe"] = tab == "smtp" and get_setting(db, "smtp.tls_verify") is False
+        elif tab == "trust":
+            context.update(_trust_context(db))
+        else:  # status and maintenance both render the snapshot (maintenance shows the keyring state)
+            context.update(_status_context(request, db))
     if status == 422 and _is_htmx(request):
         return render_block(request, "settings.html.j2", "panel", status, **context)
     return _render(request, "settings.html.j2", status, **context)
@@ -284,7 +392,7 @@ def _handle_post(request: Request, tab: str, form: FormData):
     errors: dict[str, list[str]] = {}
     if any(name != "csrf_token" and name not in fields for name in form):
         # Never echo names or values: the post may carry a secret (e.g. smtp_password).
-        errors["form"] = ["Unrecognised fields were submitted; nothing was saved."]
+        errors["form"] = [_UNRECOGNISED]
     changes: dict[str, JSONValue] = {}
     for name, field in fields.items():
         if name not in form:
@@ -311,6 +419,138 @@ def _handle_post(request: Request, tab: str, form: FormData):
     return RedirectResponse(f"/settings?tab={tab}&saved=1", status_code=303)
 
 
+# --- part B: trust anchors, maintenance --------------------------------------------------------------
+
+
+def _refused(request: Request, tab: str, *messages: str):
+    return _page(request, tab, 422, errors={"form": list(messages)})
+
+
+def _done(request: Request, tab: str, *notes: str) -> RedirectResponse:
+    response = RedirectResponse(f"/settings?tab={tab}", status_code=303)
+    set_flash(response, request.app.state.settings.session_secret, notes)
+    return response
+
+
+def _chain_summary(db: Session) -> str:
+    """The stored chain statuses after a synchronous recheck, e.g. ``trusted 3, untrusted_root 1``."""
+    counts = {
+        getattr(status, "value", status): count
+        for status, count in db.execute(
+            select(Certificate.chain_status, func.count()).group_by(Certificate.chain_status)
+        )
+    }
+    return ", ".join(f"{status} {counts[status]}" for status in sorted(counts)) or "no certificates"
+
+
+def _recheck_note(summary: str) -> str:
+    return f"Chain statuses rechecked: {summary}"
+
+
+def _only(form: FormData, *names: str) -> bool:
+    """True when the post carries nothing but ``names`` (and the CSRF token)."""
+    return all(name == "csrf_token" or name in names for name in form)
+
+
+def _handle_trust_toggle(request: Request, form: FormData):
+    if not _only(form, "include_public_bundle"):
+        return _refused(request, "trust", _UNRECOGNISED)
+    raw = form.getlist("include_public_bundle")
+    value = raw[-1].strip().lower() if raw and isinstance(raw[-1], str) else ""
+    if value not in _TRUE | _FALSE:
+        return _refused(request, "trust", "Public bundle: choose true or false.")
+    enabled = value in _TRUE
+
+    def work(db, now, actor):
+        update_settings(db, {"trust.include_public_bundle": enabled}, actor)
+        recheck_chain_statuses(db, now)  # same transaction: the setting and the statuses never disagree
+        return _chain_summary(db)
+
+    summary, _ = _transact(request, work)
+    state = "included" if enabled else "excluded"
+    return _done(request, "trust", f"Public CA bundle {state}.", _recheck_note(summary))
+
+
+def _read_pem(form: FormData) -> bytes:
+    """The uploaded file if one was chosen, else the pasted text; never more than cap + 1 bytes."""
+    upload = form.get("file")
+    if isinstance(upload, UploadFile) and upload.filename:
+        data = upload.file.read(MAX_INPUT_BYTES + 1)
+        if data:
+            return data
+    text = form.get("pem")
+    if isinstance(text, str) and text.strip():
+        return text.encode("utf-8")[: MAX_INPUT_BYTES + 1]
+    return b""
+
+
+def _handle_anchor_upload(request: Request, form: FormData):
+    if not _only(form, "file", "pem", "notes"):
+        return _refused(request, "trust", _UNRECOGNISED)
+    raw_notes = form.get("notes")
+    notes = raw_notes.strip() if isinstance(raw_notes, str) else ""
+    if len(notes) > _MAX_NOTES:
+        return _refused(request, "trust", f"Notes must be at most {_MAX_NOTES:,} characters.")
+    pem = _read_pem(form)
+    if not pem:
+        return _refused(request, "trust", "Choose a PEM file or paste one PEM certificate.")
+
+    def work(db, now, actor):
+        add_anchor(db, pem, notes or None, actor, now)
+        return _chain_summary(db)
+
+    try:
+        summary, _ = _transact(request, work)
+    except AnchorValidationError as exc:
+        return _refused(request, "trust", str(exc))
+    return _done(request, "trust", "Trust anchor added.", _recheck_note(summary))
+
+
+def _handle_anchor_delete(request: Request, anchor_id: int, form: FormData):
+    confirm = form.get("confirm")
+    if not _only(form, "confirm") or confirm != _DELETE_CONFIRMATION:
+        return _refused(request, "trust", f"Type {_DELETE_CONFIRMATION} to confirm removing the trust anchor.")
+
+    def work(db, now, actor):
+        remove_anchor(db, anchor_id, actor, now)
+        return _chain_summary(db)
+
+    try:
+        summary, _ = _transact(request, work)
+    except AnchorValidationError:
+        raise HTTPException(404) from None
+    return _done(request, "trust", "Trust anchor removed.", _recheck_note(summary))
+
+
+def _handle_prune(request: Request, form: FormData):
+    if not _only(form, "confirm") or form.get("confirm") != _PRUNE_CONFIRMATION:
+        return _refused(request, "maintenance", f"Type {_PRUNE_CONFIRMATION} exactly to confirm.")
+
+    def work(db, now, actor):
+        # max_attempts is capped at 2 for cleanup jobs by the shared retry policy.
+        enqueue(
+            db,
+            JobType.CLEANUP,
+            {"reason": "manual_prune"},
+            actor,
+            priority=_PRUNE_PRIORITY,
+            run_after=now,
+            max_attempts=2,
+        )
+        record(db, actor, "maintenance.prune_requested", "maintenance", None, {"reason": "manual_prune"})
+
+    _transact(request, work)
+    return _done(request, "maintenance", "Retention cleanup queued; audit rows are never removed.")
+
+
+async def _submit(request: Request, handler, *args, max_files: int = 0):
+    form = await request.form(max_files=max_files, max_fields=20, max_part_size=MAX_INPUT_BYTES * 2)
+    try:
+        return await run_in_threadpool(handler, request, *args, form)
+    finally:
+        await form.close()
+
+
 def register_settings_routes(app: FastAPI) -> None:
     install_template_helpers(app)
 
@@ -319,6 +559,24 @@ def register_settings_routes(app: FastAPI) -> None:
         if tab not in _TAB_LABELS:
             raise HTTPException(404)
         return _page(request, tab)
+
+    # Literal paths first: ``/settings/trust`` and ``/settings/trust-anchors`` would otherwise match
+    # the generic ``/settings/{tab}`` route below.
+    @app.post("/settings/trust")
+    async def trust_toggle_submit(request: Request):
+        return await _submit(request, _handle_trust_toggle)
+
+    @app.post("/settings/trust-anchors")
+    async def trust_anchor_upload_submit(request: Request):
+        return await _submit(request, _handle_anchor_upload, max_files=1)
+
+    @app.post("/settings/trust-anchors/{anchor_id:int}/delete")
+    async def trust_anchor_delete_submit(request: Request, anchor_id: int):
+        return await _submit(request, _handle_anchor_delete, anchor_id)
+
+    @app.post("/settings/maintenance/prune")
+    async def maintenance_prune_submit(request: Request):
+        return await _submit(request, _handle_prune)
 
     @app.post("/settings/{tab}")
     async def settings_submit(request: Request, tab: str):

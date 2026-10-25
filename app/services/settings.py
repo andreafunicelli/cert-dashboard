@@ -11,19 +11,26 @@ import ipaddress
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from urllib.parse import unquote, urlsplit
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
+from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session
 
-from app.models import AppSetting, JSONValue
+from app.crypto.keyring import Keyring
+from app.jobs.worker import LIVENESS_WINDOW, TICK_INTERVAL_SECONDS, worker_liveness
+from app.models import AppSetting, Certificate, Job, JSONValue, SchedulerState, WorkerHeartbeat
+from app.models.enums import CertificateStatus, JobStatus
 from app.services.audit import Actor, record
+from app.services.certificates import missing_master_key_versions, stale_master_key_rows
 
 __all__ = [
     "SETTING_KEYS",
     "SettingsValidationError",
     "get_setting",
+    "status_snapshot",
     "update_settings",
 ]
 
@@ -343,3 +350,106 @@ def update_settings(db: Session, changes: Mapping[str, JSONValue], actor: Actor)
             row.value, row.updated_by = after, actor.user_id
     if effective:
         record(db, actor, "settings.update", "settings", None, {"changes": effective})
+
+
+# --- operational status (Settings → Status) ---------------------------------------------------------
+
+_FINISHED_STATUSES = (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)
+_FAILURE_WINDOW = timedelta(hours=24)
+
+
+def _iso(value: datetime | None) -> str | None:
+    return None if value is None else value.astimezone(UTC).isoformat()
+
+
+def status_snapshot(
+    db: Session,
+    keyring: Keyring,
+    now: datetime,
+    *,
+    keyring_sha256: str | None = None,
+) -> dict[str, JSONValue]:
+    """Read-only operational state: JSON-native (datetimes are ISO 8601 UTC) and secret-free.
+
+    ``keyring_sha256`` is the digest of the keyring *file* (``Settings.keyring_sha256``); the keyring
+    object itself does not carry it, so the web layer passes it in. Only versions, counts and digests
+    appear here, never key bytes or any secret.
+    """
+    missing = sorted(missing_master_key_versions(db, keyring))
+    heartbeat = db.execute(
+        select(
+            func.max(WorkerHeartbeat.last_seen_at),
+            func.count().filter(WorkerHeartbeat.last_seen_at >= now - LIVENESS_WINDOW),
+        )
+    ).one()
+    liveness = worker_liveness(db, now)  # the same rule as /healthz and the page banner
+    open_jobs = dict(
+        db.execute(
+            select(Job.status, func.count())
+            .where(Job.status.in_((JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED)))
+            .group_by(Job.status)
+        ).all()
+    )
+    failed_24h = db.scalar(
+        select(func.count())
+        .select_from(Job)
+        .where(Job.status == JobStatus.FAILED, Job.finished_at >= now - _FAILURE_WINDOW)
+    )
+    last_jobs: dict[str, JSONValue] = {
+        job_type.value: {"status": JobStatus(status).value, "finished_at": _iso(finished_at)}
+        for job_type, status, finished_at in db.execute(
+            select(Job.type, Job.status, Job.finished_at)
+            .ext(distinct_on(Job.type))
+            .where(Job.status.in_(_FINISHED_STATUSES), Job.finished_at.is_not(None))
+            .order_by(Job.type, Job.finished_at.desc())
+        )
+    }
+    warnings: list[JSONValue] = []
+    if not get_setting(db, "smtp.host"):
+        warnings.append("smtp_not_configured")
+    if not get_setting(db, "inventory.repo_url"):
+        warnings.append("inventory_not_configured")
+    if not get_setting(db, "alert.recipients") and db.scalar(
+        select(Certificate.id)
+        .where(
+            Certificate.status == CertificateStatus.ACTIVE,
+            or_(Certificate.owner_email.is_(None), Certificate.owner_email == ""),
+        )
+        .limit(1)
+    ):
+        warnings.append("no_alert_recipients")
+    if missing:
+        warnings.append("missing_key_versions")
+    if liveness == "stale":
+        warnings.append("worker_stale")
+    return {
+        "keyring": {
+            "active_version": keyring.active,
+            "file_sha256": keyring_sha256,
+            "loaded_versions": sorted(keyring.keys),
+            "missing_versions": missing,
+            "stale_rows": stale_master_key_rows(db, keyring),
+        },
+        "worker": {
+            "state": liveness,
+            "last_seen_at": _iso(heartbeat[0]),
+            "heartbeat_interval_seconds": int(TICK_INTERVAL_SECONDS),
+            "stale_after_seconds": int(LIVENESS_WINDOW.total_seconds()),
+            "workers": heartbeat[1],
+        },
+        "queue": {
+            "queued": open_jobs.get(JobStatus.QUEUED, 0),
+            "running": open_jobs.get(JobStatus.RUNNING, 0),
+            "paused": open_jobs.get(JobStatus.PAUSED, 0),
+            "failed_24h": failed_24h,
+        },
+        "db_size_bytes": db.scalar(select(func.pg_database_size(func.current_database()))),
+        "last_runs": {
+            key: _iso(last_run_at)
+            for key, last_run_at in db.execute(
+                select(SchedulerState.key, SchedulerState.last_run_at).order_by(SchedulerState.key)
+            )
+        },
+        "last_jobs": last_jobs,
+        "warnings": warnings,
+    }
