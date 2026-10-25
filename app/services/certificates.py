@@ -1182,7 +1182,6 @@ class EndpointView:
     observed_common_name: str | None = None
     observed_issuer_cn: str | None = None
     observed_not_after: datetime | None = None
-    scan_error: str | None = None
     matches_expected: bool | None = None  # None: no certificate was observed (not scanned / failed)
 
 
@@ -1226,7 +1225,6 @@ def _endpoint_view(item: Endpoint, scan: ScanResult | None, expected_fingerprint
         observed_common_name=scan.observed_common_name if scan is not None else None,
         observed_issuer_cn=scan.observed_issuer_cn if scan is not None else None,
         observed_not_after=scan.observed_not_after if scan is not None else None,
-        scan_error=(scan.error or "")[:300] or None if scan is not None else None,
         matches_expected=None if observed is None else observed.lower() == expected_fingerprint.lower(),
     )
 

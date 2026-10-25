@@ -128,7 +128,7 @@
         <code>{{ e.observed_fingerprint }}</code>
         {% if e.matches_expected is sameas false %}<br><strong>Differs from the expected certificate</strong>{% endif %}
         {% elif e.last_scan_status %}
-        No certificate observed{% if e.scan_error %}: {{ e.scan_error }}{% endif %}
+        No certificate observed
         {% else %}—{% endif %}</td>
       <td>{% if e.last_scan_status %}{{ e.last_scan_status }} {{ time_tag(e.last_scan_at, tz) }}{% else %}not scanned yet{% endif %}</td>
       <td>{{ "yes" if e.is_active else "no" }}</td></tr>

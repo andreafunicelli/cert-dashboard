@@ -876,17 +876,25 @@ def test_endpoints_panel_flags_an_observed_certificate_that_differs(signed_in, i
     assert "abcdef0123456789" + "0" * 48 in row  # expected side
 
 
+SENSITIVE_DIAGNOSTIC = (
+    "handshake failed password=SYNTHETIC-SECRET-TOKEN "
+    "-----BEGIN PRIVATE KEY-----SYNTHETIC-SECRET-TOKEN-----END PRIVATE KEY----- <b>x</b>"
+)
+
+
 def test_endpoints_panel_without_an_observation_says_so(signed_in, inventory, web_factory, now):
     with web_factory.begin() as session:
         _endpoint(session, inventory.www, "never.infra.example.test")
         down = _endpoint(session, inventory.www, "down.infra.example.test")
-        _scan(session, down, ScanStatus.UNREACHABLE, now, error="connection refused <b>x</b>")
+        _scan(session, down, ScanStatus.UNREACHABLE, now, error=SENSITIVE_DIAGNOSTIC)
     panel = _endpoints_panel(signed_in, inventory.www)
     never = _row_for(panel, "never.infra.example.test")
     assert "not scanned yet" in never and "row-attention" not in never
     unreachable = _row_for(panel, "down.infra.example.test")
     assert "unreachable" in unreachable and "No certificate observed" in unreachable
-    assert "connection refused &lt;b&gt;x&lt;/b&gt;" in unreachable and "<b>x</b>" not in unreachable
+    for fragment in ("SYNTHETIC-SECRET-TOKEN", "BEGIN PRIVATE KEY", "handshake failed", "<b>x</b>"):
+        assert fragment not in unreachable
+        assert fragment not in signed_in.get(f"/certificates/{inventory.www}").text
     assert "<form" not in panel and "<button" not in panel
 
 
