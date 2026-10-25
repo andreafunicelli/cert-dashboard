@@ -380,6 +380,17 @@ def test_a_different_sni_is_a_different_endpoint(worker_harness, signed_in, tls_
         ("", "443", "", "host"),
         ("example.internal", "443", "192.0.2.1", "sni"),
         ("example.internal", "443", "*.example.internal", "sni"),
+        (" example.internal", "443", "", "host"),
+        ("example.internal ", "443", "", "host"),
+        ("example.internal\t", "443", "", "host"),
+        ("example.internal", "443", " sni.example.internal", "sni"),
+        ("example.internal", "443", "sni.example.internal ", "sni"),
+        ("example.internal", "443", "   ", "sni"),
+        ("a" * 254, "443", "", "host"),
+        (("a" * 60 + ".") * 5 + "internal", "443", "", "host"),
+        ("example.internal", "443", ("a" * 60 + ".") * 5 + "internal", "sni"),
+        ("a" * 5000, "443", "", "host"),
+        ("example.internal", "443", "a" * 5000, "sni"),
     ],
 )
 def test_invalid_input_is_a_422_and_enqueues_nothing(signed_in, web_factory, host, port, sni, field):
@@ -531,6 +542,41 @@ def test_only_pull_import_jobs_are_viewable(signed_in, web_factory, now):
         assert signed_in.get(f"/imports/{job_id}").status_code == 404
         assert signed_in.get(f"/imports/{job_id}/progress").status_code == 404
     assert signed_in.get(f"/imports/{uuid4()}").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"action": "import_pull", "host": "bad.example", "port": "not-a-port"},
+        {"action": "import_pull", "host": "bad.example", "port": None},
+        {"action": "import_pull", "host": "bad.example", "port": [1]},
+        {"action": "import_pull", "host": 5, "port": 1.5},
+        {"action": "import_pull"},
+    ],
+)
+def test_progress_page_survives_a_poison_job_with_a_malformed_payload(signed_in, web_factory, now, payload):
+    with web_factory.begin() as db:
+        job = Job(
+            type=JobType.SCAN,
+            priority=200,
+            payload=payload,
+            run_after=now,
+            status=JobStatus.FAILED,
+            attempt=1,
+            max_attempts=3,
+            error_class="validation",
+            error_message="The pull request is invalid.",
+            finished_at=now,
+        )
+        db.add(job)
+        db.flush()
+        job_id = job.id
+    page = signed_in.get(f"/imports/{job_id}")
+    fragment = signed_in.get(f"/imports/{job_id}/progress")
+    for response in (page, fragment):
+        assert response.status_code == 200
+        assert "The pull request is invalid." in response.text
+        assert "hx-trigger" not in response.text
 
 
 def test_progress_pages_require_sign_in(client, signed_in, tls_server):

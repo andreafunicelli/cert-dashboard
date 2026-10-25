@@ -78,6 +78,11 @@ def test_metadata_is_validated_like_inventory_metadata():
         "x?y.example",
         "x#y.example",
         "x\\y.example",
+        "example.internal ",
+        "\texample.internal",
+        "a" * 254,
+        ("a" * 60 + ".") * 5 + "internal",
+        "a" * 5000,
     ],
 )
 def test_invalid_hosts_are_rejected(host):
@@ -98,7 +103,21 @@ def test_port_bounds_are_inclusive(port):
     assert validate_pull_payload(payload(port=port))["port"] == port
 
 
-@pytest.mark.parametrize("sni", ["192.0.2.1", "2001:db8::1", "*.example.internal", "a b.example", "x/y", ""])
+@pytest.mark.parametrize(
+    "sni",
+    [
+        "192.0.2.1",
+        "2001:db8::1",
+        "*.example.internal",
+        "a b.example",
+        "x/y",
+        "",
+        " sni.example",
+        "sni.example ",
+        ("a" * 60 + ".") * 5 + "internal",
+        "a" * 5000,
+    ],
+)
 def test_invalid_sni_is_rejected(sni):
     with pytest.raises(PullPayloadError) as caught:
         validate_pull_payload(payload(sni=sni))

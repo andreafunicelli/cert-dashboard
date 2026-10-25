@@ -210,23 +210,30 @@ def _pull_failure(request: Request, values: Mapping[str, str], errors: Mapping[s
 
 
 def _handle_pull(request: Request, form: FormData) -> Response:
-    values = {name: _value(form, name, 20_000) for name in (*_METADATA_FIELDS, "host", "sni")}
-    values["host"], values["sni"] = values["host"].strip()[:300], values["sni"].strip()[:300]
+    values = {name: _value(form, name, 20_000) for name in _METADATA_FIELDS}
+    # Host and SNI go to the shared validator exactly as typed: no trimming, no truncation, so the
+    # web form and the job registry accept and reject the same input.
+    raw_host, raw_sni = form.get("host"), form.get("sni")
+    host = raw_host if isinstance(raw_host, str) else ""
+    sni = raw_sni if isinstance(raw_sni, str) else ""
+    values["host"], values["sni"] = host, sni
     values["port"] = _value(form, "port", 16).strip() or "443"
     port: int | str = values["port"]
     if port.isascii() and port.isdigit() and len(port) <= 6:
         port = int(port)
     payload = {
         "action": PULL_ACTION,
-        "host": values["host"],
+        "host": host,
         "port": port,
-        "sni": values["sni"] or None,
+        "sni": sni or None,
         "metadata": {name: values[name] or None for name in _METADATA_FIELDS},
     }
     try:
         clean = validate_pull_payload(payload)
     except PullPayloadError as exc:
-        return _pull_failure(request, values, {k: v for k, v in exc.errors.items() if k in _PULL_ERROR_FIELDS})
+        # Echo a bounded copy of the rejected input back into the form.
+        shown = {**values, "host": host[:300], "sni": sni[:300]}
+        return _pull_failure(request, shown, {k: v for k, v in exc.errors.items() if k in _PULL_ERROR_FIELDS})
     try:
         job_id, _ = _transact(
             request,
@@ -275,12 +282,19 @@ def _import_job(request: Request, raw_id: str) -> dict:
             and result.get("retryable") is not False
         )
         certificate_id = result.get("certificate_id")
+        raw_host, raw_port = payload.get("host"), payload.get("port")
+        # A job the registry rejected (poison payload) keeps its sanitized failure; never trust the shape.
+        if isinstance(raw_host, str) and type(raw_port) is int and 1 <= raw_port <= 65535:
+            endpoint = format_hostport(raw_host, raw_port)
+        else:
+            endpoint = "(invalid request)"
+        raw_sni = payload.get("sni")
         return {
             "id": str(job.id),
             "status": "retrying" if retrying else status.value,
             "polling": retrying or status in (JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED),
-            "endpoint": format_hostport(str(payload.get("host")), int(payload.get("port") or 0)),
-            "sni": payload.get("sni"),
+            "endpoint": endpoint,
+            "sni": raw_sni if isinstance(raw_sni, str) else None,
             "attempt": job.attempt,
             "max_attempts": job.max_attempts,
             "error_message": job.error_message,
