@@ -108,7 +108,7 @@ with the pull request that delivered each group of changes.
 **Documentation**
 
 - `README.md`, this changelog, and the Task 12–23 operational and developer notes in
-  `docs/development.md` (this PR).
+  `docs/development.md` (PR #18).
 
 ### Security
 
