@@ -6,7 +6,8 @@ from datetime import timedelta
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import sessionmaker
 
 from app.crypto.parse import parse_certificates
 from app.models import Certificate, Endpoint, PrivateKey, ScanResult, TrustAnchor
@@ -148,3 +149,42 @@ def test_older_result_never_regresses_endpoint_state(db, now):
     assert (endpoint.last_scan_at, endpoint.last_scan_status) == (newer, ScanStatus.OK)
     assert result.status is ScanStatus.UNREACHABLE and result.checked_at == now
     assert db.scalar(select(func.count()).select_from(ScanResult).where(ScanResult.endpoint_id == endpoint.id)) == 1
+
+
+def test_record_scan_refreshes_a_stale_loaded_endpoint_under_the_lock(engine, pull_certs, now):
+    """Session A holds an old copy of the endpoint; session B commits newer state first."""
+    t1, t3 = now - timedelta(hours=1), now + timedelta(hours=1)
+    factory = sessionmaker(engine)
+    with factory.begin() as setup:
+        stale, fresh = _inventory(setup, pull_certs.wildcard), _inventory(setup, pull_certs.leaf)
+        endpoint = _endpoint(
+            setup, "198.51.100.8", 443,
+            expected_certificate_id=stale.id, last_scan_at=t1, last_scan_status=ScanStatus.MISMATCH,
+        )
+        endpoint_id, stale_id, fresh_id, fresh_fingerprint = endpoint.id, stale.id, fresh.id, fresh.sha256_fingerprint
+    try:
+        with factory() as session_a:
+            loaded = session_a.get(Endpoint, endpoint_id)  # keep a reference: the identity map is weak
+            assert loaded.last_scan_at == t1
+            with factory.begin() as session_b:
+                newer = session_b.get(Endpoint, endpoint_id)
+                newer.expected_certificate_id, newer.last_scan_at, newer.last_scan_status = (
+                    fresh_id, t3, ScanStatus.OK,
+                )
+            observed = ScanObservation(
+                fresh_fingerprint, "leaf.example.test", None, now + timedelta(days=30), 1, "TLSv1.3", None, None, 5
+            )
+            result = record_scan(session_a, endpoint_id, observed, "manual", now)
+            result_id = result.id
+            assert loaded.last_scan_at == t3  # the very same identity-mapped object was refreshed
+            session_a.commit()
+        with factory() as check:
+            row = check.get(Endpoint, endpoint_id)
+            assert (row.last_scan_at, row.last_scan_status) == (t3, ScanStatus.OK)
+            stored = check.get(ScanResult, result_id)
+            assert (stored.status, stored.expected_certificate_id, stored.checked_at) == (ScanStatus.OK, fresh_id, now)
+    finally:
+        with factory.begin() as cleanup:
+            cleanup.execute(delete(ScanResult).where(ScanResult.endpoint_id == endpoint_id))
+            cleanup.execute(delete(Endpoint).where(Endpoint.id == endpoint_id))
+            cleanup.execute(delete(Certificate).where(Certificate.id.in_([stale_id, fresh_id])))

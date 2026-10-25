@@ -380,7 +380,11 @@ def record_scan(
     Locks the endpoint row and snapshots its current expectation; reads ``certificate`` only for the
     expected fingerprint and writes nothing else. The caller owns the transaction (no commit here).
     """
-    endpoint = db.execute(select(Endpoint).where(Endpoint.id == endpoint_id).with_for_update()).scalar_one()
+    # populate_existing: an Endpoint already in this session's identity map must be overwritten with the
+    # locked row, or a stale last_scan_at / expectation would be used (and a newer scan regressed).
+    endpoint = db.execute(
+        select(Endpoint).where(Endpoint.id == endpoint_id).with_for_update().execution_options(populate_existing=True)
+    ).scalar_one()
     expected_id = endpoint.expected_certificate_id
     expected_fingerprint = (
         db.scalar(select(Certificate.sha256_fingerprint).where(Certificate.id == expected_id))
