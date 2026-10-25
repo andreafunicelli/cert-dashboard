@@ -652,15 +652,15 @@ def test_overview_has_no_tls_or_job_summaries_yet(signed_in, inventory):
         assert absent not in text
 
 
-def test_navigation_enables_overview_and_certificates_only(signed_in):
+def test_navigation_enables_implemented_areas_only(signed_in):
     text = signed_in.get("/").text
     assert '<a href="/">Overview</a>' in text and '<a href="/certificates">Certificates</a>' in text
     for label in ("Servers", "Deploy", "Scans"):
         assert re.search(
             rf'<span aria-disabled="true" title="Available in a later plan">{label}</span>', text
         ), label
-    for label in ("Audit", "Settings"):
-        assert re.search(rf'<span aria-disabled="true" title="[^"]+">{label}</span>', text), label
+    assert '<a href="/audit">Audit</a>' in text
+    assert re.search(r'<span aria-disabled="true" title="[^"]+">Settings</span>', text)
 
 
 # --- datetimes ----------------------------------------------------------------------------------
