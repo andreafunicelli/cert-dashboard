@@ -10,15 +10,19 @@ import hmac
 import json
 import secrets
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from markupsafe import Markup
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.auth.base import UserRecord
 from app.auth.local import PasswordChangeError, allow_login_attempt
 from app.auth.sessions import issue_login_csrf
+from app.models import AppSetting
 from app.services.audit import Actor
 
 # While must_change_password is set, only these (method, path) pairs pass require_user.
@@ -225,3 +229,64 @@ def _transact(request: Request, work):
         raise
     finally:
         db.close()
+
+
+# --------------------------------------------------------------------------
+# Presentation helpers shared by the inventory screens (Task 17)
+# --------------------------------------------------------------------------
+
+
+def display_timezone(db: Session) -> str:
+    """The ``ui.timezone`` display setting; anything missing or unknown means UTC."""
+    value = db.scalar(select(AppSetting.value).where(AppSetting.key == "ui.timezone"))
+    if isinstance(value, str) and value:
+        try:
+            ZoneInfo(value)
+        except (KeyError, ValueError, OSError):
+            return "UTC"
+        return value
+    return "UTC"
+
+
+def time_tag(value: datetime | None, timezone_name: str = "UTC") -> Markup:
+    """A ``<time>`` element: UTC machine value, local display text."""
+    if value is None:
+        return Markup("—")
+    machine = value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return Markup('<time datetime="{}">{}</time>').format(machine, format_datetime(value, timezone_name))
+
+
+def expiry_chip(not_after: datetime, now: datetime) -> dict[str, str]:
+    """Colour class and label for the days-remaining chip (same boundaries as the expiry buckets)."""
+    seconds = (not_after - now).total_seconds()
+    if seconds < 0:
+        days = int(-seconds // 86400)
+        label = "Expired today" if days == 0 else f"Expired {days} day{'s' if days != 1 else ''} ago"
+        return {"css": "chip-expired", "label": label}
+    days = int(seconds // 86400)
+    label = "< 1 day" if days == 0 else f"{days} day{'s' if days != 1 else ''}"
+    if seconds < 7 * 86400:
+        css = "chip-critical"
+    elif seconds < 30 * 86400:
+        css = "chip-warning"
+    elif seconds < 60 * 86400:
+        css = "chip-soon"
+    else:
+        css = "chip-ok"
+    return {"css": css, "label": label}
+
+
+def hostport(host: str, port: int) -> str:
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
+def install_template_helpers(app: FastAPI) -> None:
+    app.state.templates.env.globals.update(time_tag=time_tag, expiry_chip=expiry_chip, hostport=hostport)
+
+
+def render_block(request: Request, name: str, block: str, status: int = 200, **context) -> HTMLResponse:
+    """Render one named block of a template (an htmx fragment) with the usual request context."""
+    template = request.app.state.templates.env.get_template(name)
+    scope = {"request": request, "user": request.state.user, **context}
+    html = "".join(template.blocks[block](template.new_context(scope)))
+    return HTMLResponse(html, status, headers={"Cache-Control": "no-store"})

@@ -1,0 +1,213 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ c.common_name }} · Cert Dashboard{% endblock %}
+{% block content %}
+<nav class="lineage" aria-label="Lineage">
+  {% if detail.previous %}
+  <span>Renews <a href="/certificates/{{ detail.previous.id }}">{{ detail.previous.common_name }}</a>
+    ({{ detail.previous.status.value }}, {{ time_tag(detail.previous.not_after, tz) }})</span>
+  {% else %}<span>No previous certificate</span>{% endif %}
+  <span aria-hidden="true">→</span>
+  <strong>{{ c.common_name }}</strong>
+  <span aria-hidden="true">→</span>
+  {% if detail.next %}
+  <span>Renewed by {% for item in detail.next %}<a href="/certificates/{{ item.id }}">{{ item.common_name }}</a> ({{ item.status.value }}, {{ time_tag(item.not_after, tz) }}){% if not loop.last %}, {% endif %}{% endfor %}</span>
+  {% else %}<span>No later certificate</span>{% endif %}
+</nav>
+
+{% set chip = expiry_chip(c.not_after, now) %}
+<section class="panel wide" id="summary-panel">
+  <h1>{{ c.common_name }}</h1>
+  <p><span class="badge badge-{{ c.status.value }}">{{ c.status.value }}</span>
+     <span class="chip {{ chip.css }}">{{ chip.label }}</span>
+     <span class="badge badge-chain-{{ c.chain_status.value }}">chain: {{ c.chain_status.value }}</span></p>
+  <dl class="fields">
+    <dt>Subject alternative names</dt>
+    <dd>{% if c.sans %}<ul class="plain">{% for san in c.sans %}<li>{{ san }}</li>{% endfor %}</ul>{% else %}None{% endif %}</dd>
+    <dt>Subject</dt><dd><code>{{ c.subject_dn }}</code></dd>
+    <dt>Issuer</dt><dd>{{ c.issuer_cn }} <small><code>{{ c.issuer_dn }}</code></small></dd>
+    <dt>Serial number</dt><dd><code>{{ c.serial }}</code></dd>
+    <dt>Valid from</dt><dd>{{ time_tag(c.not_before, tz) }}</dd>
+    <dt>Valid until</dt><dd>{{ time_tag(c.not_after, tz) }}</dd>
+    <dt>SHA-256 fingerprint</dt><dd><code>{{ c.sha256_fingerprint }}</code></dd>
+    <dt>Source</dt><dd><code>{{ c.imported_from }}</code>{% if c.renews_id %} (renewal){% endif %}</dd>
+    <dt>Owner</dt><dd>{{ c.owner_name or "—" }}{% if c.owner_email %} &lt;{{ c.owner_email }}&gt;{% endif %}</dd>
+    <dt>Team</dt><dd>{{ c.team or "—" }}</dd>
+    <dt>Notes</dt><dd class="notes">{{ c.notes or "—" }}</dd>
+    <dt>Added</dt><dd>{{ time_tag(c.created_at, tz) }}</dd>
+    <dt>Last changed</dt><dd>{{ time_tag(c.updated_at, tz) }}</dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="actions-panel">
+  <h2>Actions</h2>
+  <p class="actions">
+    <a class="button" href="/certificates/{{ c.id }}/edit">Edit details</a>
+    <button type="button" disabled title="Available after Tasks 19–20">Download</button>
+    <button type="button" disabled title="Available after Tasks 19–20">Renew</button>
+    {% if deploy_supported %}<a class="button" href="/deploy?certificate_id={{ c.id }}">Deploy</a>
+    {% else %}<button type="button" disabled title="Available in a later plan">Deploy</button>{% endif %}
+    {% if scan_supported %}<a class="button" href="/scans?certificate_id={{ c.id }}">Scan now</a>
+    {% else %}<button type="button" disabled title="Available in a later plan">Scan now</button>{% endif %}
+  </p>
+  <p class="hint">Downloads and the renewal wizard arrive with Tasks 19–20; deployment and scanning with a later plan.</p>
+</section>
+
+<section class="panel wide" id="validation-panel">
+  <h2>Validation</h2>
+  <p>Chain status: <span class="badge badge-chain-{{ c.chain_status.value }}">{{ c.chain_status.value }}</span>
+    · {% if c.has_chain %}intermediate chain stored{% else %}no intermediate chain stored{% endif %}</p>
+  {% if recheck_failed %}
+  <p class="form-error" role="alert">The stored certificate or chain could not be re-checked now.</p>
+  {% else %}
+  <p class="hint">Re-assessed just now against the enabled trust anchors: <strong>{{ detail.diagnostics.status.value }}</strong>.</p>
+  {% if recheck_differs %}
+  <p class="notice">The cached status ({{ c.chain_status.value }}) differs from the current assessment ({{ detail.diagnostics.status.value }}); it is refreshed by the next trust re-check.
+    {% if c.chain_status.value == "untrusted_root" %}An untrusted root is only visible while it is supplied: stored chains omit the root, so it cannot be re-verified from the stored data.{% endif %}</p>
+  {% endif %}
+  {% endif %}
+  {% if warnings %}
+  <ul class="warnings">{% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if trust_warning %}
+  <p class="warning-note">This does not block use of the certificate, but deployment requires a trusted chain.
+    <a href="/settings?tab=trust">Review trust anchors in Settings</a>, or import the missing chain below.</p>
+  {% endif %}
+</section>
+
+<section class="panel wide" id="key-panel">
+  <h2>Private key</h2>
+  {% if detail.key %}
+  <dl class="fields">
+    <dt>Key present</dt><dd><span class="badge badge-ok">yes</span></dd>
+    <dt>Type</dt><dd>{{ detail.key.key_type | upper }}{% if detail.key.curve %} ({{ detail.key.curve }}){% else %} {{ detail.key.key_size }}-bit{% endif %}</dd>
+    <dt>Public key SHA-256</dt><dd><code>{{ detail.key.public_key_sha256 }}</code></dd>
+    <dt>Created</dt><dd>{{ time_tag(detail.key.created_at, tz) }}</dd>
+    <dt>Origin</dt><dd>{{ detail.key.origin }}</dd>
+    <dt>Master key version</dt><dd>{{ detail.key.master_key_version }}</dd>
+  </dl>
+  <p class="hint">The key is stored encrypted and is never displayed.</p>
+  {% else %}
+  <p>No private key is stored for this certificate.</p>
+  {% endif %}
+</section>
+
+<section class="panel wide" id="bindings-panel">
+  <h2>Bindings</h2>
+  {% if detail.bindings %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Server</th><th scope="col">Virtual host</th><th scope="col">Port</th><th scope="col">Certificate file</th><th scope="col">On-disk fingerprint</th><th scope="col">Match</th><th scope="col">Last seen</th></tr></thead>
+    <tbody>
+    {% for b in detail.bindings %}
+    <tr{% if b.match_state in ("key_mismatch", "missing_file") %} class="row-attention"{% elif not b.is_active %} class="row-inactive"{% endif %}>
+      <td>{{ b.server }}</td><td>{{ b.vhost_name }}{% if not b.is_active %} <small>(inactive)</small>{% endif %}</td><td>{{ b.port }}</td>
+      <td><code>{{ b.cert_path }}</code></td><td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
+      <td>{{ b.match_state }}{% if b.match_state == "key_mismatch" %} — the key at the configured path does not belong to this certificate{% elif b.match_state == "missing_file" %} — the certificate file is missing or unreadable{% endif %}</td><td>{{ time_tag(b.last_seen_at, tz) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p>No bindings recorded for this certificate. Bindings appear once server discovery is available (a later plan).</p>
+  {% endif %}
+</section>
+
+<section class="panel wide" id="endpoints-panel">
+  <h2>Endpoints</h2>
+  {% if detail.endpoints %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Endpoint</th><th scope="col">SNI</th><th scope="col">Expected certificate</th><th scope="col">Observed certificate</th><th scope="col">Last scan</th><th scope="col">Active</th></tr></thead>
+    <tbody>
+    {% for e in detail.endpoints %}
+    <tr{% if e.matches_expected is sameas false %} class="row-attention"{% endif %}>
+      <td>{{ hostport(e.host, e.port) }}</td><td>{{ e.sni or "—" }}</td>
+      <td><span class="label">Expected</span> {{ c.common_name }}<br><code>{{ c.sha256_fingerprint }}</code></td>
+      <td><span class="label">Observed</span>
+        {% if e.observed_fingerprint %}
+        {{ e.observed_common_name or "—" }}{% if e.observed_issuer_cn %} · issued by {{ e.observed_issuer_cn }}{% endif %}
+        {% if e.observed_not_after %} · expires {{ time_tag(e.observed_not_after, tz) }}{% endif %}<br>
+        <code>{{ e.observed_fingerprint }}</code>
+        {% if e.matches_expected is sameas false %}<br><strong>Differs from the expected certificate</strong>{% endif %}
+        {% elif e.last_scan_status %}
+        No certificate observed
+        {% else %}—{% endif %}</td>
+      <td>{% if e.last_scan_status %}{{ e.last_scan_status }} {{ time_tag(e.last_scan_at, tz) }}{% else %}not scanned yet{% endif %}</td>
+      <td>{{ "yes" if e.is_active else "no" }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p>No endpoints expect this certificate yet. Endpoints are added by a server import or discovery.</p>
+  {% endif %}
+</section>
+
+<section class="panel wide" id="history-panel">
+  <h2>History</h2>
+  <h3>Renewals</h3>
+  {% if detail.renewals %}
+  <ul>{% for r in detail.renewals %}
+    <li>Renewal {{ r.state }} · {{ r.common_name }}
+      {% if r.previous_certificate_id == c.id %}(renewing this certificate){% else %}(produced this certificate){% endif %}
+      · started {{ time_tag(r.created_at, tz) }}, changed {{ time_tag(r.state_changed_at, tz) }}</li>
+  {% endfor %}</ul>
+  {% else %}<p>No renewals recorded.</p>{% endif %}
+  <h3>Recent activity</h3>
+  {% if detail.audit %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">When</th><th scope="col">Who</th><th scope="col">Action</th><th scope="col">Detail</th></tr></thead>
+    <tbody>{% for a in detail.audit %}
+      <tr><td>{{ time_tag(a.created_at, tz) }}</td><td>{{ a.actor_label }}</td><td>{{ a.action }}</td><td>{{ a.summary }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}<p>No activity recorded.</p>{% endif %}
+</section>
+
+{% block metadata_panel %}{% include "certificates/_metadata_form.html.j2" %}{% endblock %}
+
+{% block status_panel %}
+<section class="panel wide" id="status-panel">
+  <h2>Status</h2>
+  {% if status_options %}
+  {% if status_errors.form %}<div class="form-error" data-field="status" role="alert"><p>{{ status_errors.form }}</p></div>{% endif %}
+  <form method="post" action="/certificates/{{ cert_id }}/status"
+        hx-post="/certificates/{{ cert_id }}/status" hx-target="#status-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="status">Change status to</label>
+    <select id="status" name="status">
+      {% for option in status_options %}<option value="{{ option }}"{% if status_form.status == option %} selected{% endif %}>{{ option }}</option>{% endfor %}
+    </select>
+    <label for="reason">Reason (required)</label>
+    <textarea id="reason" name="reason" rows="3" cols="60" maxlength="1000" required>{{ status_form.reason }}</textarea>
+    <p class="hint">Status changes are one-way and recorded in the audit log together with the reason.</p>
+    <button type="submit">Change status</button>
+  </form>
+  {% else %}
+  <p>This certificate is {{ cert_status.value }}; its status can no longer change.</p>
+  {% endif %}
+</section>
+{% endblock %}
+
+{% block chain_panel %}
+<section class="panel wide" id="chain-panel">
+  <h2>Import chain</h2>
+  {% if chain_errors.chain %}<div class="form-error" data-field="chain" role="alert"><p>{{ chain_errors.chain }}</p></div>{% endif %}
+  <form method="post" action="/certificates/{{ cert_id }}/chain" enctype="multipart/form-data"
+        hx-post="/certificates/{{ cert_id }}/chain" hx-encoding="multipart/form-data" hx-target="#chain-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="chain_file">Intermediate certificates (PEM or DER file)</label>
+    <input id="chain_file" name="chain_file" type="file">
+    <label for="chain_text">…or paste them (PEM)</label>
+    <textarea id="chain_text" name="chain_text" rows="4" cols="60" spellcheck="false" autocomplete="off"></textarea>
+    <p class="hint">At most 1 MiB. The chain replaces the stored one and the trust status is re-assessed.</p>
+    <button type="submit">Import chain</button>
+  </form>
+</section>
+{% endblock %}
+{% endblock %}
+{% block scripts %}
+<script>
+  // htmx ignores 4xx bodies by default; inline validation answers 422 with the re-rendered panel.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
+  });
+</script>
+{% endblock %}

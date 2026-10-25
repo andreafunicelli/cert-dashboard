@@ -1,0 +1,15 @@
+{% extends "base.html.j2" %}
+{% block title %}Edit {{ common_name }} · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Edit {{ common_name }}</h1>
+<p><a href="/certificates/{{ cert_id }}">Back to certificate</a></p>
+{% include "certificates/_metadata_form.html.j2" %}
+{% endblock %}
+{% block scripts %}
+<script>
+  // htmx ignores 4xx bodies by default; inline validation answers 422 with the re-rendered form.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
+  });
+</script>
+{% endblock %}

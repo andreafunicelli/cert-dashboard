@@ -93,7 +93,7 @@ def _second_factor(client, clock, code, token=None, tick=15):
 
 def _sign_in(client, clock, user, token):
     response = _login(client, clock, token, user.username, user.password)
-    assert response.status_code == 303 and response.headers["location"] == "/account"
+    assert response.status_code == 303 and response.headers["location"] == "/"
     return client.cookies["cd_session"]
 
 
@@ -188,7 +188,7 @@ def test_login_page_with_active_user_states_no_password_reset(client, csrf):
 
 def test_password_login_creates_authenticated_session_and_audit(client, plain_user, csrf, clock, web_factory):
     response = _login(client, clock, csrf, plain_user.username, plain_user.password)
-    assert response.status_code == 303 and response.headers["location"] == "/account"
+    assert response.status_code == 303 and response.headers["location"] == "/"
     cookie = response.headers["set-cookie"]
     assert "HttpOnly" in cookie and "Secure" in cookie and "Path=/" in cookie and "Domain=" not in cookie
     assert client.get("/account").status_code == 200
@@ -273,7 +273,7 @@ def test_login_rotates_the_session_and_ignores_next_parameter(client, plain_user
         },
         follow_redirects=False,
     )
-    assert response.headers["location"] == "/account"
+    assert response.headers["location"] == "/"
 
 
 # --- fake backend: same flow -----------------------------------------------------------------------
@@ -294,7 +294,7 @@ def test_contract_login_flow_is_backend_independent(client, backend_user, csrf, 
     unknown = _login(client, clock, csrf, "nobody-here", "whatever-password")
     assert unknown.status_code == 401 and INVALID in unknown.text
     response = _login(client, clock, csrf, backend_user.username, backend_user.password)
-    assert response.status_code == 303 and response.headers["location"] == "/account"
+    assert response.status_code == 303 and response.headers["location"] == "/"
     with web_factory() as db:
         assert db.get(UserSession, client.cookies["cd_session"]).user_id == backend_user.id
     assert client.get("/account").status_code == 200
@@ -324,7 +324,7 @@ def test_contract_totp_pending_session_flow_for_fake_backend(
     assert client.get("/account", headers={"Accept": "application/json"}).status_code == 401
     clock.advance(seconds=45)
     done = _second_factor(client, clock, pyotp.TOTP(enrollment.secret).at(clock()))
-    assert done.status_code == 303 and done.headers["location"] == "/account"
+    assert done.status_code == 303 and done.headers["location"] == "/"
     assert client.get("/account").status_code == 200
 
 
@@ -384,7 +384,7 @@ def test_totp_login_completes_with_rotation_and_cannot_be_replayed(
     assert page.status_code == 200 and "no-store" in page.headers["cache-control"]
     code = _code(totp_user, clock)
     done = _second_factor(client, clock, code, _token(page.text))
-    assert done.status_code == 303 and done.headers["location"] == "/account"
+    assert done.status_code == 303 and done.headers["location"] == "/"
     assert client.cookies["cd_session"] != pending_cookie
     assert _status_with_cookie(client, pending_cookie) == 401
     assert client.get("/account").status_code == 200
@@ -721,7 +721,7 @@ def test_must_change_password_confines_the_user_to_account_password_and_logout(
     def other(user=guard):
         return {"ok": True}
 
-    assert _login(client, clock, csrf, "flagged", LOGIN_PASSWORD).headers["location"] == "/account"
+    assert _login(client, clock, csrf, "flagged", LOGIN_PASSWORD).headers["location"] == "/"
     assert client.get("/account").status_code == 200
     redirected = client.get("/_test/other", follow_redirects=False)
     assert redirected.status_code == 303 and redirected.headers["location"] == "/account"
@@ -925,7 +925,7 @@ def test_cli_prompts_twice_and_creates_active_local_admin(cli, web_factory, caps
 def test_cli_created_admin_can_log_in(cli, client, csrf, clock):
     assert cli("operator-chosen-pass", "operator-chosen-pass") == 0
     response = _login(client, clock, csrf, "root", "operator-chosen-pass")
-    assert response.status_code == 303 and response.headers["location"] == "/account"
+    assert response.status_code == 303 and response.headers["location"] == "/"
 
 
 def test_cli_confirmation_mismatch_fails_without_creating_a_user(cli, web_factory, capsys):

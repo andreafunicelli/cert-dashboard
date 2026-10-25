@@ -1,0 +1,83 @@
+{% extends "base.html.j2" %}
+{% block title %}Certificates · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Certificates</h1>
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/certificates" class="filters">
+    <label>Search <input type="search" name="search" value="{{ values.search or '' }}" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
+    <label>Status
+      <select name="status"><option value="">Any</option>
+        {% for item in statuses %}<option value="{{ item }}"{% if values.status == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
+      </select></label>
+    <label>Expires
+      <select name="expiry"><option value="">Any</option>
+        {% for item in buckets %}<option value="{{ item }}"{% if values.expiry == item %} selected{% endif %}>{{ {"expired": "Already expired", "lt7": "In less than 7 days", "lt30": "In 7 to 30 days", "lt60": "In 30 to 60 days"}[item] }}</option>{% endfor %}
+      </select></label>
+    <label>Issuer <input name="issuer" value="{{ values.issuer or '' }}" maxlength="200"></label>
+    <label>Team <input name="team" value="{{ values.team or '' }}" maxlength="200"></label>
+    <label>Owner <input name="owner" value="{{ values.owner or '' }}" maxlength="200"></label>
+    <label>Private key
+      <select name="has_key"><option value="">Any</option>
+        <option value="true"{% if values.has_key == "true" %} selected{% endif %}>Present</option>
+        <option value="false"{% if values.has_key == "false" %} selected{% endif %}>Absent</option></select></label>
+    <label>Bindings
+      <select name="has_bindings"><option value="">Any</option>
+        <option value="true"{% if values.has_bindings == "true" %} selected{% endif %}>Has bindings</option>
+        <option value="false"{% if values.has_bindings == "false" %} selected{% endif %}>No bindings</option></select></label>
+    <label>Renewal
+      <select name="renewal_state"><option value="">Any</option>
+        {% for item in renewal_states %}<option value="{{ item }}"{% if values.renewal_state == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
+      </select></label>
+    <input type="hidden" name="sort" value="{{ sort_state }}">
+    <input type="hidden" name="page_size" value="{{ page.page_size }}">
+    <button type="submit">Apply filters</button>
+    <a href="/certificates">Reset</a>
+  </form>
+</section>
+
+<p class="list-summary" data-total="{{ page.total }}">{{ page.total }} certificate{{ "" if page.total == 1 else "s" }}
+  · <a href="{{ export_url }}" download="certificates.json">Export list as JSON</a>
+  · <a href="/certificates/import">Import certificate</a></p>
+
+{% if page.items %}
+<div class="table-wrap">
+<table class="certificates">
+  <thead><tr>
+    <th scope="col"><a href="{{ sort_url('common_name') }}">Common name</a></th>
+    <th scope="col">SANs</th>
+    <th scope="col"><a href="{{ sort_url('issuer_cn') }}">Issuer</a></th>
+    <th scope="col"><a href="{{ sort_url('not_after') }}">Expires</a></th>
+    <th scope="col">Owner</th>
+    <th scope="col"><a href="{{ sort_url('status') }}">Status</a></th>
+    <th scope="col">Source</th>
+    <th scope="col">Key</th>
+    <th scope="col">Bindings</th>
+  </tr></thead>
+  <tbody>
+  {% for cert in page.items %}
+  {% set chip = expiry_chip(cert.not_after, now) %}
+  <tr data-cn="{{ cert.common_name }}">
+    <td><a href="/certificates/{{ cert.id }}">{{ cert.common_name }}</a></td>
+    <td>{{ cert.sans | length }}</td>
+    <td>{{ cert.issuer_cn }}</td>
+    <td>{{ time_tag(cert.not_after, tz) }} <span class="chip {{ chip.css }}">{{ chip.label }}</span></td>
+    <td>{% if cert.owner_name %}{{ cert.owner_name }}{% elif cert.owner_email %}{{ cert.owner_email }}{% endif %}{% if cert.team %}<br><small>{{ cert.team }}</small>{% endif %}</td>
+    <td>{{ cert.status.value }}</td>
+    <td>{% if cert.renews_id %}Renewed{% else %}Imported{% endif %}</td>
+    <td>{% if cert.key_id %}yes{% else %}no{% endif %}</td>
+    <td>{{ cert.binding_count }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="panel wide">No certificates match these filters. <a href="/certificates/import">Import a certificate</a> or <a href="/certificates">clear the filters</a>.</p>
+{% endif %}
+
+<nav class="pager" aria-label="Pages">
+  {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
+  <span>Page {{ page.page }} of {{ pages }}</span>
+  {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

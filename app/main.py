@@ -63,6 +63,7 @@ from app.web.common import (
     require_admin,
     require_user,
 )
+from app.web.overview import register_overview_routes
 
 __all__ = [
     "_actor",
@@ -80,9 +81,9 @@ __all__ = [
 
 _ROOT = Path(__file__).parent
 _LOG = logging.getLogger("cert_dashboard.web")
-# Overview (/) arrives with Task 17; until then the account page is the post-login landing page.
+# Sign-in lands on the Overview. A user flagged must_change_password is bounced from there to /account.
 # There is deliberately no next/return-to parameter, which rules out open redirects.
-POST_LOGIN_URL = "/account"
+POST_LOGIN_URL = "/"
 # Unknown usernames are routed here so their failure is indistinguishable from a wrong password.
 DEFAULT_BACKEND = "local"
 _MESSAGE_INVALID = "Invalid credentials."
@@ -664,15 +665,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.status_banner = ""
     app.state.public_paths = {"/login", "/login/2fa", "/logout", "/health/live", "/health/ready", "/healthz"}
     app.state.navigation = [
-        {"label": label, "url": url, "enabled": False, "reason": "Available in a later implementation task"}
-        for label, url in [
-            ("Overview", "/"),
-            ("Certificates", "/certificates"),
-            ("Servers", "/servers"),
-            ("Deploy", "/deploy"),
-            ("Scans", "/scans"),
-            ("Audit", "/audit"),
-            ("Settings", "/settings"),
+        {"label": label, "url": url, "enabled": enabled, "reason": reason}
+        for label, url, enabled, reason in [
+            ("Overview", "/", True, ""),
+            ("Certificates", "/certificates", True, ""),
+            ("Servers", "/servers", False, "Available in a later plan"),
+            ("Deploy", "/deploy", False, "Available in a later plan"),
+            ("Scans", "/scans", False, "Available in a later plan"),
+            ("Audit", "/audit", False, "Available in a later implementation task"),
+            ("Settings", "/settings", False, "Available in a later implementation task"),
         ]
     ]
     app.state.templates = Jinja2Templates(
@@ -683,6 +684,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=_ROOT / "static"), name="static")
     _register_auth_routes(app)
     register_certificate_routes(app)
+    register_overview_routes(app)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):
