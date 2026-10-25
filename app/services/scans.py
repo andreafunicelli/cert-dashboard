@@ -5,20 +5,27 @@ connections). Plan 2 reuses it for scheduled scans.
 """
 
 import errno
+import hashlib
 import selectors
 import socket
 import threading
 import time
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from ipaddress import ip_address
+from typing import Literal
 
 from cryptography.hazmat.primitives.serialization import Encoding
 from OpenSSL import SSL
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.crypto.csr import parse_san
-from app.jobs.queue import JobFailure
-from app.models import JSONValue
+from app.crypto.parse import ParseError, parse_certificates
+from app.jobs.queue import JobFailure, safe_error_message
+from app.models import Certificate, Endpoint, JSONValue, ScanResult
+from app.models.enums import ScanStatus
 from app.services.certificates import CertificateMetadata, InventoryError
 
 PULL_ACTION = "import_pull"
@@ -289,3 +296,120 @@ def pull_chain(host: str, port: int, sni: str | None, timeout_seconds: int = 10)
         return PulledChain(der_chain, connection.get_protocol_version_name())
     finally:
         sock.close()
+
+
+# --- endpoint observation and classified scan results ---------------------------------------------
+
+_UNPARSEABLE_MESSAGE = "Served certificate could not be parsed."
+
+
+@dataclass(frozen=True)
+class ScanObservation:
+    """What an endpoint served (or why nothing could be observed). Never imported, never trusted."""
+
+    fingerprint: str | None
+    common_name: str | None
+    issuer_cn: str | None
+    not_after: datetime | None
+    chain_length: int | None
+    tls_version: str | None
+    failure: Literal["unreachable", "error"] | None
+    error: str | None
+    elapsed_ms: int
+
+
+def observation_from_chain(pulled: PulledChain, elapsed_ms: int) -> ScanObservation:
+    """Describe the served leaf; an unparseable leaf keeps its hash with a fixed error message."""
+    leaf = pulled.der_chain[0]
+    served = {
+        "fingerprint": hashlib.sha256(leaf).hexdigest(),
+        "chain_length": len(pulled.der_chain),
+        "tls_version": pulled.tls_version,
+        "elapsed_ms": elapsed_ms,
+    }
+    try:
+        parsed = parse_certificates(leaf)[0]
+    except (ParseError, IndexError):
+        return ScanObservation(
+            common_name=None, issuer_cn=None, not_after=None, failure="error", error=_UNPARSEABLE_MESSAGE, **served
+        )
+    return ScanObservation(
+        common_name=parsed.common_name,
+        issuer_cn=parsed.issuer_cn,
+        not_after=parsed.not_after,
+        failure=None,
+        error=None,
+        **served,
+    )
+
+
+def observe_endpoint(host: str, port: int, sni: str | None, timeout_seconds: int) -> ScanObservation:
+    """Pull the served chain and describe it; network/TLS failures become observations, not exceptions."""
+    started = time.monotonic()
+    try:
+        pulled = pull_chain(host, port, sni, timeout_seconds)
+    except JobFailure as exc:
+        failure = "unreachable" if exc.error_class == "transient_network" else "error"
+        elapsed_ms = round((time.monotonic() - started) * 1000)
+        return ScanObservation(None, None, None, None, None, None, failure, exc.message, elapsed_ms)
+    return observation_from_chain(pulled, round((time.monotonic() - started) * 1000))
+
+
+def classify_observation(observation: ScanObservation, expected_fingerprint: str | None, now: datetime) -> ScanStatus:
+    """No leaf -> unreachable/error; else expired beats ok/mismatch; ok only on the expected fingerprint."""
+    if observation.failure == "unreachable":
+        return ScanStatus.UNREACHABLE
+    if observation.failure == "error" or observation.fingerprint is None:
+        return ScanStatus.ERROR
+    if observation.not_after is not None and observation.not_after < now:
+        return ScanStatus.EXPIRED
+    if expected_fingerprint is not None and observation.fingerprint.lower() == expected_fingerprint.lower():
+        return ScanStatus.OK
+    return ScanStatus.MISMATCH
+
+
+def record_scan(
+    db: Session,
+    endpoint_id: int,
+    observation: ScanObservation,
+    source: Literal["scheduled", "manual"],
+    now: datetime,
+) -> ScanResult:
+    """Insert one ``scan_result`` and advance ``endpoint.last_scan_*`` unless a newer scan already did.
+
+    Locks the endpoint row and snapshots its current expectation; reads ``certificate`` only for the
+    expected fingerprint and writes nothing else. The caller owns the transaction (no commit here).
+    """
+    # populate_existing: an Endpoint already in this session's identity map must be overwritten with the
+    # locked row, or a stale last_scan_at / expectation would be used (and a newer scan regressed).
+    endpoint = db.execute(
+        select(Endpoint).where(Endpoint.id == endpoint_id).with_for_update().execution_options(populate_existing=True)
+    ).scalar_one()
+    expected_id = endpoint.expected_certificate_id
+    expected_fingerprint = (
+        db.scalar(select(Certificate.sha256_fingerprint).where(Certificate.id == expected_id))
+        if expected_id is not None
+        else None
+    )
+    status = classify_observation(observation, expected_fingerprint, now)
+    result = ScanResult(
+        endpoint_id=endpoint.id,
+        status=status,
+        observed_fingerprint=observation.fingerprint,
+        observed_common_name=observation.common_name,
+        observed_issuer_cn=observation.issuer_cn,
+        observed_not_after=observation.not_after,
+        observed_chain_length=observation.chain_length,
+        expected_certificate_id=expected_id,
+        tls_version=observation.tls_version,
+        error=safe_error_message(observation.error),
+        source=source,
+        checked_at=now,
+        elapsed_ms=observation.elapsed_ms,
+    )
+    db.add(result)
+    if endpoint.last_scan_at is None or endpoint.last_scan_at <= now:
+        endpoint.last_scan_at = now
+        endpoint.last_scan_status = status
+    db.flush()
+    return result
