@@ -502,7 +502,7 @@ def test_bad_upload_has_no_partial_rows(signed_in, db, csrf):
 
 **Interfaces:** Consumes: `JobRegistry.register(job_type: JobType, handler: JobHandler, *, action: str = 'default', validator: Callable[[Mapping[str,JSONValue]],dict[str,JSONValue]]) -> None`, Task 12 enqueue and Task 14 inventory contracts. Produces: `PulledChain(der_chain: tuple[bytes,...], tls_version: str)`; `pull_chain(host: str, port: int, sni: str | None, timeout_seconds: int = 10) -> PulledChain`; `validate_pull_payload(payload: Mapping[str,JSONValue]) -> dict[str,JSONValue]`; `import_pull(context: JobContext, payload: Mapping[str,JSONValue]) -> Mapping[str,JSONValue]`; POST `/certificates/import/pull`, GET `/imports/{job_id}` and `/imports/{job_id}/progress`.
 
-- [ ] Write failing integration tests with a local TLS listener serving leaf+intermediates:
+- [x] Write failing integration tests with a local TLS listener serving leaf+intermediates:
 
 ```python
 def test_pull_import_creates_expectation(worker_harness, signed_in, tls_server, db, csrf):
@@ -516,10 +516,10 @@ def test_pull_import_creates_expectation(worker_harness, signed_in, tls_server, 
 ```
 
   Assert SNI is sent, self-signed/expired server certs import without trust verification (expiry warning), 10-second timeout/DNS/handshake errors sanitize, invalid port/URL/path input fails validation, retry is idempotent, and web request enqueues only (TLS listener connection count stays zero until worker runs).
-- [ ] Run `uv run pytest tests/integration/test_pull_import.py -q`; expect FAIL, pull handler missing.
-- [ ] Implement `pull_chain` in `services/scans.py` using pyOpenSSL peer-chain access with explicit connect/read deadline, SNI `sni or host`, no trust-store verification; cap returned objects/bytes at the upload limit. Register `(JobType.scan, action='import_pull')` with payload host/port/sni/metadata only; requested_by recovers the actor. Handler imports chain and upserts manual endpoint+expected certificate in one transaction, returns certificate_id/created/warnings. No scan_result is written: endpoint assessment belongs to Plan 2's default scan handler. The import progress page polls every 2 seconds with htmx and has a normal refresh link; shows sanitized job failure or links to imported/existing certificate. Internal host/IP input is intentional; accept host literals only, ports 1–65535, not URLs/CIDRs.
-- [ ] Run `uv run pytest tests/integration/test_pull_import.py -q`; expect PASS.
-- [ ] Commit: `git add app/services/scans.py app/jobs/handlers app/main.py app/templates/import.html.j2 app/templates/import_progress.html.j2 tests/integration/test_pull_import.py`; `git commit -m "feat: import served chains through worker pull jobs"`.
+- [x] Run `uv run pytest tests/integration/test_pull_import.py -q`; expect FAIL, pull handler missing.
+- [x] Implement `pull_chain` in `services/scans.py` using pyOpenSSL peer-chain access with explicit connect/read deadline, SNI `sni or host`, no trust-store verification; cap returned objects/bytes at the upload limit. Register `(JobType.scan, action='import_pull')` with payload host/port/sni/metadata only; requested_by recovers the actor. Handler imports chain and upserts manual endpoint+expected certificate in one transaction, returns certificate_id/created/warnings. No scan_result is written: endpoint assessment belongs to Plan 2's default scan handler. The import progress page polls every 2 seconds with htmx and has a normal refresh link; shows sanitized job failure or links to imported/existing certificate. Internal host/IP input is intentional; accept host literals only, ports 1–65535, not URLs/CIDRs.
+- [x] Run `uv run pytest tests/integration/test_pull_import.py -q`; expect PASS.
+- [x] Commit: `git add app/services/scans.py app/jobs/handlers app/main.py app/templates/import.html.j2 app/templates/import_progress.html.j2 tests/integration/test_pull_import.py`; `git commit -m "feat: import served chains through worker pull jobs"`.
 
 ### Task 17: Certificate list, detail, and expiry-only overview
 

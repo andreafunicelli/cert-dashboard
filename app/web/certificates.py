@@ -3,13 +3,17 @@
 import base64
 import binascii
 from collections.abc import Mapping
+from uuid import UUID
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
 from app.crypto.parse import MAX_INPUT_BYTES
+from app.jobs.queue import enqueue
+from app.models import Job
+from app.models.enums import JobStatus, JobType
 from app.services.certificates import (
     CertificateMetadata,
     ImportResult,
@@ -19,6 +23,7 @@ from app.services.certificates import (
     import_upload,
     validate_upload,
 )
+from app.services.scans import PULL_ACTION, PullPayloadError, format_hostport, validate_pull_payload
 from app.web.common import _render, _transact, set_flash
 
 _TEMPLATE = "import.html.j2"
@@ -107,17 +112,19 @@ def _is_htmx(request: Request) -> bool:
     return request.headers.get("HX-Request", "").lower() == "true"
 
 
-def _page(request: Request, status: int = 200, **context) -> HTMLResponse:
+def _page(request: Request, status: int = 200, *, block: str = "upload_panel", **context) -> HTMLResponse:
     context.setdefault("form", {"format": "pem", **dict.fromkeys(_METADATA_FIELDS, "")})
     context.setdefault("errors", {})
     context.setdefault("duplicate", None)
+    context.setdefault("pull_form", {"host": "", "port": "443", "sni": "", **dict.fromkeys(_METADATA_FIELDS, "")})
+    context.setdefault("pull_errors", {})
     context["csrf_token"] = request.state.session.csrf_token
     if not _is_htmx(request):
         return _render(request, _TEMPLATE, status, **context)
-    # htmx swaps only the form panel: render just the content block of the same template.
+    # htmx swaps only the panel of the form that was submitted: render just that block.
     template = request.app.state.templates.env.get_template(_TEMPLATE)
     scope = {"request": request, "user": request.state.user, **context}
-    html = "".join(template.blocks["content"](template.new_context(scope)))
+    html = "".join(template.blocks[block](template.new_context(scope)))
     return HTMLResponse(html, status, headers={"Cache-Control": "no-store"})
 
 
@@ -192,10 +199,121 @@ def _handle_upload(request: Request, form: FormData) -> Response:
     return _page(request, 200, form=values, duplicate=duplicate)
 
 
+PULL_ROUTE = "/certificates/import/pull"
+PULL_PRIORITY = 200  # on-demand scan/discovery
+_PULL_ERROR_FIELDS = ("host", "port", "sni", "metadata")
+_SECRET_LIKE = "Remove anything that looks like a secret (passwords, tokens, keys) from the details."
+
+
+def _pull_failure(request: Request, values: Mapping[str, str], errors: Mapping[str, str]) -> HTMLResponse:
+    return _page(request, 422, block="pull_panel", pull_form=values, pull_errors=errors)
+
+
+def _handle_pull(request: Request, form: FormData) -> Response:
+    values = {name: _value(form, name, 20_000) for name in (*_METADATA_FIELDS, "host", "sni")}
+    values["host"], values["sni"] = values["host"].strip()[:300], values["sni"].strip()[:300]
+    values["port"] = _value(form, "port", 16).strip() or "443"
+    port: int | str = values["port"]
+    if port.isascii() and port.isdigit() and len(port) <= 6:
+        port = int(port)
+    payload = {
+        "action": PULL_ACTION,
+        "host": values["host"],
+        "port": port,
+        "sni": values["sni"] or None,
+        "metadata": {name: values[name] or None for name in _METADATA_FIELDS},
+    }
+    try:
+        clean = validate_pull_payload(payload)
+    except PullPayloadError as exc:
+        return _pull_failure(request, values, {k: v for k, v in exc.errors.items() if k in _PULL_ERROR_FIELDS})
+    try:
+        job_id, _ = _transact(
+            request,
+            lambda db, now, actor: enqueue(
+                db,
+                JobType.SCAN,
+                clean,
+                actor,
+                priority=PULL_PRIORITY,
+                run_after=now,
+                max_attempts=3,
+                scheduled_reason="manual",
+            ).id,
+        )
+    except ValueError:
+        # The queue refuses payloads the audit redaction would alter (secret-like free text).
+        return _pull_failure(request, values, {"metadata": _SECRET_LIKE})
+    location = f"/imports/{job_id}"
+    if _is_htmx(request):
+        return Response(status_code=200, headers={"HX-Redirect": location})
+    return RedirectResponse(location, status_code=303)
+
+
+def _import_job(request: Request, raw_id: str) -> dict:
+    """The view model of a pull-import job; anything else (bad id, other job kinds) is a 404."""
+    try:
+        parsed = UUID(raw_id)
+    except ValueError:
+        raise HTTPException(404) from None
+    if str(parsed) != raw_id.lower():
+        raise HTTPException(404)
+    with request.app.state.factory() as db:
+        job = db.get(Job, parsed)
+        if job is None:
+            raise HTTPException(404)
+        payload = job.payload if isinstance(job.payload, dict) else {}
+        if job.type != JobType.SCAN or payload.get("action") != PULL_ACTION:
+            raise HTTPException(404)
+        result = job.result if isinstance(job.result, dict) else {}
+        status = JobStatus(job.status)
+        # A failed attempt with attempts left (and a retryable class) goes back to the queue.
+        retrying = (
+            status == JobStatus.FAILED
+            and job.error_class == "transient_network"
+            and job.attempt < job.max_attempts
+            and result.get("retryable") is not False
+        )
+        certificate_id = result.get("certificate_id")
+        return {
+            "id": str(job.id),
+            "status": "retrying" if retrying else status.value,
+            "polling": retrying or status in (JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED),
+            "endpoint": format_hostport(str(payload.get("host")), int(payload.get("port") or 0)),
+            "sni": payload.get("sni"),
+            "attempt": job.attempt,
+            "max_attempts": job.max_attempts,
+            "error_message": job.error_message,
+            "certificate_id": certificate_id if type(certificate_id) is int else None,
+            "created": result.get("created") is True,
+        }
+
+
 def register_certificate_routes(app: FastAPI) -> None:
     @app.get("/certificates/import")
     def import_form(request: Request):
         return _page(request)
+
+    @app.post(PULL_ROUTE)
+    async def import_pull_submit(request: Request):
+        form = await request.form(max_files=0, max_fields=50, max_part_size=_MAX_PART)
+        try:
+            return await run_in_threadpool(_handle_pull, request, form)
+        finally:
+            await form.close()
+
+    @app.get("/imports/{job_id}")
+    def import_progress(request: Request, job_id: str):
+        job = _import_job(request, job_id)
+        return _render(request, "import_progress.html.j2", job=job)
+
+    @app.get("/imports/{job_id}/progress")
+    def import_progress_status(request: Request, job_id: str):
+        job = _import_job(request, job_id)
+        template = request.app.state.templates.env.get_template("import_progress.html.j2")
+        scope = {"request": request, "user": request.state.user, "job": job}
+        html = "".join(template.blocks["status"](template.new_context(scope)))
+        return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
     @app.post("/certificates/import/upload")
     async def import_upload_submit(request: Request):

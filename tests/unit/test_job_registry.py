@@ -51,12 +51,13 @@ def test_context_clock_defaults_to_utc_now():
     assert value.tzinfo is not None
 
 
-def test_build_registry_supports_only_cleanup():
+def test_build_registry_supports_cleanup_and_the_pull_import_only():
     registry = build_registry()
     assert registry.supports(JobType.CLEANUP)
     assert registry.supports(JobType.CLEANUP, "default")
     assert not registry.supports(JobType.DEPLOY)
-    assert not registry.supports(JobType.SCAN, "import_pull")
+    assert registry.supports(JobType.SCAN, "import_pull")  # Task 16
+    assert not registry.supports(JobType.SCAN)  # scan/default is Plan 2
     assert build_registry() is not build_registry()
 
 
