@@ -66,6 +66,7 @@ from app.web.common import (
 )
 from app.web.overview import register_overview_routes
 from app.web.renewals import register_renewal_routes
+from app.web.settings import register_settings_routes
 from app.web.users import register_user_routes
 
 __all__ = [
@@ -676,7 +677,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ("Deploy", "/deploy", False, "Available in a later plan"),
             ("Scans", "/scans", False, "Available in a later plan"),
             ("Audit", "/audit", True, ""),
-            ("Settings", "/settings", False, "Available in a later implementation task"),
+            ("Settings", "/settings", True, ""),
         ]
     ]
     app.state.templates = Jinja2Templates(
@@ -691,6 +692,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_renewal_routes(app)
     register_audit_routes(app)
     register_user_routes(app)
+    register_settings_routes(app)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):

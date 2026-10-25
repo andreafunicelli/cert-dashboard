@@ -74,3 +74,8 @@ button:disabled { color: #66748a; background: #e6ebf3; cursor: not-allowed; }
 table.users details form { margin: .75rem 0; min-width: 18rem; }
 table.users label { display: block; margin-top: .5rem; font-weight: 600; }
 table.users fieldset { margin: 0; padding: 0 0 .5rem; border: 0; }
+.tabs ul { display: flex; flex-wrap: wrap; gap: .25rem 1rem; margin: 0 0 1rem; padding: 0; list-style: none; }
+.tabs a[aria-current="page"] { font-weight: 700; text-decoration: none; border-bottom: 3px solid #1f4fa3; }
+.panel .checkbox { display: flex; align-items: center; gap: .5rem; }
+.panel .checkbox input { display: inline-block; width: auto; }
+.action-disabled .hint { margin-left: .5rem; }

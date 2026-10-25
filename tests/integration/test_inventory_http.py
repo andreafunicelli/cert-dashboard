@@ -660,7 +660,7 @@ def test_navigation_enables_implemented_areas_only(signed_in):
             rf'<span aria-disabled="true" title="Available in a later plan">{label}</span>', text
         ), label
     assert '<a href="/audit">Audit</a>' in text
-    assert re.search(r'<span aria-disabled="true" title="[^"]+">Settings</span>', text)
+    assert '<a href="/settings">Settings</a>' in text
 
 
 # --- datetimes ----------------------------------------------------------------------------------

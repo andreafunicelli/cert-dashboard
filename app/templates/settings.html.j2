@@ -1,0 +1,64 @@
+{% extends "base.html.j2" %}
+{% block title %}Settings · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<nav class="tabs" aria-label="Settings sections">
+  <ul>
+  {% for item in tabs %}
+    <li><a href="/settings?tab={{ item.name }}"{% if item.name == tab %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+  {% endfor %}
+  </ul>
+</nav>
+{% block panel %}
+{% macro disabled_action(label, reason) %}<p class="action-disabled"><button type="button" disabled aria-disabled="true">{{ label }}</button> <span class="hint">{{ reason }}</span></p>{% endmacro %}
+<section class="panel wide" id="settings-panel" data-tab="{{ tab }}" aria-labelledby="tab-heading">
+  <h2 id="tab-heading">{{ tab_label }}</h2>
+  {% if saved %}<p class="notice" role="status">Settings saved.</p>{% endif %}
+  {% if errors.get("form") %}<div class="form-error" data-field="form" role="alert">{% for message in errors["form"] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}
+  {% if placeholder %}
+  <p>{{ tab_label }} is coming in the next task.</p>
+  {% else %}
+  <form method="post" action="/settings/{{ tab }}" hx-post="/settings/{{ tab }}" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% for f in fields %}
+      {% if f.widget == "checkbox" %}
+    <input type="hidden" name="{{ f.name }}" value="false">
+    <label for="f-{{ f.name }}" class="checkbox"><input type="checkbox" id="f-{{ f.name }}" name="{{ f.name }}" value="true"{% if values[f.name] %} checked{% endif %}> {{ f.label }}</label>
+      {% elif f.widget == "select" %}
+    <label for="f-{{ f.name }}">{{ f.label }}</label>
+    <select id="f-{{ f.name }}" name="{{ f.name }}">
+      {% for option, text in f.choices %}<option value="{{ option }}"{% if values[f.name] == option %} selected{% endif %}>{{ text }}</option>{% endfor %}
+    </select>
+      {% elif f.widget == "textarea" %}
+    <label for="f-{{ f.name }}">{{ f.label }}</label>
+    <textarea id="f-{{ f.name }}" name="{{ f.name }}" rows="6" maxlength="20000">{{ values[f.name] }}</textarea>
+      {% else %}
+    <label for="f-{{ f.name }}">{{ f.label }}</label>
+    <input id="f-{{ f.name }}" name="{{ f.name }}" value="{{ values[f.name] }}" maxlength="600" autocomplete="off"{% if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}>
+      {% endif %}
+      {% if f.hint %}<p class="hint">{{ f.hint }}</p>{% endif %}
+      {% if errors.get(f.name) %}<div class="form-error" data-field="{{ f.name }}" role="alert">{% for message in errors[f.name] %}<p>{{ f.label }} {{ message }}</p>{% endfor %}</div>{% endif %}
+    {% endfor %}
+    <button type="submit">Save {{ tab_label }} settings</button>
+  </form>
+  {% if tab == "smtp" %}
+  {% if tls_unsafe %}<p class="form-error" role="alert" data-warning="tls-verify">unsafe: TLS certificate verification disabled — mail credentials and content can be intercepted.</p>{% endif %}
+  <p class="hint">SMTP password: provided only via the worker secret file <code>smtp_password</code>; not settable or visible here.</p>
+  {% if disabled.get("test_email") %}{{ disabled_action("Send test email", disabled["test_email"]) }}
+  {% else %}<form method="post" action="/settings/smtp/test"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Send test email</button></form>{% endif %}
+  {% elif tab == "inventory" %}
+  {% if disabled.get("test_pull") %}{{ disabled_action("Test pull", disabled["test_pull"]) }}
+  {% else %}<form method="post" action="/settings/inventory/test-pull"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Test pull</button></form>{% endif %}
+  {% endif %}
+  {% endif %}
+</section>
+{% endblock %}
+{% endblock %}
+{% block scripts %}
+<script>
+  // htmx ignores 4xx bodies by default; a refused save answers 422 with the re-rendered panel.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
+  });
+</script>
+{% endblock %}

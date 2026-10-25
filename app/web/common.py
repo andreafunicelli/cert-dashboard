@@ -16,14 +16,13 @@ from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from markupsafe import Markup
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.auth.base import UserRecord
 from app.auth.local import PasswordChangeError, allow_login_attempt
 from app.auth.sessions import issue_login_csrf
-from app.models import AppSetting
 from app.services.audit import Actor
+from app.services.settings import get_setting
 
 # While must_change_password is set, only these (method, path) pairs pass require_user.
 _PASSWORD_CHANGE_ALLOWED = frozenset(
@@ -238,7 +237,7 @@ def _transact(request: Request, work):
 
 def display_timezone(db: Session) -> str:
     """The ``ui.timezone`` display setting; anything missing or unknown means UTC."""
-    value = db.scalar(select(AppSetting.value).where(AppSetting.key == "ui.timezone"))
+    value = get_setting(db, "ui.timezone")
     if isinstance(value, str) and value:
         try:
             ZoneInfo(value)
