@@ -189,9 +189,9 @@ keyring copy does not match the dump: treat the backup as broken and fix it befo
 
 ## 5. Master key backup (critical)
 
-**Losing the master key makes every private key in the database permanently unrecoverable.**
-Certificates (public material) survive; the keys do not, and every certificate must be re-keyed and
-re-issued through the CA.
+**Losing every copy of the master key makes every private key it wrapped permanently
+unrecoverable.** Certificates (public material) survive; the wrapped keys do not, and those
+certificates must be re-keyed and re-issued through the CA.
 
 1. **Generate** the keyring on the dashboard host with the CLI (2.1). Never on a laptop and never
    sent by e-mail.
@@ -209,17 +209,29 @@ re-issued through the CA.
 6. **Update all copies together** on rotation: after the verification in 6 step 4, replace B and C
    with the new keyring (it still contains the previous version until step 5), re-record the
    fingerprint, and destroy the superseded copies only after the next restore drill passes.
-7. **If every copy is lost:** the dashboard cannot start. `master_key` is a required secret, so a
-   missing, unreadable or malformed file — or an active version that is not a 32-byte key — aborts
-   startup of `web`, `worker` and the configuration-dependent CLI commands (`rotate-master-key`,
-   `verify-key`, `bootstrap-admin`) with a configuration error (see `docker compose logs web`). Only
-   `generate-master-key` still works, because it reads no configured secret. An available keyring
-   whose *referenced* versions are missing is the milder case: the application starts, shows a
-   blocking banner, disables the dependent PFX actions, lists the versions in **Settings → Status**,
-   and certificates already deployed keep working. In either case the stored keys are unrecoverable:
-   generate new keys and CSRs with the renewal wizard, re-issue every certificate through the CA,
-   deploy, treat the old keys as compromised and record the incident. Plan the work around the
-   earliest expiry date in the inventory.
+7. **If the master key is lost or incomplete:** the response depends on the case.
+   - *`master_key` missing, unreadable or malformed — or an active version that is not a 32-byte
+     key:* the dashboard cannot start. The secret is required, so startup of `web`, `worker` and the
+     configuration-dependent CLI commands (`rotate-master-key`, `verify-key`, `bootstrap-admin`)
+     aborts with a configuration error (see `docker compose logs web`). Only `generate-master-key`
+     still works, because it reads no configured secret. Restore one of the copies above; do not
+     generate a new keyring unless every copy of a needed version is gone (last bullet).
+   - *The file loads but a referenced version is missing* (a stored key or TOTP seed names a version
+     the keyring does not contain): the application starts, shows a persistent banner on every page,
+     disables the dependent PFX actions, lists the missing versions in **Settings → Status**, and
+     certificates already deployed keep working. This case is **recoverable**: install the keyring
+     copy that still holds that version as `/etc/cert-dashboard/secrets/master_key`, keep its owner
+     and mode (re-run `scripts/install-secrets.sh`), then
+     `docker compose up -d --force-recreate web worker` and confirm the warning is gone. Re-key
+     nothing before you have tried this.
+   - *Every copy of a needed version is gone:* the rows wrapped under that version are permanently
+     unrecoverable — no key you still hold can decrypt them. Treat the old keys as compromised and
+     record the incident. Generate a fresh keyring with the recipe in 2.1, choosing a version number
+     higher than any the database records (version numbers are never reused), install it with the
+     canonical owner and mode, and restart `web` and `worker` so that it is loaded: the renewal
+     wizard wraps new keys under the active version, so renewals cannot start until that restart has
+     happened. Then generate new keys and CSRs for every affected certificate, re-issue them through
+     the CA, and plan the work around the earliest expiry date in the inventory.
 8. **If a copy leaks** (without the database): rotate immediately (section 6). The old key becomes
    useless once every row is re-encrypted and the old version is removed.
 
@@ -300,7 +312,7 @@ will appear. Do not rely on them today.
 | Worker stale (no heartbeat for more than 5 minutes) | Plan 1 | Red banner "Worker is not running" on every page (it links to **Settings → Status**); `curl -fsS http://127.0.0.1:8000/healthz` returns `"worker": "stale"` (and `"db": "unavailable"` with HTTP 503 when the database is down); the `worker` container turns `unhealthy` | `docker compose ps`, then `docker compose logs --tail 200 worker`. Restart with `docker compose up -d worker`. A worker that stays stale after a restart usually means the database or a secret file is unreachable: check `docker compose logs db` and the owners and modes in section 2.1 |
 | Job queue depth growing or a job stuck | Plan 1 | **Settings → Status** shows queued, running, paused and failed-in-24-hours counts, the last finished job per type and the last scheduled runs. For the oldest waiting rows query the database: `docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT status, type, count(*), min(created_at) FROM job WHERE status IN ('queued','running','paused') GROUP BY 1, 2"` | Many `queued` rows with a fresh heartbeat mean the worker is saturated (four slots) or a job is stuck. Check `docker compose logs worker`. The reaper times out `running` jobs past `timeout_at` and requeues retryable failures every scheduler tick. Failed jobs keep `error_class` and `error_message` (no secrets) in the `job` row |
 | Web unavailable | Plan 1 | `curl -fsS http://127.0.0.1:8000/health/live` and `/health/ready`; `docker compose ps` | `/health/live` failing: restart `web`. `/health/ready` failing: the database is unreachable, see `docker compose logs db` |
-| Disk usage on the dashboard host | Plan 1 (host monitoring) | `df -h /var/lib/docker /var/backups/cert-dashboard-db`; `docker system df` | Container logs are capped at 50m x 5 files per container. Database dumps are pruned by the script in 4.1. Alert the host monitoring at 80% usage. The application prunes its own data with the `cleanup` job, which runs daily at 04:00 UTC (`cleanup.daily_at`, `cleanup.enabled`): finished jobs and scan results older than `retention.days` (90 by default), expired/idle/revoked sessions, login counters older than one day, and artifacts older than 30 days. It never removes audit rows, and **Settings → Maintenance** (section 9.2) queues the same prune on demand |
+| Disk usage on the dashboard host | Plan 1 (host monitoring) | `df -h /var/lib/docker /var/backups/cert-dashboard-db`; `docker system df` | Container logs are capped at 50m x 5 files per container. Database dumps are pruned by the script in 4.1. Alert the host monitoring at 80% usage. The application prunes its own data with the `cleanup` job, which runs daily at 04:00 UTC (`cleanup.daily_at`, `cleanup.enabled`): finished jobs older than `retention.days` (90 by default); scan results older than a fixed 90 days (`SCAN_RESULT_RETENTION`, independent of `retention.days`); expired/idle/revoked sessions; login counters older than one day; and artifacts older than 30 days. It never removes audit rows, and **Settings → Maintenance** (section 9.2) queues the same prune on demand |
 | Key export failures | Plan 1 | Audit rows `key.export_failed` (for example `SELECT created_at, target_id, details FROM audit_log WHERE action = 'key.export_failed' ORDER BY created_at DESC LIMIT 20`) | `key_unwrap` or a missing master-key version: the secret file does not hold the version used by that certificate; restore the missing copy (section 5) before anything is rotated. `no_key`: the certificate has no stored key (expected for imported certificates without one) |
 | Repeated failed re-authentication or lockouts | Plan 1 | Audit rows `auth.login_failed` and `auth.lockout` (for example `SELECT created_at, action, target_id, details, ip FROM audit_log WHERE action IN ('auth.login_failed', 'auth.lockout') ORDER BY created_at DESC LIMIT 50`) | 10 consecutive failures lock an account for 15 minutes; a wrong password at the PFX export form counts toward the same counter. Many failures from one address point at a guessing attempt: block it on the front proxy |
 | Discovery failing for many hosts | Later plans | Not available yet | Will appear in the digest and the job list |

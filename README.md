@@ -1,10 +1,10 @@
 # cert-dashboard
 
-An internal dashboard for keeping track of the TLS certificates an organisation owns:
-import them, see what expires next, run a manual-CA renewal from CSR to deployed
-certificate, and download audited copies of the material when a server needs it. It runs
-as one Compose stack on a single internal Docker host, talks to no external service, and
-stores private keys and TOTP seeds encrypted under a keyring the operators hold.
+An internal dashboard for keeping track of the TLS certificates an organisation owns: import
+them, see what expires next, run a manual-CA renewal from CSR to an issued, deployment-ready
+certificate, and download audited copies of the material when a server needs it. It runs as
+one Compose stack on a single internal Docker host, talks to no external service, and stores
+private keys and TOTP seeds encrypted under a keyring the operators hold.
 
 ## Status
 
@@ -15,9 +15,9 @@ stores private keys and TOTP seeds encrypted under a keyring the operators hold.
 | Plan 3 — server discovery and automated deploy | Not started |
 
 Working today: certificate inventory, upload and pull import, expiry overview, renewal
-wizard, audited downloads, audit browser, users/MFA, typed settings, the job queue, the
-worker and its scheduler. The Overview, the navigation and the detail page render every
-control owned by a later plan as disabled together with the reason.
+wizard up to issued, audited downloads, audit browser, users/MFA, typed settings, the job
+queue, the worker and its scheduler. The Overview, the navigation and the detail page render
+every control owned by a later plan as disabled together with the reason.
 
 ## Architecture
 
@@ -77,11 +77,15 @@ filters, sorting, bookmarkable queries, 1–100 rows per page and a JSON export;
 page shows public fields, key presence/public fingerprint, related audits, lineage, chain
 status warnings and editable metadata.
 
-**Renew.** A resumable manual-CA wizard walks through CSR generation (RSA 2048/3072/4096 or
-ECDSA P-256/P-384, RSA 2048 by default), download of the CSR, submission to the CA, upload
-of the issued PEM with optional chain, and finalisation. The issued-certificate gate
-checks key **and** CSR SPKI, CN/SAN set and validity before accepting. There is no manual
-"deployed" button: deployment belongs to Plan 3.
+**Renew, up to issued.** A resumable manual-CA wizard walks through CSR generation (RSA
+2048/3072/4096 or ECDSA P-256/P-384, RSA 2048 by default), download of the CSR, submission to
+the CA, and upload of the issued PEM with optional chain; it then stops at **issued / ready to
+deploy**. The issued-certificate gate checks key **and** CSR SPKI, CN/SAN set and validity
+before accepting. The state machine continues to `deployed` and `done` and both service hooks
+exist (`mark_deployed` verifies deploy-job and binding evidence, `finalize` changes the previous
+certificate's status), but Plan 1 registers no deploy handler, so a renewal cannot leave
+`issued`: deployment and finalisation, including the previous-certificate status change, are
+gated until Plan 3. The ready page says so and offers no manual "deployed" button.
 
 **Export.** Leaf, chain and full-chain PEM downloads and a password-protected PFX export
 are audited. The PFX is rebuilt in memory after you re-enter your own password; nothing is

@@ -86,9 +86,12 @@ with the pull request that delivered each group of changes.
 - Audited renewal state machine `draft → csr_generated → submitted → issued → deployed →
   done` with row locking, cancel rules, atomic CSR/key storage and an issued-certificate
   gate that checks key and CSR SPKI, CN/SAN identity and validity.
-- Resumable manual-CA wizard: prefill, CSR download, CA checklist, submitted/issued steps,
-  persisted trust warnings, non-JS and htmx paths, and finalisation with previous-certificate
-  status change.
+- Resumable manual-CA wizard: prefill, CSR download, CA checklist, submitted step and an
+  issued/ready step, persisted trust warnings, non-JS and htmx paths. The renewal stops at
+  `issued` in Plan 1: `mark_deployed` is implemented but requires a successful deploy job and
+  binding evidence, no deploy handler is registered, and finalisation (with the previous
+  certificate's status change) is only reachable from `deployed` — all of it arrives with
+  Plan 3.
 - Audited `leaf.pem`, `chain.pem` and `fullchain.pem` downloads, and a re-authenticated,
   password-protected PFX export built entirely in memory.
 
@@ -112,12 +115,14 @@ with the pull request that delivered each group of changes.
 
 ### Security
 
-- No secret is stored in the database or rendered in the web interface: private keys and
-  TOTP seeds are AES-256-GCM encrypted under a versioned keyring read from a file secret,
-  and the SMTP password appears only as secret-presence metadata.
-- Secrets exist only as read-only file mounts with fixed owners and modes; they are never
-  taken from argv, compose values, environment listings, logs or audit details, and are
-  read once at startup.
+- No plaintext secret is stored in the database or rendered in the web interface: private
+  keys and TOTP seeds live in PostgreSQL only as row-bound AES-256-GCM ciphertext under a
+  versioned keyring read from a file secret, and the SMTP password appears only as
+  secret-presence metadata. The master key itself never enters the database.
+- File-held operational credentials — `master_key`, `session_secret`, `db_password`,
+  `db_owner_password` and the optional worker credentials — exist only as read-only file
+  mounts with fixed owners and modes; they are never taken from argv, compose values,
+  environment listings, logs or audit details, and are read once at startup.
 - The audit log is append-only: the application role cannot `UPDATE`, `DELETE` or
   `TRUNCATE` it, and owner-level mutation is blocked by triggers. Audit writes share the
   caller's transaction, so a rolled-back operation leaves no audit row.

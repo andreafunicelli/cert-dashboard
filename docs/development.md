@@ -64,7 +64,7 @@ rules and transactions live in `app/services/`.
 | --- | --- | --- |
 | `app/web/overview.py` | `GET /` — expiry buckets and the setup empty state | `test_inventory_http.py` |
 | `app/web/certificates.py` | `/certificates`, `/certificates/export.json`, detail, edit, status and chain forms, `leaf.pem`/`chain.pem`/`fullchain.pem`, `export.pfx`, upload import, pull-import route and `/imports/{job_id}` progress | `test_inventory_http.py`, `test_upload_import.py`, `test_pull_import.py`, `test_downloads.py` |
-| `app/web/renewals.py` | `/renewals/{id}` wizard: edit, generate CSR, `csr.pem`, submit, issued, finalize, cancel | `test_renewal_wizard.py` |
+| `app/web/renewals.py` | `/renewals/{id}` wizard: edit, generate CSR, `csr.pem`, submit, issued, finalize (only from `deployed`, so unreachable until Plan 3), cancel | `test_renewal_wizard.py` |
 | `app/web/audit.py` | `/audit` browser and `/audit/export.json` | `test_audit_http.py` |
 | `app/web/users.py` | `/users` administration, password and TOTP resets, deactivation | `test_users_http.py` |
 | `app/web/settings.py` | `/settings` — seven configuration tabs plus trust anchors, status and maintenance | `test_settings_http.py` |
