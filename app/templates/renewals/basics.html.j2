@@ -1,0 +1,63 @@
+{% extends "renewals/_layout.html.j2" %}
+{% block title %}{% if r %}Renew {{ r.common_name }}{% else %}Start a renewal{% endif %} · Cert Dashboard{% endblock %}
+{% block panel %}
+{% from "renewals/_macros.html.j2" import field_error, header, general_errors, cancel_form %}
+<section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
+  {{ header(r, state, step, steps, previous, tz) }}
+  {{ general_errors(errors) }}
+  {% if state == "cancelled" %}
+  <p class="notice" role="status">This renewal was cancelled. The private key, the CSR and the history are kept; nothing can be changed any more.</p>
+  {% endif %}
+
+  {% if editable %}
+  {% set action = ("/renewals/" ~ r.id ~ "/edit") if r else ("/renewals/new" ~ (("?from=" ~ source_id) if source_id else "")) %}
+  <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <h2>Names</h2>
+    <label for="common_name">Common name</label>
+    <input id="common_name" name="common_name" value="{{ form.common_name }}" maxlength="300" required autocomplete="off" spellcheck="false">
+    {{ field_error(errors, "common_name") }}
+    <label for="sans">Subject alternative names (one per line)</label>
+    <textarea id="sans" name="sans" rows="5" cols="60" spellcheck="false" autocomplete="off">{{ form.sans }}</textarea>
+    <p class="hint">DNS names and IP addresses; the common name is always included. Use <code>IP:</code>, <code>email:</code> or <code>URI:</code> prefixes for other types.</p>
+    {{ field_error(errors, "sans") }}
+    <label for="ca_name">Certificate authority</label>
+    <input id="ca_name" name="ca_name" value="{{ form.ca_name }}" maxlength="200" autocomplete="off">
+    {{ field_error(errors, "ca_name") }}
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="3" cols="60" maxlength="10000">{{ form.notes }}</textarea>
+    <p class="hint">Notes are shown to every administrator; do not store secrets here.</p>
+    {{ field_error(errors, "notes") }}
+
+    <h2>Key</h2>
+    <label for="key_algorithm">Key algorithm</label>
+    <select id="key_algorithm" name="key_algorithm"{% if not r %} disabled{% endif %}>
+      {% for item in algorithms %}<option value="{{ item.value }}"{% if form.key_algorithm == item.value %} selected{% endif %}>{{ item.label }}</option>{% endfor %}
+    </select>
+    {{ field_error(errors, "key_algorithm") }}
+    <ul class="plain algorithm-notes">
+      {% for item in algorithms %}<li><strong>{{ item.label }}</strong>: {{ item.note }}</li>{% endfor %}
+    </ul>
+    <p class="hint">Compatibility trade-off: RSA 2048 works everywhere; ECDSA is smaller and faster but not understood by every client or CA. The private key is generated here and stored encrypted; it never leaves the application.</p>
+    {% if r %}
+    <p class="hint">The names are frozen once the CSR is generated. Save changes first; generating the CSR refuses unsaved edits.</p>
+    <button type="submit">Save changes</button>
+    <button type="submit" formaction="/renewals/{{ r.id }}/generate-csr" hx-post="/renewals/{{ r.id }}/generate-csr">Generate CSR</button>
+    {% else %}
+    <p class="hint">The algorithm is chosen when you generate the CSR on the next screen; it is not saved with the draft.</p>
+    <button type="submit">Create draft</button>
+    {% endif %}
+  </form>
+  {% else %}
+  <h2>Names</h2>
+  <dl class="fields">
+    <dt>Common name</dt><dd>{{ r.common_name }}</dd>
+    <dt>Subject alternative names</dt><dd><ul class="plain">{% for san in r.sans %}<li>{{ san }}</li>{% endfor %}</ul></dd>
+    <dt>Certificate authority</dt><dd>{{ r.ca_name or "—" }}</dd>
+    <dt>Notes</dt><dd class="notes">{{ r.notes or "—" }}</dd>
+  </dl>
+  {% endif %}
+
+  {% if can_cancel %}{{ cancel_form(r, errors, csrf_token) }}{% endif %}
+</section>
+{% endblock %}

@@ -1,0 +1,31 @@
+{% extends "renewals/_layout.html.j2" %}
+{% block title %}CSR · {{ r.common_name }} · Cert Dashboard{% endblock %}
+{% block panel %}
+{% from "renewals/_macros.html.j2" import field_error, header, general_errors, cancel_form %}
+<section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
+  {{ header(r, state, step, steps, previous, tz) }}
+  {{ general_errors(errors) }}
+  <h2>Certificate signing request</h2>
+  <p>Names: <strong>{{ r.common_name }}</strong>{% if r.sans %} ({{ r.sans | join(", ") }}){% endif %}. They can no longer be changed.</p>
+  <pre id="csr-pem" tabindex="0" style="user-select: all">{{ r.csr_pem }}</pre>
+  <p><a class="button" href="/renewals/{{ r.id }}/csr.pem">Download CSR</a></p>
+  <p>SHA-256: <code>{{ r.csr_sha256 }}</code></p>
+  <p class="hint">Compare this hash with the request shown in the CA portal; it proves you submitted the right CSR.</p>
+
+  <h2>At the CA</h2>
+  <p class="checklist"><strong>CA portal checklist:</strong> order a certificate, paste this CSR, complete validation, download the certificate and any intermediate.</p>
+
+  <h2>Record the order</h2>
+  <form method="post" action="/renewals/{{ r.id }}/submit"
+        hx-post="/renewals/{{ r.id }}/submit" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="order_reference">CA order reference</label>
+    <input id="order_reference" name="order_reference" maxlength="200" required autocomplete="off">
+    {{ field_error(errors, "order_reference") }}
+    <p class="hint">The date is recorded automatically. The renewal then waits for the issued certificate.</p>
+    <button type="submit">I have ordered it</button>
+  </form>
+
+  {% if can_cancel %}{{ cancel_form(r, errors, csrf_token) }}{% endif %}
+</section>
+{% endblock %}

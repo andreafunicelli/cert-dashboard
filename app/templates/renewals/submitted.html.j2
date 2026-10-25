@@ -1,0 +1,20 @@
+{% extends "renewals/_layout.html.j2" %}
+{% block title %}Order · {{ r.common_name }} · Cert Dashboard{% endblock %}
+{% block panel %}
+{% from "renewals/_macros.html.j2" import header, general_errors, cancel_form %}
+<section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
+  {{ header(r, state, step, steps, previous, tz) }}
+  {{ general_errors(errors) }}
+  <h2>Issued externally, awaiting upload</h2>
+  <dl class="fields">
+    <dt>CA</dt><dd>{{ r.ca_name or "—" }}</dd>
+    <dt>Order reference</dt><dd><code>{{ r.ca_order_reference }}</code></dd>
+    <dt>Submitted</dt><dd>{{ time_tag(r.state_changed_at, tz) }}</dd>
+    <dt>CSR SHA-256</dt><dd><code>{{ r.csr_sha256 }}</code></dd>
+  </dl>
+  <p>When the CA has issued the certificate, download it (and any intermediate) and upload it here.</p>
+  <p><a class="button" href="/renewals/{{ r.id }}?step=upload">Upload the issued certificate</a></p>
+
+  {% if can_cancel %}{{ cancel_form(r, errors, csrf_token) }}{% endif %}
+</section>
+{% endblock %}

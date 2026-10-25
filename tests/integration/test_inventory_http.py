@@ -905,9 +905,11 @@ def test_detail_empty_panels_have_explanatory_text(signed_in, inventory):
 
 def test_detail_buttons_are_placeholders_until_later_tasks_and_plans(signed_in, inventory):
     page = signed_in.get(f"/certificates/{inventory.www}")
-    for label in ("Download", "Renew"):
-        assert re.search(rf'<button[^>]*disabled[^>]*>[^<]*{label}', page.text), label
-    assert "Available after Tasks 19" in page.text
+    assert re.search(r'<button[^>]*disabled[^>]*>[^<]*Download', page.text)
+    assert "Available after Task 20" in page.text
+    # Task 19 enabled the renewal wizard entry point for active certificates.
+    assert f'href="/renewals/new?from={inventory.www}"' in page.text
+    assert not re.search(r'<button[^>]*disabled[^>]*>[^<]*Renew', page.text)
     for label in ("Deploy", "Scan now"):
         assert re.search(rf'<button[^>]*disabled[^>]*>[^<]*{label}', page.text), label
     assert "Available in a later plan" in page.text

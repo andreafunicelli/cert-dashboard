@@ -64,6 +64,7 @@ from app.web.common import (
     require_user,
 )
 from app.web.overview import register_overview_routes
+from app.web.renewals import register_renewal_routes
 
 __all__ = [
     "_actor",
@@ -685,6 +686,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _register_auth_routes(app)
     register_certificate_routes(app)
     register_overview_routes(app)
+    register_renewal_routes(app)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):

@@ -1,0 +1,41 @@
+{% extends "renewals/_layout.html.j2" %}
+{% block title %}Done · {{ r.common_name }} · Cert Dashboard{% endblock %}
+{% block panel %}
+{% from "renewals/_macros.html.j2" import field_error, header, general_errors %}
+<section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
+  {{ header(r, state, step, steps, previous, tz) }}
+  {{ general_errors(errors) }}
+  {% if certificate %}
+  <p>New certificate: <a href="/certificates/{{ certificate.id }}">{{ certificate.common_name }}</a>
+    (#{{ certificate.id }}, valid until {{ time_tag(certificate.not_after, tz) }}).</p>
+  {% endif %}
+
+  {% if state == "deployed" %}
+  <h2>Finish the renewal</h2>
+  <p>A deploy of the new certificate succeeded. Confirm that it is in use to close the renewal.</p>
+  <form method="post" action="/renewals/{{ r.id }}/finalize"
+        hx-post="/renewals/{{ r.id }}/finalize" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label><input type="checkbox" name="confirm" value="yes" required> I confirm the new certificate is deployed and working.</label>
+    {{ field_error(errors, "confirm") }}
+    <fieldset>
+      <legend>The previous certificate{% if previous %} ({{ previous.common_name }}){% endif %} becomes</legend>
+      <label><input type="radio" name="previous_status" value="superseded" {% if form.previous_status != "revoked" %}checked{% endif %}> superseded (default)</label>
+      <label><input type="radio" name="previous_status" value="revoked" {% if form.previous_status == "revoked" %}checked{% endif %}> revoked (the CA revoked it)</label>
+    </fieldset>
+    {{ field_error(errors, "previous_status") }}
+    <label for="reason">Reason (required to revoke)</label>
+    <textarea id="reason" name="reason" rows="2" cols="60" maxlength="1000">{{ form.reason }}</textarea>
+    {{ field_error(errors, "reason") }}
+    <button type="submit">Mark done</button>
+  </form>
+  {% else %}
+  <h2>Renewal complete</h2>
+  <dl class="fields">
+    <dt>Completed</dt><dd>{{ time_tag(r.state_changed_at, tz) }}</dd>
+    <dt>Previous certificate</dt><dd>{% if previous %}<a href="/certificates/{{ previous.id }}">{{ previous.common_name }}</a>: {{ previous.status.value }}{% else %}none{% endif %}</dd>
+    <dt>CSR SHA-256</dt><dd><code>{{ r.csr_sha256 }}</code></dd>
+  </dl>
+  {% endif %}
+</section>
+{% endblock %}
