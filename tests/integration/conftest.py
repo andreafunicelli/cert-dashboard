@@ -1,3 +1,4 @@
+import contextlib
 import secrets
 from pathlib import Path
 
@@ -460,3 +461,122 @@ def worker_harness(web_factory, make_worker):
     with web_factory.begin() as db:
         for row in db.query(WorkerHeartbeat):
             db.delete(row)
+
+
+# --- local TLS listener (Task 16) -------------------------------------------------------------
+
+
+class TLSServer:
+    """A 127.0.0.1 listener that counts accepted connections and records the SNI it receives.
+
+    ``mode``: ``tls`` completes handshakes and serves ``cert`` + ``intermediates``; ``silent``
+    accepts and never answers; ``garbage`` answers the ClientHello with non-TLS bytes.
+    """
+
+    host = "127.0.0.1"
+
+    def __init__(self, cert, key, intermediates=(), mode="tls"):
+        import socket
+        import threading
+
+        from OpenSSL import SSL
+
+        self.mode = mode
+        self.connections = 0
+        self.server_names: list[bytes | None] = []
+        self._lock = threading.Lock()
+        self._held: list[socket.socket] = []
+        self._closing = False
+        self._stop = threading.Event()
+        self._context = SSL.Context(SSL.TLS_SERVER_METHOD)
+        self._context.use_certificate(cert)
+        self._context.use_privatekey(key)
+        for extra in intermediates:
+            self._context.add_extra_chain_cert(extra)
+        self._context.set_tlsext_servername_callback(self._on_server_name)
+        self._listener = socket.socket()
+        self._listener.bind((self.host, 0))
+        self._listener.listen(16)
+        self.port = self._listener.getsockname()[1]
+        threading.Thread(target=self._accept_loop, daemon=True).start()
+
+    def _on_server_name(self, connection):
+        with self._lock:
+            self.server_names.append(connection.get_servername())
+
+    @property
+    def seen_server_names(self) -> list[str]:
+        with self._lock:
+            return [name.decode("ascii") for name in self.server_names if name]
+
+    def _accept_loop(self):
+        import threading
+
+        while not self._closing:
+            try:
+                sock, _ = self._listener.accept()
+            except OSError:
+                return
+            with self._lock:
+                self.connections += 1
+                self._held.append(sock)
+            threading.Thread(target=self._serve, args=(sock,), daemon=True).start()
+
+    def _serve(self, sock):
+        from OpenSSL import SSL
+
+        with contextlib.suppress(Exception):  # the client may disconnect at any point
+            if self.mode == "silent":
+                self._stop.wait(30)
+            elif self.mode == "garbage":
+                sock.settimeout(10)
+                sock.recv(4096)
+                sock.sendall(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n")
+            else:
+                # Blocking socket on purpose: with a timeout the fd is non-blocking and
+                # pyOpenSSL would raise WantReadError instead of waiting for the client.
+                connection = SSL.Connection(self._context, sock)
+                connection.set_accept_state()
+                connection.do_handshake()
+                connection.recv(1)  # returns/raises once the client closes
+        sock.close()
+
+    def close(self):
+        self._closing = True
+        self._stop.set()
+        self._listener.close()
+        with self._lock:
+            for sock in self._held:
+                try:
+                    sock.close()
+                except OSError:
+                    pass
+
+
+@pytest.fixture
+def tls_servers():
+    """Factory for listeners; every one is closed at teardown."""
+    started = []
+
+    def start(cert, key, intermediates=(), mode="tls"):
+        server = TLSServer(cert, key, intermediates, mode)
+        started.append(server)
+        return server
+
+    yield start
+    for server in started:
+        server.close()
+
+
+@pytest.fixture
+def pull_certs(now):
+    """Unique certificates per test: the web database is shared by the whole test module."""
+    from tests.fixtures.certificates import generate_certificates
+
+    return generate_certificates(now)
+
+
+@pytest.fixture
+def tls_server(tls_servers, pull_certs):
+    """A listener serving the leaf plus both intermediates (never the root)."""
+    return tls_servers(pull_certs.leaf, pull_certs.leaf_key, pull_certs.intermediates)

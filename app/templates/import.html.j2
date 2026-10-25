@@ -1,6 +1,7 @@
 {% extends "base.html.j2" %}
 {% block title %}Import certificate · Cert Dashboard{% endblock %}
 {% block content %}
+{% block upload_panel %}
 {% macro field_errors(name, errors) %}{% if errors.get(name) %}<div class="form-error" data-field="{{ name }}" role="alert">{% for message in errors[name] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}{% endmacro %}
 <section class="panel" id="import-panel">
   <h1>Import certificate</h1>
@@ -65,6 +66,44 @@
     <button type="submit">{% if duplicate and duplicate.key_attachable %}Attach key to existing certificate{% else %}Import{% endif %}</button>
   </form>
 </section>
+{% endblock %}
+{% block pull_panel %}
+<section class="panel" id="pull-panel">
+  <h2>Pull from server</h2>
+  <p class="hint">The worker connects to the host and port, records the certificate chain it serves (without verifying trust) and keeps it as the expected certificate for that endpoint.</p>
+  {% if pull_errors %}<p class="form-error" role="alert">The request was not queued. Fix the problems below and try again.</p>{% endif %}
+  <form id="pull-form" method="post" action="/certificates/import/pull"
+        hx-post="/certificates/import/pull" hx-target="#pull-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+    <label for="pull_host">Host name or IP address</label>
+    <input id="pull_host" name="host" value="{{ pull_form.host }}" maxlength="300" required autocomplete="off" spellcheck="false">
+    {% if pull_errors.host %}<div class="form-error" data-field="pull_host" role="alert"><p>{{ pull_errors.host }}</p></div>{% endif %}
+
+    <label for="pull_port">Port</label>
+    <input id="pull_port" name="port" value="{{ pull_form.port }}" inputmode="numeric" maxlength="5" autocomplete="off">
+    {% if pull_errors.port %}<div class="form-error" data-field="pull_port" role="alert"><p>{{ pull_errors.port }}</p></div>{% endif %}
+
+    <label for="pull_sni">SNI server name (optional)</label>
+    <input id="pull_sni" name="sni" value="{{ pull_form.sni }}" maxlength="300" autocomplete="off" spellcheck="false">
+    <p class="hint">Defaults to the host name; no SNI is sent when the host is an IP address.</p>
+    {% if pull_errors.sni %}<div class="form-error" data-field="pull_sni" role="alert"><p>{{ pull_errors.sni }}</p></div>{% endif %}
+
+    <h3>Inventory details</h3>
+    <label for="pull_owner_name">Owner name</label>
+    <input id="pull_owner_name" name="owner_name" value="{{ pull_form.owner_name }}" maxlength="200">
+    <label for="pull_owner_email">Owner email</label>
+    <input id="pull_owner_email" name="owner_email" value="{{ pull_form.owner_email }}" maxlength="254">
+    <label for="pull_team">Team</label>
+    <input id="pull_team" name="team" value="{{ pull_form.team }}" maxlength="200">
+    <label for="pull_notes">Notes</label>
+    <textarea id="pull_notes" name="notes" rows="3" cols="60" maxlength="10000">{{ pull_form.notes }}</textarea>
+    {% if pull_errors.metadata %}<div class="form-error" data-field="pull_metadata" role="alert"><p>{{ pull_errors.metadata }}</p></div>{% endif %}
+
+    <button type="submit">Pull and import</button>
+  </form>
+</section>
+{% endblock %}
 {% endblock %}
 {% block scripts %}
 <script>
