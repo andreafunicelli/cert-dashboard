@@ -442,6 +442,12 @@ def _parse_leaf(leaf_data: bytes, errors: dict[str, list[str]]) -> ParsedCertifi
 
 
 def _parse_chain(chain_data: bytes, errors: dict[str, list[str]]) -> list[x509.Certificate] | None:
+    if _looks_like_pfx(bytes(chain_data)):
+        errors.setdefault("chain", []).append(
+            "pfx_not_accepted: PKCS#12/PFX bundles are not accepted here; "
+            "supply intermediate certificates as PEM or DER."
+        )
+        return None
     try:
         return [item.cert for item in parse_certificates(bytes(chain_data))]
     except ParseError:

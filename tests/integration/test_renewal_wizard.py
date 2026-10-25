@@ -653,6 +653,29 @@ def test_pfx_upload_is_rejected_and_state_is_unchanged(wizard):
     assert _state(wizard, renewal.id) == RenewalState.SUBMITTED and wizard.count(Certificate) == before
 
 
+def test_pfx_in_the_chain_upload_is_rejected_with_a_typed_error_and_state_is_unchanged(wizard):
+    renewal = wizard.submitted()
+    issued = wizard.ca.issue(renewal.csr_pem)
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = wizard.ca.raw.issue(public_key=key.public_key(), common_name="pfx.example.internal", sans=["pfx.example.internal"])
+    pfx = pkcs12.serialize_key_and_certificates(
+        b"bundle",
+        key,
+        x509.load_pem_x509_certificate(pem),
+        None,
+        serialization.BestAvailableEncryption(b"fixture-pfx-pass"),
+    )
+    before = wizard.count(Certificate)
+    response = wizard.post(
+        f"/renewals/{renewal.id}/issued",
+        {"leaf_text": issued.leaf.decode("ascii")},
+        files={"chain_file": ("chain.pem", pfx, "application/octet-stream")},
+    )
+    assert response.status_code == 422 and "pfx_not_accepted" in response.text
+    assert _state(wizard, renewal.id) == RenewalState.SUBMITTED and wizard.count(Certificate) == before
+    assert not wizard.audits("renewal.issued", renewal.id)
+
+
 def test_all_independent_blocking_errors_are_reported_together(wizard):
     renewal = wizard.submitted()
     other_key = ec.generate_private_key(ec.SECP256R1())
