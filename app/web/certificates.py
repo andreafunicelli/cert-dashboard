@@ -770,8 +770,8 @@ def _pfx_form_error(form: FormData) -> str | None:
         return f"The PFX password must contain at least {PFX_PASSWORD_MIN} characters."
     if len(pfx) > PFX_PASSWORD_MAX:
         return f"The PFX password must contain at most {PFX_PASSWORD_MAX:,} characters."
-    # An absent confirmation (a non-browser client) is tolerated; a different one never is.
-    if confirm is not None and confirm != pfx:
+    # Both fields are mandatory: an absent confirmation is refused exactly like a different one.
+    if confirm != pfx:
         return "The PFX passwords do not match."
     if not isinstance(password, str) or not password or len(password) > _PFX_FIELD_LIMIT:
         return "Enter your current password to confirm it is you."

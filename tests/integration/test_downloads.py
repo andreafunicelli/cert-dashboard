@@ -171,7 +171,12 @@ def disposition_name(response):
 def test_pfx_requires_reauth_and_chosen_password(signed_in, cert_with_key, csrf, web_factory):
     response = signed_in.post(
         f"/certificates/{cert_with_key.id}/export.pfx",
-        data={"password": "correct-long-pass", "pfx_password": "chosen-pass-123", "csrf_token": csrf},
+        data={
+            "password": "correct-long-pass",
+            "pfx_password": "chosen-pass-123",
+            "pfx_password_confirm": "chosen-pass-123",
+            "csrf_token": csrf,
+        },
     )
     assert response.status_code == 200
     key, leaf, chain = pkcs12.load_key_and_certificates(response.content, b"chosen-pass-123")
@@ -270,6 +275,7 @@ def test_missing_password_is_refused(signed_in, cert_with_key, csrf, web_factory
     [
         ({"pfx_password": "short-11-pw", "pfx_password_confirm": "short-11-pw"}, "at least 12"),
         ({"pfx_password": None, "pfx_password_confirm": None}, "at least 12"),
+        ({"pfx_password": "chosen-pass-123", "pfx_password_confirm": None}, "do not match"),
         ({"pfx_password": "x" * 1025, "pfx_password_confirm": "x" * 1025}, "at most 1,024"),
         ({"pfx_password": "chosen-pass-123", "pfx_password_confirm": "chosen-pass-124"}, "do not match"),
     ],

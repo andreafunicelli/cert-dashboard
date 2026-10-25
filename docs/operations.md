@@ -96,9 +96,9 @@ in section 5.
    docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal
    ```
 
-   For unattended provisioning pass the password as an environment variable, never an
-   argument: `docker compose run --rm -e BOOTSTRAP_ADMIN_PASSWORD web python -m app.cli bootstrap-admin ...`
-   (the CLI reads it once and removes it from its environment).
+   Run it interactively (`docker compose run` allocates a terminal); the password exists only
+   in your terminal prompt. Do not script it with environment variables or arguments: that
+   would expose the secret to shell history, the process list or CI logs.
 4. Start the application: `docker compose up -d web worker`.
 5. Sign in, enroll two-factor authentication on the Account page and import the first
    certificate. Check the Overview and a certificate detail page.
@@ -275,3 +275,22 @@ backup first (4.1).
   (`pip-audit` runs in CI).
 - Keys are exported only as a re-authenticated, password-protected PFX built in memory. Failed
   re-authentication counts toward the account lockout (10 failures, 15 minutes).
+
+## 8. Operational signals
+
+The signals below follow spec §11.8. Rows marked **Plan 1** work in this release; rows marked
+**Later plans** depend on features that are not shipped yet and are listed only so you know what
+will appear. Do not rely on them today.
+
+| Signal | Availability | Where to look | Response |
+| --- | --- | --- | --- |
+| Worker stale (no heartbeat for more than 5 minutes) | Plan 1 | Red banner "Worker is not running" on every page; `curl -fsS http://127.0.0.1:8000/healthz` returns `"worker": "stale"` (and `"db": "unavailable"` with HTTP 503 when the database is down); the `worker` container turns `unhealthy` | `docker compose ps`, then `docker compose logs --tail 200 worker`. Restart with `docker compose up -d worker`. A worker that stays stale after a restart usually means the database or a secret file is unreachable: check `docker compose logs db` and the owners and modes in section 2.1 |
+| Job queue depth growing or a job stuck | Plan 1 (no UI panel yet; query the database) | `docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT status, type, count(*), min(created_at) FROM job WHERE status IN ('queued','running','paused') GROUP BY 1, 2"` | Many `queued` rows with a fresh heartbeat mean the worker is saturated (four slots) or a job is stuck. Check `docker compose logs worker`. The reaper times out `running` jobs past `timeout_at` and requeues retryable failures every scheduler tick. Failed jobs keep `error_class` and `error_message` (no secrets) in the `job` row |
+| Web unavailable | Plan 1 | `curl -fsS http://127.0.0.1:8000/health/live` and `/health/ready`; `docker compose ps` | `/health/live` failing: restart `web`. `/health/ready` failing: the database is unreachable, see `docker compose logs db` |
+| Disk usage on the dashboard host | Plan 1 (host monitoring) | `df -h /var/lib/docker /var/backups/cert-dashboard-db`; `docker system df` | Container logs are capped at 50m x 5 files per container. Database dumps are pruned by the script in 4.1. Alert the host monitoring at 80% usage. The application's cleanup job (artifacts older than 30 days, rows older than 90 days) arrives with a later plan, so Plan 1 has no automatic pruning of application data |
+| Key export failures | Plan 1 | Audit rows `key.export_failed` (for example `SELECT created_at, target_id, details FROM audit_log WHERE action = 'key.export_failed' ORDER BY created_at DESC LIMIT 20`) | `key_unwrap` or a missing master-key version: the secret file does not hold the version used by that certificate; restore the missing copy (section 5) before anything is rotated. `no_key`: the certificate has no stored key (expected for imported certificates without one) |
+| Repeated failed re-authentication or lockouts | Plan 1 | Audit rows `auth.login_failed` and `auth.lockout` (for example `SELECT created_at, action, target_id, details, ip FROM audit_log WHERE action IN ('auth.login_failed', 'auth.lockout') ORDER BY created_at DESC LIMIT 50`) | 10 consecutive failures lock an account for 15 minutes; a wrong password at the PFX export form counts toward the same counter. Many failures from one address point at a guessing attempt: block it on the front proxy |
+| Discovery failing for many hosts | Later plans | Not available yet | Will appear in the digest and the job list |
+| Consecutive SMTP failures | Later plans | Not available yet | Will appear in the status panel and as a missing digest |
+| Deploy rollback | Later plans | Not available yet | Will appear on the Overview, in the digest and in the audit log |
+| Disk usage on targets (`/var/backups/cert-dashboard`) | Later plans | Not available yet | Deploy backups and their retention arrive with the deploy plan |
