@@ -1,0 +1,27 @@
+{% extends "base.html.j2" %}
+{% block title %}Export PFX · {{ common_name }} · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Export {{ common_name }} as PFX</h1>
+<p><a href="/certificates/{{ cert_id }}">Back to certificate</a></p>
+<section class="panel" id="export-panel">
+  {% if error %}<div class="form-error" role="alert" data-field="export"><p>{{ error }}</p></div>{% endif %}
+  {% if blocked %}
+  <p class="form-error" role="alert">{{ blocked }}</p>
+  {% else %}
+  <p>The PFX contains the private key, the certificate and its stored intermediate chain. It is built in memory,
+    encrypted with the password you choose below, and sent once; nothing is written to disk.
+    The export is recorded in the audit log (without any password).</p>
+  <form method="post" action="/certificates/{{ cert_id }}/export.pfx" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="password">Your current password (to confirm it is you)</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+    <label for="pfx_password">PFX password (12 to 1,024 characters)</label>
+    <input id="pfx_password" name="pfx_password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+    <label for="pfx_password_confirm">Repeat the PFX password</label>
+    <input id="pfx_password_confirm" name="pfx_password_confirm" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+    <p class="hint">Keep the PFX password safe: it cannot be recovered. Passwords are never shown again, so re-enter them after any error.</p>
+    <button type="submit">Download PFX</button>
+  </form>
+  {% endif %}
+</section>
+{% endblock %}

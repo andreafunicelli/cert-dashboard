@@ -3,6 +3,7 @@
 import base64
 import binascii
 import math
+import re
 from collections.abc import Mapping
 from datetime import UTC
 from urllib.parse import urlencode
@@ -13,13 +14,17 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
+from app.auth.local import PasswordChangeError, reauthenticate
+from app.crypto.chain import ChainError, fullchain_pem
 from app.crypto.parse import MAX_INPUT_BYTES
 from app.jobs.queue import enqueue
-from app.models import Certificate, Job
+from app.models import Certificate, Job, PrivateKey
 from app.models.enums import CertificateStatus, JobStatus, JobType, RenewalState
 from app.services.certificates import (
     EXPIRY_BUCKETS,
     EXPORT_LIMIT,
+    PFX_PASSWORD_MAX,
+    PFX_PASSWORD_MIN,
     SORTS,
     CertificateFilters,
     CertificateMetadata,
@@ -31,18 +36,23 @@ from app.services.certificates import (
     attach_chain,
     certificate_detail,
     export_certificates,
+    export_pfx,
     import_upload,
     list_certificates,
+    record_download,
+    record_export_failure,
     set_status,
     update_certificate,
     validate_upload,
 )
 from app.services.scans import PULL_ACTION, PullPayloadError, format_hostport, validate_pull_payload
 from app.web.common import (
+    _actor,
     _render,
     _transact,
     display_timezone,
     install_template_helpers,
+    read_flash,
     render_block,
     set_flash,
 )
@@ -565,6 +575,8 @@ def _detail_page(request: Request, certificate_id: int, status: int = 200, **for
         trust_warning=cached != "trusted" or diagnostics.status is None or diagnostics.status.value != "trusted",
         deploy_supported=registry.supports(JobType.DEPLOY),
         scan_supported=registry.supports(JobType.SCAN),
+        missing_key_versions=_missing_key_versions(request),
+        key_unavailable=KEY_UNAVAILABLE,
         **forms,
     )
     return _render(request, "certificates/detail.html.j2", status, **context)
@@ -643,6 +655,181 @@ def _handle_chain(request: Request, certificate_id: int, form: FormData) -> Resp
     return _redirect(request, f"/certificates/{certificate_id}")
 
 
+# --------------------------------------------------------------------------
+# Audited downloads (Task 20)
+# --------------------------------------------------------------------------
+
+KEY_UNAVAILABLE = "key material cannot be decrypted with the configured master key"
+_PEM_MEDIA = "application/x-pem-file"
+_PFX_MEDIA = "application/x-pkcs12"
+_FILENAME_LIMIT = 100
+_NO_CHAIN = "No intermediate chain is stored for this certificate. Import the chain from the certificate page first."
+_REAUTH_ERRORS = {
+    "invalid_current_password": (422, "Your password is incorrect."),
+    "locked": (423, "This account is temporarily locked. Try again later or contact another admin."),
+    "not_supported": (422, "Your password is managed by your directory; this action is not available here."),
+}
+_REAUTH_FALLBACK = (422, "Request could not be completed.")
+_PFX_FIELD_LIMIT = 1024
+
+
+def safe_filename(common_name: str, certificate_id: int, suffix: str) -> str:
+    """``<safe-cn><suffix>``: ``[A-Za-z0-9._-]`` only, ``*`` spelled out, at most 100 characters of name."""
+    name = re.sub(r"[^A-Za-z0-9._-]", "_", common_name.replace("*", "wildcard")).lstrip(".")[:_FILENAME_LIMIT]
+    if not re.search(r"[A-Za-z0-9]", name):
+        name = f"certificate-{certificate_id}"
+    return name + suffix
+
+
+def _attachment(filename: str) -> dict[str, str]:
+    return {"Content-Disposition": f'attachment; filename="{filename}"', "Cache-Control": "no-store"}
+
+
+def _missing_key_versions(request: Request) -> frozenset[int]:
+    return frozenset(getattr(request.app.state, "missing_key_versions", ()) or ())
+
+
+def _message_page(request: Request, status: int, message: str) -> HTMLResponse:
+    app = request.app
+    return app.state.templates.TemplateResponse(
+        request=request,
+        name="error.html.j2",
+        status_code=status,
+        context={
+            "status": status,
+            "message": message,
+            "request_id": request.state.request_id,
+            "user": request.state.user,
+            "navigation": app.state.navigation,
+            "status_banner": app.state.status_banner,
+            "flash": read_flash(request),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+def _public_download(request: Request, certificate_id: int, kind: str) -> Response:
+    def work(db, now, actor):
+        row = db.get(Certificate, certificate_id)
+        if row is None:
+            raise HTTPException(404)
+        if kind == "leaf":
+            body, suffix = row.pem, ".crt"
+        elif kind == "chain":
+            if not row.chain_pem.strip():
+                raise InventoryError("no_chain", _NO_CHAIN)
+            body, suffix = row.chain_pem, ".chain.pem"
+        else:
+            try:
+                body = fullchain_pem(row.pem, row.chain_pem)
+            except ChainError:
+                raise InventoryError("invalid_chain", "The stored certificate or chain could not be read.") from None
+            suffix = ".fullchain.pem"
+        record_download(db, certificate_id, kind, actor)
+        return body, safe_filename(row.common_name, row.id, suffix)
+
+    try:
+        (body, filename), _ = _transact(request, work)
+    except InventoryError as exc:
+        return _message_page(request, 422, exc.message)
+    return Response(body, media_type=_PEM_MEDIA, headers=_attachment(filename))
+
+
+def _export_blocker(request: Request, row: Certificate) -> str | None:
+    """Why the PFX export cannot even be offered for this certificate (None = it can)."""
+    if row.key_id is None:
+        return "No private key is stored for this certificate."
+    with request.app.state.factory() as db:
+        key = db.get(PrivateKey, row.key_id)
+    if key is not None and key.master_key_version in _missing_key_versions(request):
+        return f"PFX export is unavailable: {KEY_UNAVAILABLE}."
+    return None
+
+
+def _export_page(request: Request, certificate_id: int, status: int = 200, *, error: str | None = None, check=True):
+    with request.app.state.factory() as db:
+        row = db.get(Certificate, certificate_id)
+        if row is None:
+            raise HTTPException(404)
+        cert = {"cert_id": row.id, "common_name": row.common_name}
+        blocked = _export_blocker(request, row) if check else None
+    return _render(
+        request,
+        "certificates/export_pfx.html.j2",
+        status,
+        csrf_token=request.state.session.csrf_token,
+        blocked=blocked,
+        error=error,
+        **cert,
+    )
+
+
+def _pfx_form_error(form: FormData) -> str | None:
+    pfx, confirm, password = form.get("pfx_password"), form.get("pfx_password_confirm"), form.get("password")
+    if not isinstance(pfx, str) or len(pfx) < PFX_PASSWORD_MIN:
+        return f"The PFX password must contain at least {PFX_PASSWORD_MIN} characters."
+    if len(pfx) > PFX_PASSWORD_MAX:
+        return f"The PFX password must contain at most {PFX_PASSWORD_MAX:,} characters."
+    # Both fields are mandatory: an absent confirmation is refused exactly like a different one.
+    if confirm != pfx:
+        return "The PFX passwords do not match."
+    if not isinstance(password, str) or not password or len(password) > _PFX_FIELD_LIMIT:
+        return "Enter your current password to confirm it is you."
+    return None
+
+
+def _export_outcome(request: Request, certificate_id: int, password: str, pfx_password: str):
+    """Re-authenticate, then export, in this order and these transactions.
+
+    A refused re-authentication commits its counter/lockout/audit effects. A failed export after a
+    successful re-authentication rolls back and then commits ``key.export_failed`` on its own.
+    Returns ``bytes`` on success or ``(status, message)``.
+    """
+    app = request.app
+    db = app.state.factory()
+    try:
+        now, actor = app.state.clock(), _actor(request)
+        try:
+            reauthenticate(db, request.state.session.user_id, password, actor, now)
+        except PasswordChangeError as exc:
+            db.commit()
+            return _REAUTH_ERRORS.get(exc.code, _REAUTH_FALLBACK)
+        try:
+            data = export_pfx(db, certificate_id, app.state.settings.keyring, pfx_password, actor)
+        except InventoryError as exc:
+            db.rollback()
+            if exc.code == "not_found":
+                raise HTTPException(404) from None
+            record_export_failure(db, certificate_id, exc.code, actor)
+            db.commit()
+            return 422, exc.message
+        db.commit()
+        return data
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _handle_export(request: Request, certificate_id: int, form: FormData) -> Response:
+    with request.app.state.factory() as db:
+        row = db.get(Certificate, certificate_id)
+        if row is None:
+            raise HTTPException(404)
+        common_name = row.common_name
+    problem = _pfx_form_error(form)
+    if problem is not None:
+        return _export_page(request, certificate_id, 422, error=problem, check=False)
+    outcome = _export_outcome(request, certificate_id, str(form["password"]), str(form["pfx_password"]))
+    if isinstance(outcome, tuple):
+        status, message = outcome
+        return _export_page(request, certificate_id, status, error=message, check=False)
+    return Response(
+        content=outcome, media_type=_PFX_MEDIA, headers=_attachment(safe_filename(common_name, certificate_id, ".pfx"))
+    )
+
+
 def register_certificate_routes(app: FastAPI) -> None:
     from app.jobs.handlers import build_registry  # late: handlers import the worker module
 
@@ -664,6 +851,30 @@ def register_certificate_routes(app: FastAPI) -> None:
     @app.get("/certificates/{certificate_id:int}/edit")
     def certificate_edit_form(request: Request, certificate_id: int):
         return _edit_page(request, certificate_id)
+
+    @app.get("/certificates/{certificate_id:int}/leaf.pem")
+    def certificate_leaf_pem(request: Request, certificate_id: int):
+        return _public_download(request, certificate_id, "leaf")
+
+    @app.get("/certificates/{certificate_id:int}/chain.pem")
+    def certificate_chain_pem(request: Request, certificate_id: int):
+        return _public_download(request, certificate_id, "chain")
+
+    @app.get("/certificates/{certificate_id:int}/fullchain.pem")
+    def certificate_fullchain_pem(request: Request, certificate_id: int):
+        return _public_download(request, certificate_id, "fullchain")
+
+    @app.get("/certificates/{certificate_id:int}/export.pfx")
+    def certificate_export_form(request: Request, certificate_id: int):
+        return _export_page(request, certificate_id)
+
+    @app.post("/certificates/{certificate_id:int}/export.pfx")
+    async def certificate_export_submit(request: Request, certificate_id: int):
+        form = await request.form(max_files=0, max_fields=10, max_part_size=_MAX_PART)
+        try:
+            return await run_in_threadpool(_handle_export, request, certificate_id, form)
+        finally:
+            await form.close()
 
     @app.post("/certificates/{certificate_id:int}/edit")
     async def certificate_edit_submit(request: Request, certificate_id: int):

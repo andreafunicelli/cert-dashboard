@@ -42,7 +42,13 @@
   <h2>Actions</h2>
   <p class="actions">
     <a class="button" href="/certificates/{{ c.id }}/edit">Edit details</a>
-    <button type="button" disabled title="Available after Task 20">Download</button>
+    <a class="button" href="/certificates/{{ c.id }}/leaf.pem">Download certificate</a>
+    {% if c.has_chain %}<a class="button" href="/certificates/{{ c.id }}/chain.pem">Download chain</a>
+    {% else %}<button type="button" disabled title="No intermediate chain is stored for this certificate">Download chain</button>{% endif %}
+    <a class="button" href="/certificates/{{ c.id }}/fullchain.pem">Download full chain</a>
+    {% if not detail.key %}<button type="button" disabled title="No private key is stored for this certificate.">Export PFX</button>
+    {% elif detail.key.master_key_version in missing_key_versions %}<button type="button" disabled title="{{ key_unavailable }}">Export PFX</button>
+    {% else %}<a class="button" href="/certificates/{{ c.id }}/export.pfx">Export PFX</a>{% endif %}
     {% if c.status.value == "active" %}<a class="button" href="/renewals/new?from={{ c.id }}">Start renewal</a>
     {% else %}<button type="button" disabled title="Only active certificates can be renewed">Start renewal</button>{% endif %}
     {% if deploy_supported %}<a class="button" href="/deploy?certificate_id={{ c.id }}">Deploy</a>
@@ -54,7 +60,10 @@
   {% for item in in_flight %}
   <p class="notice" data-in-flight-renewal><a href="/renewals/{{ item.id }}">Continue renewal</a> ({{ item.state }}, started {{ time_tag(item.created_at, tz) }})</p>
   {% endfor %}
-  <p class="hint">Downloads arrive with Task 20; deployment and scanning with a later plan.</p>
+  {% if detail.key and detail.key.master_key_version in missing_key_versions %}
+  <p class="form-error" role="alert">PFX export is unavailable: {{ key_unavailable }}. Certificate, chain and full-chain downloads still work.</p>
+  {% endif %}
+  <p class="hint">Public downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployment and scanning arrive with a later plan.</p>
 </section>
 
 <section class="panel wide" id="validation-panel">
