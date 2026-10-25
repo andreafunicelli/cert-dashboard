@@ -11,7 +11,7 @@ import ipaddress
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -146,11 +146,39 @@ _REPO_FORMS = "must be empty or an https://host/path, ssh://[user@]host/path or 
 _REPO_SECRETS = "must not contain credentials, tokens, query strings or fragments"
 
 
+_URL_SECRET_WORDS = re.compile(
+    r"pass(?:w|phrase)|secret|token|api[-_.]?key|access[-_.]?key|credential|bearer|private[-_.]?key"
+    r"|signature|\bsig\b|\bauth(?:orization)?\b"
+    r"|\bgh[pousr]_|github_pat_|glpat-|\bxox[abprs]-",
+)
+
+
+def _decoded_variants(value: str) -> list[str]:
+    """The URL as submitted plus every successive percent-decoding (so %61ccess_token is seen)."""
+    variants = [value]
+    for _ in range(5):
+        decoded = unquote(variants[-1])
+        if decoded == variants[-1]:
+            break
+        variants.append(decoded)
+    return variants
+
+
+def _carries_secret_material(value: str) -> bool:
+    """Credentials can hide in any URL component (path, ;params, encoded forms), not only userinfo."""
+    for variant in _decoded_variants(value):
+        if _URL_SECRET_WORDS.search(variant.lower()) or "=" in variant or ";" in variant:
+            return True
+    return False
+
+
 def _repo_url(value: JSONValue) -> JSONValue:
     if not isinstance(value, str) or len(value) > 500 or _CONTROL.search(value):
         raise ValueError(_REPO_FORMS)
     if value == "":
         return value
+    if _carries_secret_material(value):
+        raise ValueError(_REPO_SECRETS)
     if "://" in value:
         try:
             parts = urlsplit(value)

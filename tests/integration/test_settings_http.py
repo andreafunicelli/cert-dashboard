@@ -73,6 +73,26 @@ TABS = ("smtp", "alerts", "inventory", "deployment", "scanning", "schedule", "ge
 # --- plan test -------------------------------------------------------------------------------------
 
 
+# Placeholder values only: these URLs model credential-bearing forms, never real credentials.
+SECRET_BEARING_REPO_URLS = [
+    "https://git.example.test/team/repo.git/access_token=EXAMPLE",
+    "https://git.example.test/team/repo.git;token=EXAMPLE",
+    "https://git.example.test/team/repo.git/%61ccess_token=EXAMPLE",
+    "https://git.example.test/team/repo.git/%2561ccess%255Ftoken%253DEXAMPLE",
+    "https://git.example.test/team/token/EXAMPLE/repo.git",
+    "https://git.example.test/team/repo.git/password=EXAMPLE",
+    "https://git.example.test/team/repo.git/api_key=EXAMPLE",
+    "https://git.example.test/team/repo.git;sig=EXAMPLE",
+    "https://git.example.test/ghp_EXAMPLEEXAMPLEEXAMPLE/repo.git",
+    "https://git.example.test/glpat-EXAMPLEEXAMPLE/repo.git",
+    "ssh://git@git.example.test/team/repo.git/token=EXAMPLE",
+    "ssh://git@git.example.test/team/secret/repo.git",
+    "git@git.example.test:team/repo.git/access_token=EXAMPLE",
+    "git@git.example.test:team/token/repo.git",
+    "git@git.example.test:team/%74oken/repo.git",
+]
+
+
 def test_settings_secrets_and_ranges(signed_in, csrf, db):
     bad = signed_in.post("/settings/smtp", data={"smtp_password": "***", "csrf_token": csrf})
     assert bad.status_code == 422
@@ -192,6 +212,7 @@ def test_unknown_and_secret_keys_are_rejected(web_factory, admin, key):
         ("inventory.repo_url", "ssh://git.example.test"),
         ("inventory.repo_url", "git@git.example.test:team/r.git?password=x"),
         ("inventory.repo_url", "just-words"),
+        *[("inventory.repo_url", url) for url in SECRET_BEARING_REPO_URLS],
         ("inventory.ref", "a..b"),
         ("inventory.ref", "has space"),
         ("inventory.ref", "x" * 201),
@@ -626,3 +647,16 @@ def test_saved_timezone_drives_display_helper(signed_in, csrf, web_factory):
     assert _post(signed_in, csrf, "general", timezone="Europe/Rome").status_code == 303
     with web_factory() as session:
         assert display_timezone(session) == "Europe/Rome"
+
+
+@pytest.mark.parametrize("url", SECRET_BEARING_REPO_URLS)
+def test_secret_bearing_repo_url_is_422_unwritten_unaudited_and_not_echoed(
+    signed_in, csrf, web_factory, url
+):
+    before = _stored(web_factory, "inventory.repo_url")
+    response = _post(signed_in, csrf, "inventory", repo_url=url)
+    assert response.status_code == 422
+    assert "credentials" in response.text
+    assert "EXAMPLE" not in response.text and "access_token" not in response.text
+    assert _stored(web_factory, "inventory.repo_url") == before
+    assert _audits(web_factory) == []
