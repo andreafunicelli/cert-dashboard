@@ -660,3 +660,41 @@ def test_secret_bearing_repo_url_is_422_unwritten_unaudited_and_not_echoed(
     assert "EXAMPLE" not in response.text and "access_token" not in response.text
     assert _stored(web_factory, "inventory.repo_url") == before
     assert _audits(web_factory) == []
+
+
+_SECRET_URL = "https://git.example.test/team/repo.git/access_token=EXAMPLE"
+_MIXED_INVALID = [
+    {"bogus": "x"},  # unknown field
+    {"smtp_password": "x"},  # secret-looking unknown field
+    {"ref": "a" * 5000},  # parse-level invalid second field (over-long)
+    {"path": "../escape"},  # service-level invalid second field
+    {"ref": "bad..ref"},
+]
+
+
+@pytest.mark.parametrize("htmx", [False, True])
+@pytest.mark.parametrize("extra", _MIXED_INVALID)
+@pytest.mark.parametrize("url", [_SECRET_URL, *SECRET_BEARING_REPO_URLS[:6]])
+def test_secret_repo_url_with_another_invalid_field_is_never_echoed(
+    signed_in, csrf, web_factory, url, extra, htmx
+):
+    before = _stored(web_factory, "inventory.repo_url")
+    response = signed_in.post(
+        "/settings/inventory",
+        data={"repo_url": url, "csrf_token": csrf, **extra},
+        headers={"HX-Request": "true"} if htmx else {},
+        follow_redirects=False,
+    )
+    assert response.status_code == 422
+    assert "EXAMPLE" not in response.text and "access_token" not in response.text
+    assert "token=" not in response.text and "%61ccess" not in response.text
+    assert _stored(web_factory, "inventory.repo_url") == before
+    assert _audits(web_factory) == []
+
+
+def test_valid_repo_url_is_kept_in_form_when_another_field_is_invalid(signed_in, csrf):
+    response = _post(
+        signed_in, csrf, "inventory", repo_url="https://git.example.test/team/inv.git", bogus="x"
+    )
+    assert response.status_code == 422
+    assert "https://git.example.test/team/inv.git" in response.text

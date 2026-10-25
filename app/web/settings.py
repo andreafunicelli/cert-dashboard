@@ -42,7 +42,12 @@ from starlette.datastructures import FormData
 from app.jobs.handlers import build_registry
 from app.models import JSONValue
 from app.models.enums import JobType
-from app.services.settings import SettingsValidationError, get_setting, update_settings
+from app.services.settings import (
+    SettingsValidationError,
+    get_setting,
+    is_valid_setting,
+    update_settings,
+)
 from app.web.common import _render, _transact, install_template_helpers, render_block
 
 _MAX_FIELD = 20_000
@@ -256,11 +261,15 @@ def _refuse(request: Request, tab: str, form: FormData, errors: dict[str, list[s
     """422 re-render with the submitted values of the tab's own fields (never anything else)."""
     values: dict[str, JSONValue] = {}
     for field in _TAB_FIELDS[tab]:
-        if field.name not in form or field.name in errors and field.key == "inventory.repo_url":
-            continue  # a rejected repository URL may carry a credential: show the stored value instead
+        if field.name not in form:
+            continue
         raw = form.getlist(field.name)[-1]
-        if isinstance(raw, str):
-            values[field.name] = _submitted(field, raw[:_MAX_FIELD])
+        if not isinstance(raw, str):
+            continue
+        value = _submitted(field, raw[:_MAX_FIELD])
+        if field.key == "inventory.repo_url" and not is_valid_setting(field.key, value):
+            continue  # unvalidated/rejected: it may carry a credential, so show the stored value instead
+        values[field.name] = value
     return _page(request, tab, 422, values, errors)
 
 

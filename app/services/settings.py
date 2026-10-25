@@ -296,6 +296,18 @@ def get_setting(db: Session, key: str) -> JSONValue:
     return setting.default if row is None else row[0]
 
 
+def is_valid_setting(key: str, value: JSONValue) -> bool:
+    """Whether ``value`` passes the validator of a known key (never raises, never echoes the value)."""
+    setting = _SETTINGS.get(key)
+    if setting is None:
+        return False
+    try:
+        setting.validate(value)
+    except ValueError:
+        return False
+    return True
+
+
 def update_settings(db: Session, changes: Mapping[str, JSONValue], actor: Actor) -> None:
     """Validate the whole patch, then upsert the keys that really change and audit them once."""
     errors: dict[str, tuple[str, ...]] = {}
