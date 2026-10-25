@@ -71,3 +71,6 @@ button:disabled { color: #66748a; background: #e6ebf3; cursor: not-allowed; }
 .warnings { padding-left: 1.25rem; color: #6b4500; }
 .warning-note { padding: .6rem 1rem; background: #fff1cf; border-left: 4px solid #a66b00; }
 .pager { display: flex; gap: 1rem; align-items: center; margin: 1rem 0 2rem; }
+table.users details form { margin: .75rem 0; min-width: 18rem; }
+table.users label { display: block; margin-top: .5rem; font-weight: 600; }
+table.users fieldset { margin: 0; padding: 0 0 .5rem; border: 0; }

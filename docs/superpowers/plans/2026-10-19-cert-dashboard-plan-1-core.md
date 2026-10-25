@@ -653,7 +653,7 @@ def test_audit_is_filterable_and_read_only(signed_in, audited_changes, csrf):
 
 **Interfaces:** Consumes: `hash_password(password: str) -> str`, `revoke_sessions(db: Session, user_id: int, now: datetime) -> int`, Task 9 MFA and Task 3 audit contracts. Produces: `create_user(db: Session, username: str, email: str, display_name: str | None, password: str, actor: Actor) -> User`; `update_user(db: Session, user_id: int, email: str, display_name: str | None, actor: Actor) -> User`; `deactivate_user(db: Session, user_id: int, actor: Actor, now: datetime) -> None`; `reset_password(db: Session, user_id: int, new_password: str, actor: Actor, now: datetime) -> None`; `reset_totp(db: Session, user_id: int, actor: Actor, now: datetime) -> None`; GET `/users`; POST `/users`, `/users/{id}/{edit|deactivate|reset-password|reset-totp}`.
 
-- [ ] Write failing admin safety tests:
+- [x] Write failing admin safety tests:
 
 ```python
 def test_last_active_user_cannot_be_deactivated(signed_in, sole_admin, csrf, db):
@@ -663,10 +663,10 @@ def test_last_active_user_cannot_be_deactivated(signed_in, sole_admin, csrf, db)
 ```
 
   Test two concurrent deactivations preserve one active user, citext duplicate names, 12-character/denylist policy, reset sets must_change_password and revokes sessions, deactivation/MFA reset revoke immediately, LDAP password actions disabled **and** server-refused, no hard-delete route, all changes audited, and no hashes/seeds/recovery codes in list HTML/JSON.
-- [ ] Run `uv run pytest tests/integration/test_users_http.py -q`; expect FAIL, admin services/UI absent.
-- [ ] Implement in listed files; take a transaction-scoped `users:active` advisory lock before checking/deactivating to prevent concurrent last-user loss. User list shows backend/active/email/display name/last login; local creation is admin-only, first-admin bootstrap remains CLI-only. Password/MFA resets require the acting admin's current-password re-auth and CSRF; never display existing secrets. Temporary reset password is supplied once by the admin and never echoed; user must change it before accessing other screens. Every security change revokes target sessions atomically.
-- [ ] Run `uv run pytest tests/integration/test_users_http.py -q`; expect PASS.
-- [ ] Commit: `git add app/auth/local.py app/main.py app/templates/users.html.j2 tests/integration/test_users_http.py`; `git commit -m "feat: administer local users with last-admin safeguards"`.
+- [x] Run `uv run pytest tests/integration/test_users_http.py -q`; expect FAIL, admin services/UI absent.
+- [x] Implement in listed files; take a transaction-scoped `users:active` advisory lock before checking/deactivating to prevent concurrent last-user loss. User list shows backend/active/email/display name/last login; local creation is admin-only, first-admin bootstrap remains CLI-only. Password/MFA resets require the acting admin's current-password re-auth and CSRF; never display existing secrets. Temporary reset password is supplied once by the admin and never echoed; user must change it before accessing other screens. Every security change revokes target sessions atomically.
+- [x] Run `uv run pytest tests/integration/test_users_http.py -q`; expect PASS.
+- [x] Commit: `git add app/auth/local.py app/main.py app/templates/users.html.j2 tests/integration/test_users_http.py`; `git commit -m "feat: administer local users with last-admin safeguards"`.
 
 ### Task 23: Typed settings, status, and maintenance integration
 
