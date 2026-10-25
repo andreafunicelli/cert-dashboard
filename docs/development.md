@@ -188,9 +188,9 @@ deliberately **not** provided: it would need a persisted abandonment marker and 
 | `GET /healthz` | `{"web": "ok", "worker": "ok"\|"stale", "db": "ok"}`; `503` with `{"web": "ok", "worker": "unknown", "db": "unavailable"}` and `Retry-After: 5` while the database is unreachable | Compose `web` healthcheck, operators |
 
 `worker` is `stale` when the newest `worker_heartbeat.last_seen_at` is more than five minutes old or
-no heartbeat exists (`worker_liveness`, `LIVENESS_WINDOW`). The page banner uses the same function and
-caches the answer for 30 seconds, so `/healthz`, the banner and the compose `worker` healthcheck never
-disagree. All three probes are public paths and skip the per-request worker probe. Operator
+no heartbeat exists (`worker_liveness`, `LIVENESS_WINDOW`). The page banner calls the same function and
+caches the answer for 30 seconds; the compose `worker` healthcheck applies the same five-minute rule
+with its own query. All three probes are public paths and skip the per-request worker probe. Operator
 procedures for these signals are in [`docs/operations.md`](operations.md#8-operational-signals).
 
 ## Isolated key and PFX parsing
