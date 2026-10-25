@@ -2,29 +2,49 @@
 
 import base64
 import binascii
+import math
 from collections.abc import Mapping
+from datetime import UTC
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
 from app.crypto.parse import MAX_INPUT_BYTES
 from app.jobs.queue import enqueue
-from app.models import Job
-from app.models.enums import JobStatus, JobType
+from app.models import Certificate, Job
+from app.models.enums import CertificateStatus, JobStatus, JobType, RenewalState
 from app.services.certificates import (
+    EXPIRY_BUCKETS,
+    EXPORT_LIMIT,
+    SORTS,
+    CertificateFilters,
     CertificateMetadata,
     ImportResult,
     ImportValidationError,
     InventoryError,
     UploadInput,
+    allowed_status_changes,
+    attach_chain,
+    certificate_detail,
     import_upload,
+    list_certificates,
+    set_status,
+    update_certificate,
     validate_upload,
 )
 from app.services.scans import PULL_ACTION, PullPayloadError, format_hostport, validate_pull_payload
-from app.web.common import _render, _transact, set_flash
+from app.web.common import (
+    _render,
+    _transact,
+    display_timezone,
+    install_template_helpers,
+    render_block,
+    set_flash,
+)
 
 _TEMPLATE = "import.html.j2"
 _CHUNK = 64 * 1024
@@ -303,7 +323,371 @@ def _import_job(request: Request, raw_id: str) -> dict:
         }
 
 
+LIST_DEFAULT_PAGE_SIZE = 50
+LIST_MAX_PAGE_SIZE = 100
+_TRUE = frozenset({"true", "1", "yes", "on"})
+_FALSE = frozenset({"false", "0", "no", "off"})
+_CHAIN_TOO_LARGE = "Input is too large: the chain is limited to 1 MiB (1,048,576 bytes)."
+_CHAIN_EMPTY = "Choose a chain file or paste the intermediate certificates."
+_CHAIN_UNREADABLE = "The chain could not be parsed or ordered. Provide PEM or DER certificates that belong to this one."
+_CHAIN_MESSAGES = {
+    "missing_issuer": "The issuer certificate is missing from the chain.",
+    "expired_intermediate": "An intermediate certificate in the chain has expired.",
+    "not_yet_valid_intermediate": "An intermediate certificate in the chain is not yet valid.",
+    "untrusted_root": "The chain ends at a root certificate that is not a configured trust anchor.",
+    "leaf_not_valid": "The certificate is outside its validity period.",
+    "forged_issuer": "The chain claims an issuer whose signature does not verify.",
+    "missing_identity": "The certificate has no DNS or IP subject alternative name to validate against.",
+    "chain_truncated": "The chain was cut short while being ordered.",
+    "unparseable_certificate": "The stored certificate could not be parsed.",
+    "unparseable_chain": "The stored chain could not be parsed.",
+}
+_CHAIN_PREFIXES = {
+    "issuer:": "Missing issuer: ",
+    "intermediate:": "Intermediate: ",
+    "root:": "Root: ",
+    "policy_failure:": "Path validation failed: ",
+}
+
+
+def describe_chain_message(code: str) -> str:
+    if code in _CHAIN_MESSAGES:
+        return _CHAIN_MESSAGES[code]
+    for prefix, text in _CHAIN_PREFIXES.items():
+        if code.startswith(prefix):
+            return text + code[len(prefix) :].replace("_", " ")
+    return code.replace("_", " ").capitalize()
+
+
+class _ListQuery:
+    """Validated query-string state of the list (and its JSON export)."""
+
+    def __init__(self, filters: CertificateFilters, params: dict[str, str], sort: str, page: int, size: int):
+        self.filters, self.params, self.sort, self.page, self.page_size = filters, params, sort, page, size
+
+
+def _query_bool(raw: str | None) -> bool | None:
+    if raw is None:
+        return None
+    value = raw.lower()
+    if value in _TRUE:
+        return True
+    if value in _FALSE:
+        return False
+    raise ValueError("not a boolean")
+
+
+def _query_int(raw: str | None, default: int, low: int, high: int) -> int:
+    if raw is None:
+        return default
+    if not (raw.isascii() and raw.isdigit()) or len(raw) > 9:
+        raise ValueError("not a number")
+    value = int(raw)
+    if not low <= value <= high:
+        raise ValueError("out of range")
+    return value
+
+
+def _list_query(request: Request) -> _ListQuery:
+    """Parse filters, sort and paging. Blank values (an untouched GET form) mean "no filter"."""
+
+    def raw(name: str) -> str | None:
+        value = request.query_params.get(name)
+        return value.strip() or None if isinstance(value, str) else None
+
+    try:
+        text = {name: raw(name) for name in ("search", "issuer", "team", "owner")}
+        status, state = raw("status"), raw("renewal_state")
+        has_key, has_bindings = _query_bool(raw("has_key")), _query_bool(raw("has_bindings"))
+        filters = CertificateFilters(
+            **text,
+            status=CertificateStatus(status) if status else None,
+            expiry=raw("expiry"),
+            has_key=has_key,
+            has_bindings=has_bindings,
+            renewal_state=RenewalState(state) if state else None,
+        )
+        sort = raw("sort") or "not_after"
+        if sort not in SORTS:
+            raise ValueError("unsupported sort")
+        page = _query_int(raw("page"), 1, 1, 10**9)
+        size = _query_int(raw("page_size"), LIST_DEFAULT_PAGE_SIZE, 1, LIST_MAX_PAGE_SIZE)
+    except ValueError:
+        raise HTTPException(422) from None
+    params = {name: value for name, value in text.items() if value}
+    for name, value in (("status", status), ("expiry", raw("expiry")), ("renewal_state", state)):
+        if value:
+            params[name] = value
+    for name, flag in (("has_key", has_key), ("has_bindings", has_bindings)):
+        if flag is not None:
+            params[name] = "true" if flag else "false"
+    if sort != "not_after":
+        params["sort"] = sort
+    if size != LIST_DEFAULT_PAGE_SIZE:
+        params["page_size"] = str(size)
+    return _ListQuery(filters, params, sort, page, size)
+
+
+def _iso(value) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _export_row(row: Certificate) -> dict:
+    """The public allowlist: never PEM, key references or free-text notes."""
+    return {
+        "id": row.id,
+        "common_name": row.common_name,
+        "sans": list(row.sans),
+        "issuer_cn": row.issuer_cn,
+        "serial": row.serial,
+        "not_before": _iso(row.not_before),
+        "not_after": _iso(row.not_after),
+        "sha256_fingerprint": row.sha256_fingerprint,
+        "status": row.status.value,
+        "chain_status": row.chain_status.value,
+        "owner_name": row.owner_name,
+        "owner_email": row.owner_email,
+        "team": row.team,
+        "imported_from": row.imported_from,
+        "renews_id": row.renews_id,
+        "has_key": row.key_id is not None,
+        "binding_count": row.binding_count,
+    }
+
+
+def _sort_url(query: _ListQuery, column: str) -> str:
+    """Header link: toggles ascending/descending where the whitelist allows it."""
+    descending = f"-{column}"
+    if query.sort == column and descending in SORTS:
+        target = descending
+    elif query.sort == descending:
+        target = column
+    else:
+        target = column
+    params = {k: v for k, v in query.params.items() if k not in ("sort", "page")}
+    if target != "not_after":
+        params["sort"] = target
+    return f"/certificates?{urlencode(params)}" if params else "/certificates"
+
+
+def _list_page(request: Request):
+    query = _list_query(request)
+    now = request.app.state.clock()
+    with request.app.state.factory() as db:
+        page = list_certificates(db, query.filters, query.page, query.page_size, query.sort, now)
+        timezone_name = display_timezone(db)
+    pages = max(1, math.ceil(page.total / page.page_size))
+    page_params = {k: v for k, v in query.params.items() if k != "page"}
+
+    def page_url(number: int) -> str:
+        params = {**page_params, "page": number} if number > 1 else page_params
+        return f"/certificates?{urlencode(params)}" if params else "/certificates"
+
+    export_params = {k: v for k, v in query.params.items() if k != "page_size"}
+    return _render(
+        request,
+        "certificates/list.html.j2",
+        page=page,
+        pages=pages,
+        query=query,
+        values=query.params,
+        now=now,
+        tz=timezone_name,
+        page_url=page_url,
+        sort_url=lambda column: _sort_url(query, column),
+        sort_state=query.sort,
+        export_url="/certificates/export.json" + (f"?{urlencode(export_params)}" if export_params else ""),
+        statuses=[item.value for item in CertificateStatus],
+        buckets=EXPIRY_BUCKETS,
+        renewal_states=[item.value for item in RenewalState],
+    )
+
+
+def _export_json(request: Request) -> JSONResponse:
+    query = _list_query(request)  # validated like the list; paging is ignored
+    now = request.app.state.clock()
+    with request.app.state.factory() as db:
+        page = list_certificates(db, query.filters, 1, EXPORT_LIMIT, query.sort, now)
+    body = {
+        "total": page.total,
+        "truncated": page.total > len(page.items),
+        "certificates": [_export_row(row) for row in page.items],
+    }
+    return JSONResponse(
+        body,
+        headers={"Content-Disposition": 'attachment; filename="certificates.json"', "Cache-Control": "no-store"},
+    )
+
+
+def _base_context(request: Request, certificate_id: int) -> dict:
+    """What every inventory form fragment needs; 404 when the certificate does not exist."""
+    with request.app.state.factory() as db:
+        row = db.get(Certificate, certificate_id)
+        if row is None:
+            raise HTTPException(404)
+        current = {name: getattr(row, name) or "" for name in _METADATA_FIELDS}
+        return {
+            "cert_id": row.id,
+            "common_name": row.common_name,
+            "cert_status": row.status,
+            "status_options": [item.value for item in allowed_status_changes(row.status)],
+            "edit_form": current,
+            "edit_errors": {},
+            "status_form": {"status": "", "reason": ""},
+            "status_errors": {},
+            "chain_errors": {},
+            "csrf_token": request.state.session.csrf_token,
+        }
+
+
+def _detail_page(request: Request, certificate_id: int, status: int = 200, **forms):
+    context = _base_context(request, certificate_id)
+    now = request.app.state.clock()
+    with request.app.state.factory() as db:
+        try:
+            detail = certificate_detail(db, certificate_id, now)
+        except InventoryError:
+            raise HTTPException(404) from None
+        timezone_name = display_timezone(db)
+    registry = request.app.state.job_registry
+    diagnostics = detail.diagnostics
+    warnings = [describe_chain_message(code) for code in diagnostics.messages]
+    cached = detail.certificate.chain_status.value
+    context.update(
+        detail=detail,
+        c=detail.certificate,
+        tz=timezone_name,
+        now=now,
+        warnings=warnings,
+        recheck_failed=diagnostics.status is None,
+        recheck_differs=diagnostics.status is not None and diagnostics.status.value != cached,
+        trust_warning=cached != "trusted" or diagnostics.status is None or diagnostics.status.value != "trusted",
+        deploy_supported=registry.supports(JobType.DEPLOY),
+        scan_supported=registry.supports(JobType.SCAN),
+        **forms,
+    )
+    return _render(request, "certificates/detail.html.j2", status, **context)
+
+
+def _edit_page(request: Request, certificate_id: int, status: int = 200, **forms):
+    context = _base_context(request, certificate_id)
+    context.update(forms)
+    if status == 422 and _is_htmx(request):
+        return render_block(request, "certificates/detail.html.j2", "metadata_panel", status, **context)
+    return _render(request, "certificates/edit.html.j2", status, **context)
+
+
+def _panel_failure(request: Request, certificate_id: int, block: str, **forms):
+    """An inline 422: the panel fragment for htmx, otherwise the whole detail page."""
+    if _is_htmx(request):
+        context = {**_base_context(request, certificate_id), **forms}
+        return render_block(request, "certificates/detail.html.j2", block, 422, **context)
+    return _detail_page(request, certificate_id, 422, **forms)
+
+
+def _redirect(request: Request, location: str) -> Response:
+    if _is_htmx(request):
+        return Response(status_code=200, headers={"HX-Redirect": location})
+    return RedirectResponse(location, status_code=303)
+
+
+def _handle_edit(request: Request, certificate_id: int, form: FormData) -> Response:
+    values = {name: _value(form, name, 20_000) for name in _METADATA_FIELDS}
+    try:
+        metadata = CertificateMetadata(**values)
+        _transact(request, lambda db, now, actor: update_certificate(db, certificate_id, metadata, actor))
+    except InventoryError as exc:
+        if exc.code == "not_found":
+            raise HTTPException(404) from None
+        return _edit_page(request, certificate_id, 422, edit_form=values, edit_errors={"metadata": exc.message})
+    return _redirect(request, f"/certificates/{certificate_id}")
+
+
+def _handle_status(request: Request, certificate_id: int, form: FormData) -> Response:
+    values = {"status": _value(form, "status", 32), "reason": _value(form, "reason", 5_000)}
+    try:
+        try:
+            target = CertificateStatus(values["status"])
+        except ValueError:
+            raise InventoryError("invalid_status", "Choose a valid new status.") from None
+        _transact(request, lambda db, now, actor: set_status(db, certificate_id, target, values["reason"], actor))
+    except InventoryError as exc:
+        if exc.code == "not_found":
+            raise HTTPException(404) from None
+        return _panel_failure(
+            request, certificate_id, "status_panel", status_form=values, status_errors={"form": exc.message}
+        )
+    return _redirect(request, f"/certificates/{certificate_id}")
+
+
+def _handle_chain(request: Request, certificate_id: int, form: FormData) -> Response:
+    data = _read_object(form, "chain_file", "chain_text")
+    message = None
+    if not data:
+        message = _CHAIN_EMPTY
+    elif len(data) > MAX_INPUT_BYTES:
+        message = _CHAIN_TOO_LARGE
+    else:
+        try:
+            _transact(
+                request,
+                lambda db, now, actor: attach_chain(db, certificate_id, data, actor, validation_time=now),
+            )
+        except InventoryError as exc:
+            if exc.code == "not_found":
+                raise HTTPException(404) from None
+            message = _CHAIN_UNREADABLE
+    if message is not None:
+        return _panel_failure(request, certificate_id, "chain_panel", chain_errors={"chain": message})
+    return _redirect(request, f"/certificates/{certificate_id}")
+
+
 def register_certificate_routes(app: FastAPI) -> None:
+    from app.jobs.handlers import build_registry  # late: handlers import the worker module
+
+    install_template_helpers(app)
+    app.state.job_registry = build_registry()  # capability checks only; the worker owns execution
+
+    @app.get("/certificates")
+    def certificate_list(request: Request):
+        return _list_page(request)
+
+    @app.get("/certificates/export.json")
+    def certificate_export(request: Request):
+        return _export_json(request)
+
+    @app.get("/certificates/{certificate_id:int}")
+    def certificate_detail_page(request: Request, certificate_id: int):
+        return _detail_page(request, certificate_id)
+
+    @app.get("/certificates/{certificate_id:int}/edit")
+    def certificate_edit_form(request: Request, certificate_id: int):
+        return _edit_page(request, certificate_id)
+
+    @app.post("/certificates/{certificate_id:int}/edit")
+    async def certificate_edit_submit(request: Request, certificate_id: int):
+        form = await request.form(max_files=0, max_fields=50, max_part_size=_MAX_PART)
+        try:
+            return await run_in_threadpool(_handle_edit, request, certificate_id, form)
+        finally:
+            await form.close()
+
+    @app.post("/certificates/{certificate_id:int}/status")
+    async def certificate_status_submit(request: Request, certificate_id: int):
+        form = await request.form(max_files=0, max_fields=50, max_part_size=_MAX_PART)
+        try:
+            return await run_in_threadpool(_handle_status, request, certificate_id, form)
+        finally:
+            await form.close()
+
+    @app.post("/certificates/{certificate_id:int}/chain")
+    async def certificate_chain_submit(request: Request, certificate_id: int):
+        form = await request.form(max_files=2, max_fields=50, max_part_size=_MAX_PART)
+        try:
+            return await run_in_threadpool(_handle_chain, request, certificate_id, form)
+        finally:
+            await form.close()
+
     @app.get("/certificates/import")
     def import_form(request: Request):
         return _page(request)

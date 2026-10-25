@@ -7,7 +7,7 @@ commits. Typed ``InventoryError`` codes are mapped to 422 by the callers.
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import MappingProxyType
 from typing import Literal
 
@@ -15,7 +15,7 @@ from cryptography import x509
 from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -27,8 +27,8 @@ from app.crypto.parse import MAX_INPUT_BYTES, ParsedCertificate, ParseError, par
 from app.crypto.pfx import PFXError, _is_ca
 from app.crypto.pfx_isolated import read_encrypted_key_isolated, read_pfx_isolated
 from app.crypto.trust import ChainAssessment, assess_chain
-from app.models import Certificate, JSONValue, PrivateKey, User
-from app.models.enums import CertificateStatus, ChainStatus
+from app.models import AuditLog, Binding, Certificate, Endpoint, JSONValue, PrivateKey, Renewal, Server, User
+from app.models.enums import CertificateStatus, ChainStatus, RenewalState
 from app.services.audit import Actor, record
 from app.services.trust_anchors import enabled_anchors
 
@@ -847,3 +847,457 @@ def import_upload(
         if exc.code == "key_mismatch":
             raise ImportValidationError({"key": (exc.message,)}) from None
         raise
+
+
+# --------------------------------------------------------------------------
+# Read models: list, expiry buckets, detail (Task 17)
+# --------------------------------------------------------------------------
+
+EXPORT_LIMIT = 5_000
+EXPIRY_BUCKETS = ("expired", "lt7", "lt30", "lt60")
+TEXT_FILTER_LIMIT = 200
+_BUCKET_DAYS = {"lt7": (0, 7), "lt30": (7, 30), "lt60": (30, 60)}
+_SORTS = {
+    "not_after": Certificate.not_after.asc(),
+    "-not_after": Certificate.not_after.desc(),
+    "common_name": Certificate.common_name.asc(),
+    "-common_name": Certificate.common_name.desc(),
+    "issuer_cn": Certificate.issuer_cn.asc(),
+    "status": Certificate.status.asc(),
+    "created_at": Certificate.created_at.asc(),
+    "-created_at": Certificate.created_at.desc(),
+}
+SORTS = tuple(_SORTS)
+_LIKE_ESCAPE = "/"
+
+
+@dataclass(frozen=True)
+class CertificateFilters:
+    """Validated list filters; any invalid value raises ``ValueError`` (callers answer 422)."""
+
+    search: str | None = None
+    status: CertificateStatus | None = None
+    expiry: Literal["expired", "lt7", "lt30", "lt60"] | None = None
+    issuer: str | None = None
+    team: str | None = None
+    owner: str | None = None
+    has_key: bool | None = None
+    has_bindings: bool | None = None
+    renewal_state: RenewalState | None = None
+
+    def __post_init__(self) -> None:
+        for name in ("search", "issuer", "team", "owner"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"{name} must be text")
+            value = value.strip() if value else None
+            if value and len(value) > TEXT_FILTER_LIMIT:
+                raise ValueError(f"{name} is longer than {TEXT_FILTER_LIMIT} characters")
+            object.__setattr__(self, name, value or None)
+        if self.expiry is not None and self.expiry not in EXPIRY_BUCKETS:
+            raise ValueError("unknown expiry bucket")
+        for name in ("has_key", "has_bindings"):
+            if getattr(self, name) is not None and not isinstance(getattr(self, name), bool):
+                raise ValueError(f"{name} must be true or false")
+        if self.status is not None:
+            object.__setattr__(self, "status", CertificateStatus(self.status))
+        if self.renewal_state is not None:
+            object.__setattr__(self, "renewal_state", RenewalState(self.renewal_state))
+
+
+@dataclass(frozen=True)
+class CertificatePage:
+    items: list[Certificate]
+    total: int
+    page: int
+    page_size: int
+
+
+def _like(term: str, *, prefix_only: bool = False) -> str:
+    escaped = term.replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2).replace("%", "/%").replace("_", "/_")
+    return escaped + "%" if prefix_only else f"%{escaped}%"
+
+
+def _contains(column, term: str):
+    return column.ilike(_like(term), escape=_LIKE_ESCAPE)
+
+
+def _bucket_clause(bucket: str, now: datetime):
+    if bucket == "expired":
+        return Certificate.not_after < now
+    low, high = _BUCKET_DAYS[bucket]
+    return and_(Certificate.not_after >= now + timedelta(days=low), Certificate.not_after < now + timedelta(days=high))
+
+
+def _filter_clauses(filters: CertificateFilters, now: datetime) -> list:
+    clauses: list = []
+    if filters.search:
+        clauses.append(
+            or_(
+                _contains(Certificate.common_name, filters.search),
+                _contains(func.array_to_string(Certificate.sans, "\n"), filters.search),
+                _contains(Certificate.serial, filters.search),
+                Certificate.sha256_fingerprint.ilike(
+                    _like(filters.search, prefix_only=True), escape=_LIKE_ESCAPE
+                ),
+            )
+        )
+    if filters.status is not None:
+        clauses.append(Certificate.status == filters.status)
+    if filters.expiry is not None:
+        clauses.append(_bucket_clause(filters.expiry, now))
+    if filters.issuer:
+        clauses.append(_contains(Certificate.issuer_cn, filters.issuer))
+    if filters.team:
+        clauses.append(_contains(Certificate.team, filters.team))
+    if filters.owner:
+        clauses.append(
+            or_(_contains(Certificate.owner_name, filters.owner), _contains(Certificate.owner_email, filters.owner))
+        )
+    if filters.has_key is not None:
+        clauses.append(Certificate.key_id.is_not(None) if filters.has_key else Certificate.key_id.is_(None))
+    if filters.has_bindings is not None:
+        bound = exists().where(Binding.certificate_id == Certificate.id, Binding.is_active.is_(True))
+        clauses.append(bound if filters.has_bindings else ~bound)
+    if filters.renewal_state is not None:
+        clauses.append(
+            exists().where(
+                Renewal.previous_certificate_id == Certificate.id, Renewal.state == filters.renewal_state
+            )
+        )
+    return clauses
+
+
+def list_certificates(
+    db: Session,
+    filters: CertificateFilters,
+    page: int = 1,
+    page_size: int = 50,
+    sort: str = "not_after",
+    now: datetime | None = None,
+) -> CertificatePage:
+    """One page of certificates; each item carries ``binding_count`` (active bindings), no N+1."""
+    if type(page) is not int or page < 1:
+        raise ValueError("page must be at least 1")
+    if type(page_size) is not int or not 1 <= page_size <= EXPORT_LIMIT:
+        raise ValueError(f"page_size must be between 1 and {EXPORT_LIMIT}")
+    if not isinstance(sort, str) or sort not in _SORTS:
+        raise ValueError("unsupported sort")
+    moment = now or datetime.now(UTC)
+    clauses = _filter_clauses(filters, moment)
+    total = db.scalar(select(func.count()).select_from(Certificate).where(*clauses)) or 0
+    bound = (
+        select(Binding.certificate_id.label("certificate_id"), func.count().label("total"))
+        .where(Binding.is_active.is_(True), Binding.certificate_id.is_not(None))
+        .group_by(Binding.certificate_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(Certificate, func.coalesce(bound.c.total, 0))
+        .outerjoin(bound, bound.c.certificate_id == Certificate.id)
+        .where(*clauses)
+        .order_by(_SORTS[sort], Certificate.id)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all()
+    items = []
+    for row, count in rows:
+        row.binding_count = int(count)  # presentation attribute, not a column
+        items.append(row)
+    return CertificatePage(items, total, page, page_size)
+
+
+def expiry_counts(db: Session, now: datetime) -> dict[str, int]:
+    """Disjoint expiry buckets over active certificates only, plus the active total."""
+    active = Certificate.status == CertificateStatus.ACTIVE
+    row = db.execute(
+        select(
+            func.count().filter(and_(active, _bucket_clause("expired", now))),
+            func.count().filter(and_(active, _bucket_clause("lt7", now))),
+            func.count().filter(and_(active, _bucket_clause("lt30", now))),
+            func.count().filter(and_(active, _bucket_clause("lt60", now))),
+            func.count().filter(active),
+        ).select_from(Certificate)
+    ).one()
+    return dict(zip((*EXPIRY_BUCKETS, "total_active"), (int(value) for value in row), strict=True))
+
+
+def allowed_status_changes(status: CertificateStatus) -> tuple[CertificateStatus, ...]:
+    """The statuses a certificate may move to from ``status`` (transitions are one-way)."""
+    return tuple(
+        target
+        for target in (CertificateStatus.SUPERSEDED, CertificateStatus.REVOKED)
+        if (status, target) in _TRANSITIONS
+    )
+
+
+def has_certificates(db: Session) -> bool:
+    return bool(db.scalar(select(exists().where(Certificate.id.is_not(None)))))
+
+
+@dataclass(frozen=True)
+class ChainDiagnostics:
+    """A read-only re-assessment of a stored chain; ``status`` is None when it cannot be checked."""
+
+    status: ChainStatus | None
+    messages: tuple[str, ...]
+
+
+def diagnose_chain(db: Session, row: Certificate, moment: datetime) -> ChainDiagnostics:
+    """Re-run the offline trust assessment now (same inputs as the trust-anchor recheck); no writes."""
+    try:
+        leaf = parse_certificates(row.pem.encode("ascii"))[0].cert
+    except (ParseError, UnicodeError):
+        return ChainDiagnostics(None, ("unparseable_certificate",))
+    intermediates: list[x509.Certificate] = []
+    if row.chain_pem.strip():
+        try:
+            intermediates = [item.cert for item in parse_certificates(row.chain_pem.encode("ascii"))]
+        except (ParseError, UnicodeError):
+            return ChainDiagnostics(None, ("unparseable_chain",))
+    assessment = assess_chain(leaf, intermediates, enabled_anchors(db), moment)
+    messages = assessment.messages
+    if (
+        row.chain_status == ChainStatus.UNTRUSTED_ROOT
+        and assessment.status == ChainStatus.INCOMPLETE
+        and len(messages) == 2
+        and messages[0] == "missing_issuer"
+        and messages[1].startswith("issuer:")
+    ):
+        # Stored chains omit the root. The import that recorded untrusted_root saw it, and no enabled
+        # anchor has since covered it, so name that root instead of reporting a spurious gap.
+        return ChainDiagnostics(ChainStatus.UNTRUSTED_ROOT, ("untrusted_root", "root:" + messages[1][7:]))
+    return ChainDiagnostics(assessment.status, messages)
+
+
+@dataclass(frozen=True)
+class CertificateView:
+    """The public fields of a certificate: no PEM, no key reference."""
+
+    id: int
+    common_name: str
+    subject_dn: str
+    sans: tuple[str, ...]
+    issuer_dn: str
+    issuer_cn: str
+    serial: str
+    not_before: datetime
+    not_after: datetime
+    sha256_fingerprint: str
+    status: CertificateStatus
+    chain_status: ChainStatus
+    owner_name: str | None
+    owner_email: str | None
+    team: str | None
+    notes: str | None
+    imported_from: str
+    renews_id: int | None
+    created_at: datetime
+    updated_at: datetime
+    has_key: bool
+    has_chain: bool
+
+
+@dataclass(frozen=True)
+class KeyView:
+    key_type: str
+    key_size: int
+    curve: str | None
+    public_key_sha256: str
+    master_key_version: int
+    created_at: datetime
+    origin: str
+
+
+@dataclass(frozen=True)
+class LineageLink:
+    id: int
+    common_name: str
+    status: CertificateStatus
+    not_after: datetime
+
+
+@dataclass(frozen=True)
+class RenewalView:
+    id: str
+    state: str
+    common_name: str
+    previous_certificate_id: int | None
+    certificate_id: int | None
+    created_at: datetime
+    state_changed_at: datetime
+
+
+@dataclass(frozen=True)
+class AuditView:
+    action: str
+    actor_label: str
+    created_at: datetime
+    summary: str
+
+
+@dataclass(frozen=True)
+class BindingView:
+    server: str
+    vhost_name: str
+    port: int
+    config_file: str
+    cert_path: str
+    on_disk_fingerprint: str | None
+    match_state: str
+    is_active: bool
+    last_seen_at: datetime
+
+
+@dataclass(frozen=True)
+class EndpointView:
+    host: str
+    port: int
+    sni: str | None
+    is_active: bool
+    last_scan_status: str | None
+    last_scan_at: datetime | None
+
+
+@dataclass(frozen=True)
+class CertificateDetail:
+    certificate: CertificateView
+    key: KeyView | None
+    previous: LineageLink | None
+    next: list[LineageLink]
+    diagnostics: ChainDiagnostics
+    renewals: list[RenewalView]
+    audit: list[AuditView]
+    bindings: list[BindingView]
+    endpoints: list[EndpointView]
+
+
+HISTORY_LIMIT = 50
+
+
+def _lineage(row: Certificate) -> LineageLink:
+    return LineageLink(row.id, row.common_name, row.status, row.not_after)
+
+
+def _audit_summary(action: str, details: object) -> str:
+    if action == "certificate.status_change" and isinstance(details, dict):
+        return f"{details.get('from', '?')} → {details.get('to', '?')}: {details.get('reason', '')}"
+    return ""
+
+
+def certificate_detail(db: Session, certificate_id: int, now: datetime) -> CertificateDetail:
+    """Everything the detail screen shows, as plain values (never ORM key rows or PEM)."""
+    row = db.get(Certificate, certificate_id)
+    if row is None:
+        raise InventoryError("not_found", "certificate not found")
+    key = db.get(PrivateKey, row.key_id) if row.key_id is not None else None
+    previous = db.get(Certificate, row.renews_id) if row.renews_id is not None else None
+    following = db.scalars(
+        select(Certificate).where(Certificate.renews_id == row.id).order_by(Certificate.not_after, Certificate.id)
+    ).all()
+    renewals = db.scalars(
+        select(Renewal)
+        .where(or_(Renewal.certificate_id == row.id, Renewal.previous_certificate_id == row.id))
+        .order_by(Renewal.created_at.desc(), Renewal.id)
+        .limit(HISTORY_LIMIT)
+    ).all()
+    audits = db.scalars(
+        select(AuditLog)
+        .where(AuditLog.target_type == "certificate", AuditLog.target_id == str(row.id))
+        .order_by(AuditLog.created_at.desc(), AuditLog.id)
+        .limit(HISTORY_LIMIT)
+    ).all()
+    bindings = db.execute(
+        select(Binding, Server.hostname)
+        .join(Server, Server.id == Binding.server_id)
+        .where(Binding.certificate_id == row.id)
+        .order_by(Binding.is_active.desc(), Server.hostname, Binding.vhost_name, Binding.port, Binding.id)
+        .limit(500)
+    ).all()
+    endpoints = db.scalars(
+        select(Endpoint)
+        .where(Endpoint.expected_certificate_id == row.id)
+        .order_by(Endpoint.host, Endpoint.port, Endpoint.id)
+        .limit(500)
+    ).all()
+    return CertificateDetail(
+        certificate=CertificateView(
+            id=row.id,
+            common_name=row.common_name,
+            subject_dn=row.subject_dn,
+            sans=tuple(row.sans),
+            issuer_dn=row.issuer_dn,
+            issuer_cn=row.issuer_cn,
+            serial=row.serial,
+            not_before=row.not_before,
+            not_after=row.not_after,
+            sha256_fingerprint=row.sha256_fingerprint,
+            status=row.status,
+            chain_status=row.chain_status,
+            owner_name=row.owner_name,
+            owner_email=row.owner_email,
+            team=row.team,
+            notes=row.notes,
+            imported_from=row.imported_from,
+            renews_id=row.renews_id,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            has_key=key is not None,
+            has_chain=bool(row.chain_pem.strip()),
+        ),
+        key=None
+        if key is None
+        else KeyView(
+            key_type=key.key_type.value if hasattr(key.key_type, "value") else str(key.key_type),
+            key_size=key.key_size,
+            curve=key.curve,
+            public_key_sha256=key.public_key_sha256,
+            master_key_version=key.master_key_version,
+            created_at=key.created_at,
+            origin=key.origin,
+        ),
+        previous=_lineage(previous) if previous is not None else None,
+        next=[_lineage(item) for item in following],
+        diagnostics=diagnose_chain(db, row, now),
+        renewals=[
+            RenewalView(
+                id=str(item.id),
+                state=item.state.value,
+                common_name=item.common_name,
+                previous_certificate_id=item.previous_certificate_id,
+                certificate_id=item.certificate_id,
+                created_at=item.created_at,
+                state_changed_at=item.state_changed_at,
+            )
+            for item in renewals
+        ],
+        audit=[
+            AuditView(item.action, item.actor_label, item.created_at, _audit_summary(item.action, item.details))
+            for item in audits
+        ],
+        bindings=[
+            BindingView(
+                server=hostname,
+                vhost_name=binding.vhost_name,
+                port=binding.port,
+                config_file=binding.config_file,
+                cert_path=binding.cert_path,
+                on_disk_fingerprint=binding.on_disk_fingerprint,
+                match_state=binding.match_state,
+                is_active=binding.is_active,
+                last_seen_at=binding.last_seen_at,
+            )
+            for binding, hostname in bindings
+        ],
+        endpoints=[
+            EndpointView(
+                host=item.host,
+                port=item.port,
+                sni=item.sni,
+                is_active=item.is_active,
+                last_scan_status=item.last_scan_status.value if item.last_scan_status is not None else None,
+                last_scan_at=item.last_scan_at,
+            )
+            for item in endpoints
+        ],
+    )

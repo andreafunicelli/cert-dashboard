@@ -1,0 +1,18 @@
+<section class="panel wide" id="metadata-panel">
+  <h2>Edit owner, team and notes</h2>
+  {% if edit_errors.metadata %}<div class="form-error" data-field="metadata" role="alert"><p>{{ edit_errors.metadata }}</p></div>{% endif %}
+  <form method="post" action="/certificates/{{ cert_id }}/edit"
+        hx-post="/certificates/{{ cert_id }}/edit" hx-target="#metadata-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="owner_name">Owner name</label>
+    <input id="owner_name" name="owner_name" value="{{ edit_form.owner_name }}" maxlength="200">
+    <label for="owner_email">Owner email</label>
+    <input id="owner_email" name="owner_email" value="{{ edit_form.owner_email }}" maxlength="254">
+    <label for="team">Team</label>
+    <input id="team" name="team" value="{{ edit_form.team }}" maxlength="200">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="4" cols="60" maxlength="10000">{{ edit_form.notes }}</textarea>
+    <p class="hint">Notes are shown to every administrator; do not store secrets here.</p>
+    <button type="submit">Save details</button>
+  </form>
+</section>

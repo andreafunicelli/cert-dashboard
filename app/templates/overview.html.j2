@@ -1,0 +1,25 @@
+{% extends "base.html.j2" %}
+{% block title %}Overview · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Overview</h1>
+<section class="counters" aria-label="Certificate expiry">
+  {% for counter in counters %}
+  <a class="counter counter-{{ counter.key }}" data-counter="{{ counter.key }}" href="{{ counter.href }}"><strong>{{ counter.count }}</strong><span>{{ counter.label }}</span></a>
+  {% endfor %}
+</section>
+{% if empty %}
+<section class="panel wide" data-empty-state="setup">
+  <h2>Get started</h2>
+  <p>No certificates are in the inventory yet. Work through this checklist:</p>
+  <ol>
+    <li><a href="/certificates/import">Import a certificate</a> from a file, a paste or a live server.</li>
+    <li>Set up SMTP so expiry alerts and the daily digest can be emailed (available in Settings in a later release).</li>
+    <li>Point the dashboard at the Ansible inventory repository and run discovery to find certificates on your servers (available in a later plan).</li>
+  </ol>
+</section>
+{% endif %}
+{% block tls_health %}{% endblock %}
+{% block recent_jobs %}{% endblock %}
+{% block renewals_in_flight %}{% endblock %}
+{% block status_strip %}{% endblock %}
+{% endblock %}

@@ -527,7 +527,7 @@ def test_pull_import_creates_expectation(worker_harness, signed_in, tls_server, 
 
 **Interfaces:** Consumes: `update_certificate(db: Session, certificate_id: int, metadata: CertificateMetadata, actor: Actor) -> Certificate` and remaining Task 14 mutations, base template/session guards. Produces: `CertificateFilters(search: str | None = None, status: CertificateStatus | None = None, expiry: Literal['expired','lt7','lt30','lt60'] | None = None, issuer: str | None = None, team: str | None = None, owner: str | None = None, has_key: bool | None = None, has_bindings: bool | None = None, renewal_state: RenewalState | None = None)`; `CertificatePage(items: list[Certificate], total: int, page: int, page_size: int)`; `list_certificates(db: Session, filters: CertificateFilters, page: int = 1, page_size: int = 50, sort: str = 'not_after', now: datetime | None = None) -> CertificatePage`; `expiry_counts(db: Session, now: datetime) -> dict[str,int]`; GET `/`, `/certificates`, `/certificates/export.json`, `/certificates/{id}`; POST `/certificates/{id}/{edit|status|chain}`.
 
-- [ ] Write failing read-model/HTTP tests with exact bucket boundaries:
+- [x] Write failing read-model/HTTP tests with exact bucket boundaries:
 
 ```python
 def test_expiry_buckets_are_disjoint(db, inventory_at_boundaries, now):
@@ -541,10 +541,10 @@ def test_filters_and_no_secret_panels(signed_in, inventory):
 ```
 
   Boundary fixture has active expiries now−1 s, +6 d, +7 d, +30 d, +60 d; superseded/revoked excluded. Also test every filter, whitelisted sorting, pagination limits (1–100), JSON export public field allowlist, empty setup links, escaped notes, required status-change reason, lineage/history/chain-warning/key metadata, and query count independent of row count (no N+1 binding count queries).
-- [ ] Run `uv run pytest tests/integration/test_inventory_http.py -q`; expect FAIL, screens/read models absent.
-- [ ] Implement in listed files; counts use disjoint expired (<now), <7, 7–<30, 30–<60, plus total active; counter links reproduce these exact ranges. Lists include all §8.3 columns/filters/bookmark queries and JSON export. Detail includes all public certificate fields, key presence/type/size/public fingerprint/version, related audits/renewal lineage, editable metadata/status, chain import, cached chain_status and missing-issuer/expired-intermediate/untrusted-root warnings linking Settings → Trust anchors; read existing bindings/endpoints in empty-ready panels without implementing their later screens/actions. Downloads/renewal buttons connect in Tasks 19–20; Deploy/Scan actions are gated on registered capabilities. Overview contains expiry buckets and setup empty state only; TLS/job/renewal summaries are extension slots for later plans. Datetimes emit UTC machine values plus local display; JSON never serializes ORM objects wholesale.
-- [ ] Run `uv run pytest tests/integration/test_inventory_http.py -q`; expect PASS.
-- [ ] Commit: `git add app/services/certificates.py app/main.py app/templates/overview.html.j2 app/templates/certificates tests/integration/test_inventory_http.py`; `git commit -m "feat: render searchable certificate inventory and expiry overview"`.
+- [x] Run `uv run pytest tests/integration/test_inventory_http.py -q`; expect FAIL, screens/read models absent.
+- [x] Implement in listed files; counts use disjoint expired (<now), <7, 7–<30, 30–<60, plus total active; counter links reproduce these exact ranges. Lists include all §8.3 columns/filters/bookmark queries and JSON export. Detail includes all public certificate fields, key presence/type/size/public fingerprint/version, related audits/renewal lineage, editable metadata/status, chain import, cached chain_status and missing-issuer/expired-intermediate/untrusted-root warnings linking Settings → Trust anchors; read existing bindings/endpoints in empty-ready panels without implementing their later screens/actions. Downloads/renewal buttons connect in Tasks 19–20; Deploy/Scan actions are gated on registered capabilities. Overview contains expiry buckets and setup empty state only; TLS/job/renewal summaries are extension slots for later plans. Datetimes emit UTC machine values plus local display; JSON never serializes ORM objects wholesale.
+- [x] Run `uv run pytest tests/integration/test_inventory_http.py -q`; expect PASS.
+- [x] Commit: `git add app/services/certificates.py app/main.py app/templates/overview.html.j2 app/templates/certificates tests/integration/test_inventory_http.py`; `git commit -m "feat: render searchable certificate inventory and expiry overview"`.
 
 ### Task 18: Audited renewal state machine and issued-certificate gate
 
