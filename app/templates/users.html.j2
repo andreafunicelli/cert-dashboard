@@ -1,0 +1,97 @@
+{% extends "base.html.j2" %}
+{% block title %}Users · Cert Dashboard{% endblock %}
+{% macro errors(message) %}{% if message %}<p class="form-error" role="alert">{{ message }}</p>{% endif %}{% endmacro %}
+{% block content %}
+<h1>Users</h1>
+<p>Every active user is an administrator. Security actions ask for <strong>your</strong> current password and sign the affected user out immediately.</p>
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+{{ errors(error) }}
+
+<section class="panel" aria-labelledby="create-heading">
+  <h2 id="create-heading">Add local user</h2>
+  <form method="post" action="/users">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="new-username">Username</label>
+    <input id="new-username" name="username" value="{{ values.username }}" maxlength="150" pattern="[A-Za-z0-9._@\-]+" autocomplete="off" required>
+    <label for="new-email">Email</label>
+    <input id="new-email" name="email" type="email" value="{{ values.email }}" maxlength="254" autocomplete="off" required>
+    <label for="new-display">Display name (optional)</label>
+    <input id="new-display" name="display_name" value="{{ values.display_name }}" maxlength="200" autocomplete="off">
+    <label for="new-password">Temporary password (at least 12 characters)</label>
+    <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" required>
+    <label for="new-confirm">Repeat temporary password</label>
+    <input id="new-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+    <button type="submit">Create user</button>
+  </form>
+  <p class="hint">The user must change this password at first sign-in. The password is never shown again.</p>
+</section>
+
+<div class="table-wrap">
+<table class="users">
+  <thead><tr>
+    <th scope="col">Username</th>
+    <th scope="col">Display name</th>
+    <th scope="col">Email</th>
+    <th scope="col">Backend</th>
+    <th scope="col">Active</th>
+    <th scope="col">2FA</th>
+    <th scope="col">Must change password</th>
+    <th scope="col">Last login</th>
+    <th scope="col">Locked until</th>
+    <th scope="col">Actions</th>
+  </tr></thead>
+  <tbody>
+  {% for item in users %}
+  <tr data-user-id="{{ item.id }}"{% if not item.is_active %} class="row-inactive"{% endif %}>
+    <td>{{ item.username }}{% if item.id == current_user_id %} <small>(you)</small>{% endif %}</td>
+    <td>{{ item.display_name or "—" }}</td>
+    <td>{{ item.email }}</td>
+    <td>{{ item.backend }}</td>
+    <td>{{ "Yes" if item.is_active else "No" }}</td>
+    <td>{{ "Enabled" if item.totp_enabled else "Off" }}</td>
+    <td>{{ "Yes" if item.must_change else "No" }}</td>
+    <td>{{ time_tag(item.last_login_at, tz) }}</td>
+    <td>{{ time_tag(item.locked_until, tz) }}</td>
+    <td>
+      <details>
+        <summary>Manage</summary>
+
+        <form method="post" action="/users/{{ item.id }}/edit">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label>Email <input name="email" type="email" value="{{ item.email }}" maxlength="254" required></label>
+          <label>Display name <input name="display_name" value="{{ item.display_name or '' }}" maxlength="200"></label>
+          <button type="submit">Save</button>
+        </form>
+
+        <form method="post" action="/users/{{ item.id }}/reset-password">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <fieldset{% if not item.local %} disabled{% endif %}>
+            <legend>Reset password</legend>
+            <label>Temporary password <input name="new_password" type="password" autocomplete="new-password" minlength="12" required></label>
+            <label>Repeat temporary password <input name="confirm_password" type="password" autocomplete="new-password" minlength="12" required></label>
+            <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
+            <button type="submit"{% if not item.local %} disabled title="Managed by the directory"{% endif %}>Reset password</button>
+          </fieldset>
+          {% if not item.local %}<p class="hint">Password is managed by the directory.</p>{% endif %}
+        </form>
+
+        <form method="post" action="/users/{{ item.id }}/reset-totp">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
+          <button type="submit">Reset two-factor authentication</button>
+        </form>
+
+        <form method="post" action="/users/{{ item.id }}/deactivate">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
+          <button type="submit"{% if not item.is_active %} disabled title="Already inactive"{% endif %}>Deactivate</button>
+        </form>
+      </details>
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
+{% endblock %}

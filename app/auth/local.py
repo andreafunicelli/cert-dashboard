@@ -10,6 +10,7 @@ import binascii
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth.base import AuthResult, Failure, Success, UserRecord
+from app.auth.sessions import revoke_sessions
 from app.crypto.keyring import Keyring, KeyUnwrapError, WrappedSecret, unwrap, wrap
 from app.models import LoginRateLimit, User, UserSession
 from app.models.enums import AuthBackend as BackendName
@@ -453,3 +455,157 @@ def bootstrap_admin(db: Session, username: str, email: str, password: str, actor
         raise ValueError("A user with this username already exists.") from None
     record(db, actor, "user.bootstrap_admin", "user", str(user.id), {"username": user.username})
     return user
+
+
+# --------------------------------------------------------------------------
+# Local user administration (Task 22)
+# --------------------------------------------------------------------------
+
+_USERNAME = re.compile(r"[A-Za-z0-9._@-]{1,150}")
+_EMAIL_PART = r"[^@\s<>\"',;()\[\]\\]+"
+_EMAIL = re.compile(rf"{_EMAIL_PART}@{_EMAIL_PART}")
+_EMAIL_MAX = 254
+_DISPLAY_NAME_MAX = 200
+_BIGINT_MAX = 2**63 - 1
+
+
+class UserAdminError(Exception):
+    """Typed refusal of an administration request; `code` is safe control-flow metadata.
+
+    Codes: duplicate_username, policy, invalid_email, invalid_username, invalid_display_name,
+    last_active_user, not_supported, not_found, already_inactive.
+    """
+
+    def __init__(self, code: str, message: str = ""):
+        super().__init__(code)
+        self.code, self.message = code, message
+
+
+def lock_user_admin(db: Session) -> None:
+    """Serialize administration that depends on the set of active users (transaction-scoped).
+
+    Routes take this before any row lock (including the acting administrator's re-authentication)
+    so concurrent administrators always acquire locks in the same order and cannot deadlock.
+    """
+    db.execute(select(func.pg_advisory_xact_lock(func.hashtext("users:active"))))
+
+
+def _clean_username(username: str) -> str:
+    username = username.strip() if isinstance(username, str) else ""
+    if not _USERNAME.fullmatch(username):
+        raise UserAdminError(
+            "invalid_username", "Username must be 1–150 characters: letters, digits, . _ @ -"
+        )
+    return username
+
+
+def _clean_email(email: str) -> str:
+    email = email.strip() if isinstance(email, str) else ""
+    local, _, domain = email.partition("@")
+    if len(email) > _EMAIL_MAX or not _EMAIL.fullmatch(email) or "." not in domain or len(local) > 64:
+        raise UserAdminError("invalid_email", "Enter a valid email address (at most 254 characters).")
+    return email
+
+
+def _clean_display_name(display_name: str | None) -> str | None:
+    display_name = display_name.strip() if isinstance(display_name, str) else ""
+    if len(display_name) > _DISPLAY_NAME_MAX:
+        raise UserAdminError("invalid_display_name", "Display name must be at most 200 characters.")
+    return display_name or None
+
+
+def _hash_for_admin(password: str) -> str:
+    try:
+        return hash_password(password)
+    except ValueError as exc:
+        raise UserAdminError("policy", str(exc)) from None
+
+
+def _admin_target(db: Session, user_id: int) -> User:
+    if not isinstance(user_id, int) or not 0 < user_id <= _BIGINT_MAX:
+        raise UserAdminError("not_found")
+    user = _locked_user(db, user_id)
+    if user is None:
+        raise UserAdminError("not_found")
+    return user
+
+
+def create_user(
+    db: Session, username: str, email: str, display_name: str | None, password: str, actor: Actor
+) -> User:
+    """Create an active local user whose administrator-chosen password must be changed at first sign-in."""
+    username, email = _clean_username(username), _clean_email(email)
+    display_name = _clean_display_name(display_name)
+    encoded = _hash_for_admin(password)
+    user = User(
+        username=username,
+        email=email,
+        display_name=display_name,
+        auth_backend=BackendName.LOCAL,
+        password_hash=encoded,
+        is_active=True,
+        must_change_password=True,
+    )
+    try:
+        with db.begin_nested():
+            db.add(user)
+            db.flush()
+    except IntegrityError:
+        raise UserAdminError("duplicate_username", "A user with this username already exists.") from None
+    record(db, actor, "user.create", "user", str(user.id), {"username": user.username, "email": user.email})
+    return user
+
+
+def update_user(db: Session, user_id: int, email: str, display_name: str | None, actor: Actor) -> User:
+    """Change email/display name only; the audit row carries before/after of the changed fields."""
+    email, display_name = _clean_email(email), _clean_display_name(display_name)
+    user = _admin_target(db, user_id)
+    before: dict[str, str | None] = {}
+    after: dict[str, str | None] = {}
+    for field_name, value in (("email", email), ("display_name", display_name)):
+        current = getattr(user, field_name)
+        if current != value:
+            before[field_name], after[field_name] = current, value
+            setattr(user, field_name, value)
+    if after:
+        db.flush()
+        record(db, actor, "user.update", "user", str(user.id), {"before": before, "after": after})
+    return user
+
+
+def deactivate_user(db: Session, user_id: int, actor: Actor, now: datetime) -> None:
+    """Deactivate and revoke sessions, never leaving zero active users (also under concurrency)."""
+    lock_user_admin(db)  # the count below must observe every concurrent deactivation
+    user = _admin_target(db, user_id)
+    if not user.is_active:
+        raise UserAdminError("already_inactive", "This user is already inactive.")
+    remaining = db.scalar(
+        select(func.count()).select_from(User).where(User.is_active.is_(True), User.id != user.id)
+    )
+    if not remaining:
+        raise UserAdminError("last_active_user", "The last active user cannot be deactivated.")
+    user.is_active = False
+    revoke_sessions(db, user.id, now)
+    record(db, actor, "user.deactivate", "user", str(user.id), {"username": user.username})
+
+
+def reset_password(db: Session, user_id: int, new_password: str, actor: Actor, now: datetime) -> None:
+    """Local backend only: set an administrator-chosen temporary password the user must change."""
+    user = _admin_target(db, user_id)
+    if user.auth_backend != BackendName.LOCAL:
+        raise UserAdminError("not_supported", "The password of this account is managed by its directory.")
+    user.password_hash = _hash_for_admin(new_password)
+    user.must_change_password = True
+    user.failed_attempts, user.locked_until = 0, None
+    revoke_sessions(db, user.id, now)
+    record(db, actor, "user.password_reset", "user", str(user.id), {"username": user.username})
+
+
+def reset_totp(db: Session, user_id: int, actor: Actor, now: datetime) -> None:
+    """Clear every second-factor secret (any backend) and sign the user out everywhere."""
+    user = _admin_target(db, user_id)
+    user.totp_enabled, user.totp_confirmed_at, user.totp_last_used_step = False, None, None
+    user.totp_secret_ciphertext = user.totp_secret_nonce = user.totp_secret_version = None
+    user.recovery_codes = []
+    revoke_sessions(db, user.id, now)
+    record(db, actor, "user.totp_reset", "user", str(user.id), {"username": user.username})
