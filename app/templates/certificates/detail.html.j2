@@ -52,9 +52,9 @@
     {% if c.status.value == "active" %}<a class="button" href="/renewals/new?from={{ c.id }}">Start renewal</a>
     {% else %}<button type="button" disabled title="Only active certificates can be renewed">Start renewal</button>{% endif %}
     {% if deploy_supported %}<a class="button" href="/deploy?certificate_id={{ c.id }}">Deploy</a>
-    {% else %}<button type="button" disabled title="Available in a later plan">Deploy</button>{% endif %}
+    {% else %}<button type="button" disabled title="{{ deploy_reason }}">Deploy</button>{% endif %}
     {% if scan_supported %}<a class="button" href="/scans?certificate_id={{ c.id }}">Scan now</a>
-    {% else %}<button type="button" disabled title="Available in a later plan">Scan now</button>{% endif %}
+    {% else %}<button type="button" disabled title="{{ scan_reason }}">Scan now</button>{% endif %}
   </p>
   {% set in_flight = detail.renewals | selectattr("previous_certificate_id", "equalto", c.id) | rejectattr("state", "in", ["done", "cancelled"]) | list %}
   {% for item in in_flight %}

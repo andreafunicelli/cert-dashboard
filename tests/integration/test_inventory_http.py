@@ -655,10 +655,13 @@ def test_overview_has_no_tls_or_job_summaries_yet(signed_in, inventory):
 def test_navigation_enables_implemented_areas_only(signed_in):
     text = signed_in.get("/").text
     assert '<a href="/">Overview</a>' in text and '<a href="/certificates">Certificates</a>' in text
-    for label in ("Servers", "Deploy", "Scans"):
-        assert re.search(
-            rf'<span aria-disabled="true" title="Available in a later plan">{label}</span>', text
-        ), label
+    reasons = {
+        "Servers": "Available in a later plan",
+        "Deploy": "handler deploy/default not registered (Plan 3)",
+        "Scans": "handler scan/default not registered (Plan 2)",
+    }
+    for label, reason in reasons.items():
+        assert re.search(rf'<span aria-disabled="true" title="{re.escape(reason)}">{label}</span>', text), label
     assert '<a href="/audit">Audit</a>' in text
     assert '<a href="/settings">Settings</a>' in text
 
@@ -912,9 +915,16 @@ def test_detail_download_and_export_actions_are_live_and_other_buttons_are_place
     # Task 19 enabled the renewal wizard entry point for active certificates.
     assert f'href="/renewals/new?from={inventory.www}"' in page.text
     assert not re.search(r'<button[^>]*disabled[^>]*>[^<]*Renew', page.text)
-    for label in ("Deploy", "Scan now"):
-        assert re.search(rf'<button[^>]*disabled[^>]*>[^<]*{label}', page.text), label
-    assert "Available in a later plan" in page.text
+    reasons = {
+        "Deploy": "handler deploy/default not registered (Plan 3)",
+        "Scan now": "handler scan/default not registered (Plan 2)",
+    }
+    for label, reason in reasons.items():
+        assert re.search(
+            rf'<button type="button" disabled title="{re.escape(reason)}">{label}</button>', page.text
+        ), label
+    actions = page.text.split('id="actions-panel"', 1)[1].split("</section>", 1)[0]
+    assert "Available in a later plan" not in actions
 
 
 def test_detail_validation_panel_names_missing_issuer_and_links_trust_anchors(

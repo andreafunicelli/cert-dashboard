@@ -55,6 +55,7 @@ from app.web.common import (
     read_flash,
     render_block,
     set_flash,
+    unsupported_reason,
 )
 
 _TEMPLATE = "import.html.j2"
@@ -575,6 +576,8 @@ def _detail_page(request: Request, certificate_id: int, status: int = 200, **for
         trust_warning=cached != "trusted" or diagnostics.status is None or diagnostics.status.value != "trusted",
         deploy_supported=registry.supports(JobType.DEPLOY),
         scan_supported=registry.supports(JobType.SCAN),
+        deploy_reason=unsupported_reason(registry, "Plan 3", (JobType.DEPLOY, "default")),
+        scan_reason=unsupported_reason(registry, "Plan 2", (JobType.SCAN, "default")),
         missing_key_versions=_missing_key_versions(request),
         key_unavailable=KEY_UNAVAILABLE,
         **forms,
