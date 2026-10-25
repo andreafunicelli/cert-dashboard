@@ -903,10 +903,12 @@ def test_detail_empty_panels_have_explanatory_text(signed_in, inventory):
     assert "No bindings recorded" in page.text and "No endpoints" in page.text
 
 
-def test_detail_buttons_are_placeholders_until_later_tasks_and_plans(signed_in, inventory):
+def test_detail_download_and_export_actions_are_live_and_other_buttons_are_placeholders(signed_in, inventory):
     page = signed_in.get(f"/certificates/{inventory.www}")
-    assert re.search(r'<button[^>]*disabled[^>]*>[^<]*Download', page.text)
-    assert "Available after Task 20" in page.text
+    # Task 20 replaced the Download placeholder with audited downloads and the PFX export entry.
+    assert f'href="/certificates/{inventory.www}/leaf.pem"' in page.text
+    assert not re.search(r'<button[^>]*disabled[^>]*>[^<]*Download certificate', page.text)
+    assert "Available after Task 20" not in page.text
     # Task 19 enabled the renewal wizard entry point for active certificates.
     assert f'href="/renewals/new?from={inventory.www}"' in page.text
     assert not re.search(r'<button[^>]*disabled[^>]*>[^<]*Renew', page.text)

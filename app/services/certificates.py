@@ -24,7 +24,7 @@ from app.crypto.chain import ChainError, ChainResult, order_chain
 from app.crypto.keyring import Keyring, KeyUnwrapError, WrappedSecret, unwrap, wrap
 from app.crypto.keys import PrivateKeyObject, _validate, load_private_key, private_key_pem, public_key_sha256
 from app.crypto.parse import MAX_INPUT_BYTES, ParsedCertificate, ParseError, parse_certificates
-from app.crypto.pfx import PFXError, _is_ca
+from app.crypto.pfx import PFXError, _is_ca, build_pfx
 from app.crypto.pfx_isolated import read_encrypted_key_isolated, read_pfx_isolated
 from app.crypto.trust import ChainAssessment, assess_chain
 from app.models import (
@@ -1345,4 +1345,81 @@ def certificate_detail(db: Session, certificate_id: int, now: datetime) -> Certi
             for binding, hostname in bindings
         ],
         endpoints=[_endpoint_view(item, latest_scans.get(item.id), row.sha256_fingerprint) for item in endpoints],
+    )
+
+
+PFX_PASSWORD_MIN = 12
+PFX_PASSWORD_MAX = 1024
+
+
+def export_pfx(
+    db: Session,
+    certificate_id: int,
+    keyring: Keyring,
+    pfx_password: str,
+    actor: Actor,
+) -> bytes:
+    """Build the PKCS#12 bundle (key, leaf, stored chain) entirely in memory.
+
+    The caller has just re-authenticated the signed-in user. The ``key.export`` audit is staged in
+    the caller's transaction, so it commits (or rolls back) together with it; the PFX password is
+    never recorded. Failures raise ``InventoryError`` with a stable code and a safe message.
+    """
+    row = db.get(Certificate, certificate_id)
+    if row is None:
+        raise InventoryError("not_found", "Certificate not found.")
+    if row.key_id is None:
+        raise InventoryError("no_key", "No private key is stored for this certificate.")
+    if not isinstance(pfx_password, str) or len(pfx_password) < PFX_PASSWORD_MIN:
+        raise InventoryError("weak_password", "The PFX password must contain at least 12 characters.")
+    if len(pfx_password) > PFX_PASSWORD_MAX:
+        raise InventoryError("invalid_password", "The PFX password must contain at most 1,024 characters.")
+    try:
+        key = unwrap_key(db.get(PrivateKey, row.key_id), keyring)
+    except KeyUnwrapError as exc:
+        raise InventoryError("key_unwrap", str(exc)) from None
+    try:
+        leaf = parse_certificates(row.pem.encode("ascii"))[0]
+        chain = (
+            [item.cert for item in parse_certificates(row.chain_pem.encode("ascii"))]
+            if row.chain_pem.strip()
+            else []
+        )
+        data = build_pfx(key, leaf.cert, chain, pfx_password, leaf.common_name)
+    except PFXError as exc:
+        raise InventoryError(exc.code, exc.message) from None
+    except (ParseError, UnicodeError):
+        raise InventoryError("invalid_certificate", "The stored certificate or chain could not be read.") from None
+    finally:
+        del key
+    record(
+        db,
+        actor,
+        "key.export",
+        "certificate",
+        str(certificate_id),
+        {
+            "format": "pfx",
+            "fingerprint": row.sha256_fingerprint,
+            "key_id": row.key_id,
+            "chain_length": len(chain),
+        },
+    )
+    return data
+
+
+def record_download(db: Session, certificate_id: int, kind: str, actor: Actor) -> None:
+    """Stage the audit row for a public-material download (``leaf``, ``chain`` or ``fullchain``)."""
+    record(db, actor, "certificate.download", "certificate", str(certificate_id), {"format": kind})
+
+
+def record_export_failure(db: Session, certificate_id: int, code: str, actor: Actor) -> None:
+    """Stage ``key.export_failed`` (ids and the error code only) for a separate, committed transaction."""
+    record(
+        db,
+        actor,
+        "key.export_failed",
+        "certificate",
+        str(certificate_id),
+        {"certificate_id": certificate_id, "error": code},
     )
