@@ -51,6 +51,7 @@ from app.jobs.worker import worker_liveness
 from app.models import User
 from app.services.audit import SecretRedactionFilter, record
 from app.services.certificates import missing_master_key_versions
+from app.web.audit import register_audit_routes
 from app.web.certificates import register_certificate_routes
 from app.web.common import (
     _actor,
@@ -673,7 +674,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ("Servers", "/servers", False, "Available in a later plan"),
             ("Deploy", "/deploy", False, "Available in a later plan"),
             ("Scans", "/scans", False, "Available in a later plan"),
-            ("Audit", "/audit", False, "Available in a later implementation task"),
+            ("Audit", "/audit", True, ""),
             ("Settings", "/settings", False, "Available in a later implementation task"),
         ]
     ]
@@ -687,6 +688,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_certificate_routes(app)
     register_overview_routes(app)
     register_renewal_routes(app)
+    register_audit_routes(app)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):

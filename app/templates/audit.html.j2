@@ -1,0 +1,67 @@
+{% extends "base.html.j2" %}
+{% block title %}Audit log · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Audit log</h1>
+<p>Append-only history, newest first. This view is read-only.</p>
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/audit" class="filters">
+    <label>Actor <input name="actor" value="{{ values.actor or '' }}" maxlength="200"></label>
+    <label>Action prefix <input name="action_prefix" value="{{ values.action_prefix or '' }}" maxlength="100" placeholder="certificate."></label>
+    <label>Target type <input name="target_type" value="{{ values.target_type or '' }}" maxlength="200"></label>
+    <label>Target ID <input name="target_id" value="{{ values.target_id or '' }}" maxlength="200"></label>
+    <label>From (inclusive, UTC) <input name="start" value="{{ values.start or '' }}" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
+    <label>Until (exclusive, UTC) <input name="end" value="{{ values.end or '' }}" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
+    <label>IP or CIDR <input name="ip" value="{{ values.ip or '' }}" maxlength="45" placeholder="192.0.2.10 or 192.0.2.0/24"></label>
+    {% if page_size != default_page_size %}<input type="hidden" name="page_size" value="{{ page_size }}">{% endif %}
+    <button type="submit">Apply filters</button>
+    <a href="/audit">Reset</a>
+  </form>
+</section>
+
+<p class="list-summary" data-total="{{ total }}">{{ total }} event{{ "" if total == 1 else "s" }}
+  · <a href="{{ export_url }}" download="audit.json">Export list as JSON</a> (metadata only, newest 5,000)</p>
+
+{% if items %}
+<div class="table-wrap">
+<table class="audit">
+  <thead><tr>
+    <th scope="col">Time</th>
+    <th scope="col">Actor</th>
+    <th scope="col">Action</th>
+    <th scope="col">Target</th>
+    <th scope="col">IP</th>
+    <th scope="col">Details</th>
+  </tr></thead>
+  <tbody>
+  {% for item in items %}
+  {% set row = item.row %}
+  <tr data-audit-row>
+    <td>{{ time_tag(row.created_at, tz) }}</td>
+    <td>{{ row.actor_label }}</td>
+    <td>{{ row.action }}</td>
+    <td>{{ row.target_type }}{% if row.target_id is not none %} <small>{{ row.target_id }}</small>{% endif %}</td>
+    <td>{{ item.ip or "—" }}</td>
+    <td><details>
+      <summary>Show</summary>
+      <dl class="fields">
+        <dt>Time (UTC)</dt><dd>{{ item.utc }}</dd>
+        <dt>IP</dt><dd>{{ item.ip or "—" }}</dd>
+        <dt>User agent</dt><dd>{{ row.user_agent or "—" }}</dd>
+      </dl>
+      <pre>{{ item.details_json }}</pre>
+    </details></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="panel wide">No audit events match these filters. <a href="/audit">Clear the filters</a>.</p>
+{% endif %}
+
+<nav class="pager" aria-label="Pages">
+  {% if page > 1 %}<a rel="prev" href="{{ page_url(page - 1) }}">Previous</a>{% endif %}
+  <span>Page {{ page }} of {{ pages }}</span>
+  {% if page < pages %}<a rel="next" href="{{ page_url(page + 1) }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

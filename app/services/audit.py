@@ -10,7 +10,11 @@ import re
 import traceback
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from ipaddress import ip_interface
 
+from sqlalchemy import cast, func, select
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, JSONValue
@@ -222,6 +226,92 @@ def record(
     )
     db.add(row)
     return row
+
+
+ACTION_PREFIX_MAX = 100
+# Address or address/prefix-length only: Python also accepts netmask and scope-id forms that Postgres refuses.
+_IP_SYNTAX = re.compile(r"[0-9A-Fa-f:.]{2,45}(?:/[0-9]{1,3})?")
+
+
+@dataclass(frozen=True)
+class AuditFilters:
+    """Read-only audit query. ``start`` is inclusive, ``end`` exclusive; naive datetimes are UTC.
+
+    ``ip`` is one address or a CIDR network. Invalid values raise ``ValueError`` at construction.
+    """
+
+    actor: str | None = None
+    action_prefix: str | None = None
+    target_type: str | None = None
+    target_id: str | None = None
+    start: datetime | None = None
+    end: datetime | None = None
+    ip: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.action_prefix is not None and len(self.action_prefix) > ACTION_PREFIX_MAX:
+            raise ValueError("action prefix is too long")
+        if self.ip is not None:
+            if _IP_SYNTAX.fullmatch(self.ip) is None:
+                raise ValueError("invalid IP address or network")
+            try:
+                ip_interface(self.ip)
+            except ValueError:
+                raise ValueError("invalid IP address or network") from None
+
+
+def _utc(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value
+
+
+def _audit_clauses(filters: AuditFilters) -> list:
+    clauses = []
+    if filters.actor is not None:
+        clauses.append(func.lower(AuditLog.actor_label) == filters.actor.lower())
+    if filters.action_prefix is not None:
+        clauses.append(AuditLog.action.startswith(filters.action_prefix, autoescape=True))
+    if filters.target_type is not None:
+        clauses.append(AuditLog.target_type == filters.target_type)
+    if filters.target_id is not None:
+        clauses.append(AuditLog.target_id == filters.target_id)
+    if filters.start is not None:
+        clauses.append(AuditLog.created_at >= _utc(filters.start))
+    if filters.end is not None:
+        clauses.append(AuditLog.created_at < _utc(filters.end))
+    if filters.ip is not None:
+        clauses.append(AuditLog.ip.op("<<=")(cast(filters.ip, INET)))
+    return clauses
+
+
+def list_audit(
+    db: Session, filters: AuditFilters, page: int = 1, page_size: int = 50
+) -> tuple[list[AuditLog], int]:
+    """One page of matching rows, newest first (``id`` breaks ties), and the total match count."""
+    if page < 1 or not 1 <= page_size <= 100:
+        raise ValueError("page must be >= 1 and page_size between 1 and 100")
+    clauses = _audit_clauses(filters)
+    total = db.scalar(select(func.count()).select_from(AuditLog).where(*clauses)) or 0
+    rows = db.scalars(
+        select(AuditLog)
+        .where(*clauses)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all()
+    return list(rows), total
+
+
+def export_audit(db: Session, filters: AuditFilters, limit: int) -> tuple[list[AuditLog], int]:
+    """Up to ``limit`` matching rows, newest first, and the total match count (for truncation)."""
+    clauses = _audit_clauses(filters)
+    total = db.scalar(select(func.count()).select_from(AuditLog).where(*clauses)) or 0
+    rows = db.scalars(
+        select(AuditLog)
+        .where(*clauses)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(limit)
+    ).all()
+    return list(rows), total
 
 
 def _log_value(value: object) -> JSONValue:

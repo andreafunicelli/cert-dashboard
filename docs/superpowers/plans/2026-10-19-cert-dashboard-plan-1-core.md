@@ -629,7 +629,7 @@ def test_pfx_requires_reauth_and_chosen_password(signed_in, cert_with_key, csrf,
 
 **Interfaces:** Consumes: `require_user(request: Request) -> UserRecord`, `AuditLog`, base template. Produces: `AuditFilters(actor: str | None = None, action_prefix: str | None = None, target_type: str | None = None, target_id: str | None = None, start: datetime | None = None, end: datetime | None = None, ip: str | None = None)`; `list_audit(db: Session, filters: AuditFilters, page: int = 1, page_size: int = 50) -> tuple[list[AuditLog], int]`; GET `/audit` and `/audit/export.json`.
 
-- [ ] Write failing HTTP assertions:
+- [x] Write failing HTTP assertions:
 
 ```python
 def test_audit_is_filterable_and_read_only(signed_in, audited_changes, csrf):
@@ -642,10 +642,10 @@ def test_audit_is_filterable_and_read_only(signed_in, audited_changes, csrf):
 ```
 
   Add actor/date/IP/target filters, newest-first tie-break by id, pagination, escaped expanded JSON/IP/user-agent, unauthenticated denial, and no CSV/edit/delete/purge controls.
-- [ ] Run `uv run pytest tests/integration/test_audit_http.py -q`; expect FAIL, audit view absent.
-- [ ] Implement parameterized queries, page size 1–100, query-string filter links and public metadata-only JSON export; reuse append-only writer, never ORM-update/delete audit. Audit export is an authenticated read, with no recursive “audit read of audit read” requirement.
-- [ ] Run `uv run pytest tests/integration/test_audit_http.py -q`; expect PASS.
-- [ ] Commit: `git add app/services/audit.py app/main.py app/templates/audit.html.j2 tests/integration/test_audit_http.py`; `git commit -m "feat: browse and export immutable audit history"`.
+- [x] Run `uv run pytest tests/integration/test_audit_http.py -q`; expect FAIL, audit view absent.
+- [x] Implement parameterized queries, page size 1–100, query-string filter links and public metadata-only JSON export; reuse append-only writer, never ORM-update/delete audit. Audit export is an authenticated read, with no recursive “audit read of audit read” requirement.
+- [x] Run `uv run pytest tests/integration/test_audit_http.py -q`; expect PASS.
+- [x] Commit: `git add app/services/audit.py app/main.py app/templates/audit.html.j2 tests/integration/test_audit_http.py`; `git commit -m "feat: browse and export immutable audit history"`.
 
 ### Task 22: Local user administration and last-admin protection
 
