@@ -846,3 +846,108 @@ def reconcile(db, binding, *, at, match_state=_KEEP, fingerprint=_KEEP, is_activ
     row = audit_binding_state(db, binding, previous, SYSTEM_ACTOR, job_id=None, now=at)
     db.flush()
     return row
+
+
+@pytest.fixture
+def count_statements(web_factory):
+    """``with count_statements() as counter:`` counts SQL statements sent through ``engine`` (default: the web bind)."""
+    from types import SimpleNamespace
+
+    from sqlalchemy import event
+
+    @contextlib.contextmanager
+    def counting(engine=None):
+        bind = engine or web_factory.kw["bind"]
+        counter = SimpleNamespace(count=0)
+
+        def capture(*_args):
+            counter.count += 1
+
+        event.listen(bind, "before_cursor_execute", capture)
+        try:
+            yield counter
+        finally:
+            event.remove(bind, "before_cursor_execute", capture)
+
+    return counting
+
+
+@pytest.fixture
+def scan_world(web_factory, now):
+    """Committed endpoints in every scan state on one server (names are unique per use).
+
+    The mismatch endpoint expects ``expected_certificate_id`` but serves ``served_certificate_id``
+    (also in inventory) and carries 25 history rows; ``token`` is a search term matching every host.
+    """
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from app.models import Endpoint, ScanResult
+    from app.models.enums import EndpointSource, ScanStatus
+
+    token = "sw" + secrets.token_hex(4)
+    expected, served, other = (expiring(web_factory, days) for days in (90, 60, 30))
+    group = f"grp-{token}"
+    hosts = {name: f"{name}-{token}.example.test" for name in ("mismatch", "ok", "expired", "down", "broken", "never", "off")}
+    ids = {}
+    with web_factory.begin() as db:
+        server = add_server(db, f"srv-{token}.example.test", ansible_groups=[group, "web"])
+        specs = {  # name -> (expected certificate, newest status, served certificate)
+            "mismatch": (expected, "mismatch", served),
+            "ok": (other, "ok", other),
+            "expired": (expected, "expired", expected),
+            "down": (expected, "unreachable", None),
+            "broken": (expected, "error", None),
+            "never": (None, None, None),
+            "off": (expected, "ok", expected),
+        }
+        for name, (cert, status, seen) in specs.items():
+            endpoint = Endpoint(
+                host=hosts[name],
+                port=443,
+                sni=f"sni-{name}-{token}.example.test" if name == "ok" else None,
+                source=EndpointSource.MANUAL,
+                server_id=server.id,
+                expected_certificate_id=cert.id if cert else None,
+                is_active=name != "off",
+            )
+            db.add(endpoint)
+            db.flush()
+            ids[name] = endpoint.id
+            if status is None:
+                continue
+            for age in range(25 if name == "mismatch" else 1):  # age 0 is the newest result
+                failed = status in ("unreachable", "error")
+                db.add(
+                    ScanResult(
+                        endpoint_id=endpoint.id,
+                        status=ScanStatus(status if age == 0 else "ok"),
+                        observed_fingerprint=None if failed else (seen.sha256_fingerprint if age == 0 else secrets.token_hex(32)),
+                        observed_common_name=None if failed else seen.common_name,
+                        observed_issuer_cn=None if failed else "Fixture Issuing CA",
+                        observed_not_after=None if failed else seen.not_after,
+                        observed_chain_length=None if failed else 2,
+                        tls_version=None if failed else "TLSv1.3",
+                        error=None if not failed else f"{hosts[name]}:443 unreachable: refused",
+                        expected_certificate_id=endpoint.expected_certificate_id,
+                        source="scheduled",
+                        checked_at=now - timedelta(hours=age),
+                    )
+                )
+            endpoint.last_scan_at, endpoint.last_scan_status = now, ScanStatus(status)
+    return SimpleNamespace(
+        token=token,
+        group=group,
+        server_id=server.id,
+        mismatch_id=ids["mismatch"],
+        mismatch_host=hosts["mismatch"],
+        ok_id=ids["ok"],
+        ok_host=hosts["ok"],
+        ok_sni=f"sni-ok-{token}.example.test",
+        hosts=hosts,
+        ids=ids,
+        expected_certificate_id=expected.id,
+        expected_fingerprint=expected.sha256_fingerprint,
+        served_certificate_id=served.id,
+        served_fingerprint=served.sha256_fingerprint,
+    )
