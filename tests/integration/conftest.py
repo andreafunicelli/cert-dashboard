@@ -3,6 +3,7 @@ import functools
 import itertools
 import secrets
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 from alembic import command
@@ -1078,3 +1079,158 @@ def server_map(web_factory, now):
         hosts_using_certificate={servers["web01.example.internal"].hostname, servers["web02.example.internal"].hostname},
         discovery_age_hours=(1, 25, 49),
     )
+
+
+# --- Compose TLS/SMTP targets (Plan 2 Task 17) -------------------------------------------------
+
+
+class ComposeTargets:
+    """The ``targets`` profile of ``docker-compose.test.yml``: nginx and Apache TLS servers plus an SMTP capture.
+
+    Only throwaway material lives in the session temp directory: a fixture CA, its leaves (key files 0600)
+    and a dummy file for every secret the compose file declares.
+    """
+
+    WEB_SERVERS = ("tls-nginx", "tls-apache")
+    RELOAD: ClassVar[dict[str, list[str]]] = {
+        "tls-nginx": ["nginx", "-s", "reload"],
+        "tls-apache": ["httpd", "-k", "graceful"],
+    }
+    CONTAINER_PORTS: ClassVar[dict[str, int]] = {"tls-nginx": 8443, "tls-apache": 8443, "smtp": 1025}
+
+    def __init__(self, directory: Path):
+        import os
+        import uuid
+
+        self.directory = directory
+        self.project = "certdash-targets-" + uuid.uuid4().hex[:10]
+        self.env = {
+            **os.environ,
+            "TLS_TARGET_DIR": str(directory / "tls-targets"),
+            "TEST_SECRETS_DIR": str(directory / "secrets"),
+        }
+        self._stopped: set[str] = set()
+        self._prepare()
+
+    def _prepare(self):
+        from datetime import UTC, datetime
+
+        import yaml
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        from tests.fixtures.ca import FixtureCA
+
+        (self.directory / "secrets").mkdir()
+        for name in yaml.safe_load((ROOT / "docker-compose.test.yml").read_text())["secrets"]:
+            (self.directory / "secrets" / name).write_text("dummy-target-secret")
+        ca = FixtureCA(datetime.now(UTC))
+        for service in self.WEB_SERVERS:  # the servers refuse to start without a certificate
+            key = ec.generate_private_key(ec.SECP256R1())
+            pem = ca.issue(public_key=key.public_key(), common_name="initial.example.internal", sans=["initial.example.internal"])
+            self._write(service, x509_load(pem), key, [ca.intermediate])
+
+    def _write(self, service, cert, key, chain):
+        import os
+
+        from cryptography.hazmat.primitives import serialization
+
+        folder = self.directory / "tls-targets" / service
+        folder.mkdir(parents=True, exist_ok=True)
+        chain_pem = b"".join(c.public_bytes(serialization.Encoding.PEM) for c in [cert, *chain])
+        key_pem = key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        )
+        for name, data, mode in (("fullchain.pem", chain_pem, 0o644), ("key.pem", key_pem, 0o600)):
+            fd = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(data)
+            os.chmod(folder / name, mode)  # the umask must not widen a key file
+
+    def _compose(self, *args, check=True, timeout=120):
+        import subprocess
+
+        command = ["docker", "compose", "-p", self.project, "-f", "docker-compose.test.yml", "--profile", "targets", *args]
+        return subprocess.run(command, cwd=ROOT, env=self.env, capture_output=True, text=True, check=check, timeout=timeout)
+
+    def up(self):
+        import subprocess
+
+        try:
+            self._compose("up", "-d", "--wait", "--pull", "never", "tls-nginx", "tls-apache", "smtp", timeout=300)
+        except subprocess.CalledProcessError as error:
+            logs = self._compose("logs", "--no-color", check=False).stdout[-4000:]
+            self.down()
+            raise RuntimeError(f"compose targets failed to start: {error.stderr[-2000:]}\n{logs}") from None
+
+    def down(self):
+        import shutil
+
+        self._compose("down", "-v", "--remove-orphans", "-t", "2", check=False)
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def address(self, service) -> tuple[str, int]:
+        """The published loopback ``(host, port)``; asked each time because a restart may change the port."""
+        output = self._compose("port", service, str(self.CONTAINER_PORTS[service])).stdout.strip()
+        return "127.0.0.1", int(output.rpartition(":")[2])
+
+    def _served_der(self, service) -> bytes:
+        import socket
+        import ssl
+
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        # Verification is off on purpose: this only reads which certificate the local test target serves.
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        host, port = self.address(service)
+        with (
+            socket.create_connection((host, port), timeout=3) as sock,
+            context.wrap_socket(sock, server_hostname="target.example.internal") as tls,
+        ):
+            return tls.getpeercert(binary_form=True) or b""
+
+    def serve(self, service, cert, key, chain) -> None:
+        """Serve ``cert`` + ``chain``: rewrite the files, start the service if stopped, reload, await the swap."""
+        import time
+
+        from cryptography.hazmat.primitives.serialization import Encoding
+
+        self._write(service, cert, key, chain)
+        if service in self._stopped:
+            self._compose("start", service)
+            self._stopped.discard(service)
+        self._compose("exec", "-T", service, *self.RELOAD[service])
+        wanted, deadline, last = cert.public_bytes(Encoding.DER), time.monotonic() + 30, None
+        while time.monotonic() < deadline:
+            try:
+                if self._served_der(service) == wanted:
+                    return
+            except OSError as error:  # still (re)starting
+                last = type(error).__name__
+            time.sleep(0.25)
+        raise TimeoutError(f"{service} did not serve the new certificate in 30 s ({last})")
+
+    def stop(self, service) -> None:
+        self._compose("stop", "-t", "2", service)
+        self._stopped.add(service)
+
+    def messages(self) -> list:
+        """Every message captured by the ``smtp`` service, read from its spool."""
+        import json
+        from email import message_from_string, policy
+
+        output = self._compose("exec", "-T", "smtp", "python", "-m", "tests.fixtures.smtp_capture", "--dump", "/spool").stdout
+        return [message_from_string(raw, policy=policy.default) for raw in json.loads(output)]
+
+
+def x509_load(pem: bytes):
+    from cryptography import x509
+
+    return x509.load_pem_x509_certificate(pem)
+
+
+@pytest.fixture(scope="session")
+def compose_targets(tmp_path_factory):
+    targets = ComposeTargets(tmp_path_factory.mktemp("targets"))
+    targets.up()
+    yield targets
+    targets.down()
