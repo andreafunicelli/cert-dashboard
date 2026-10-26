@@ -101,7 +101,7 @@ def results_of(factory, endpoint_id):
 def scan_audits(factory, job_id):
     with factory() as db:
         rows = db.scalars(
-            select(AuditLog).where(AuditLog.action == "scan.run", AuditLog.target_id == str(job_id)).order_by(AuditLog.id)
+            select(AuditLog).where(AuditLog.action == "scan.run", AuditLog.target_id == str(job_id)).order_by(AuditLog.created_at)
         )
         return [(row.actor_user_id, row.actor_label, row.target_type, row.details) for row in rows]
 
