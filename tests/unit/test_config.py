@@ -245,3 +245,42 @@ def test_malformed_keyring_does_not_echo_input():
     with pytest.raises(ConfigurationError) as exc:
         load_keyring(b"confidential-json-not-valid")
     assert "confidential-json-not-valid" not in str(exc.value)
+
+
+def test_dashboard_url_is_optional_and_worker_only(secret_files):
+    from app.config import load_settings
+
+    assert load_settings("worker", {}, secret_files).dashboard_url is None
+    assert load_settings("worker", {"DASHBOARD_URL": "  "}, secret_files).dashboard_url is None
+    assert load_settings("web", {"DASHBOARD_URL": "https://certs.example.internal/"}, secret_files).dashboard_url is None
+
+
+@pytest.mark.parametrize("value", ["https://certs.example.internal/", "http://10.0.0.5:8000", "https://x.test/dash/"])
+def test_dashboard_url_accepts_plain_absolute_http_urls(secret_files, value):
+    from app.config import load_settings
+
+    assert load_settings("worker", {"DASHBOARD_URL": value}, secret_files).dashboard_url == value
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://user:hunter2-fixture@certs.example.internal/",
+        "https://hunter2-fixture@certs.example.internal/",
+        "https://certs.example.internal/?token=hunter2-fixture",
+        "https://certs.example.internal/?",
+        "https://certs.example.internal/#hunter2-fixture",
+        "ftp://certs.example.internal/hunter2-fixture",
+        "//certs.example.internal/hunter2-fixture",
+        "certs.example.internal/hunter2-fixture",
+        "https:///hunter2-fixture",
+        "https://certs.example.internal:99999/hunter2-fixture",
+        "https://certs.example.internal/ hunter2-fixture",
+    ],
+)
+def test_dashboard_url_rejections_name_the_variable_and_never_echo_the_value(secret_files, value):
+    from app.config import ConfigurationError, load_settings
+
+    with pytest.raises(ConfigurationError, match="DASHBOARD_URL") as exc:
+        load_settings("worker", {"DASHBOARD_URL": value}, secret_files)
+    assert "hunter2-fixture" not in str(exc.value)

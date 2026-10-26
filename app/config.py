@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass, field
 from ipaddress import ip_network
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from app.crypto.keyring import Keyring
@@ -42,6 +43,7 @@ class Settings(DatabaseSettings):
     artifacts_root: Path = Path("/srv/artifacts")
     key_staging_dir: Path = Path("/run/cert-keys")
     trusted_proxies: tuple[str, ...] = ()
+    dashboard_url: str | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -97,6 +99,24 @@ def _positive_int(environ: Mapping[str, str], name: str, default: int, maximum: 
     return value
 
 
+def _dashboard_url(environ: Mapping[str, str]) -> str | None:
+    """Optional absolute http(s) base URL for e-mail links; never echoes the rejected value."""
+    value = environ.get("DASHBOARD_URL", "").strip()
+    if not value:
+        return None
+    message = "DASHBOARD_URL: expected an absolute http(s) URL without credentials, query or fragment"
+    if any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value) or "?" in value or "#" in value:
+        raise ConfigurationError(message)
+    try:
+        parts = urlsplit(value)
+        parts.port  # noqa: B018 - raises ValueError for an out-of-range port
+    except ValueError:
+        raise ConfigurationError(message) from None
+    if parts.scheme not in {"http", "https"} or not parts.hostname or "@" in parts.netloc:
+        raise ConfigurationError(message)
+    return value
+
+
 def load_settings(
     profile: Literal["web", "worker", "cli"],
     environ: Mapping[str, str],
@@ -145,6 +165,7 @@ def load_settings(
         trusted_proxies=tuple(
             value.strip() for value in environ.get("TRUSTED_PROXIES", "").split(",") if value.strip()
         ),
+        dashboard_url=_dashboard_url(environ) if profile == "worker" else None,
     )
 
 
