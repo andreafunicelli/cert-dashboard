@@ -142,8 +142,10 @@ def test_payload_error_is_a_value_error_for_the_registry():
     assert issubclass(PullPayloadError, ValueError)
 
 
-def test_registry_registers_only_the_pull_action_of_scan():
+def test_registry_registers_the_pull_and_default_actions_of_scan():
     registry = build_registry()
     assert registry.supports(JobType.SCAN, "import_pull")
-    assert not registry.supports(JobType.SCAN)  # scan/default belongs to Plan 2
-    assert not any(schedule.job_type is JobType.SCAN for schedule in SCHEDULES.values())
+    assert registry.supports(JobType.SCAN)  # scan/default (Plan 2 Task 2)
+    assert not registry.supports(JobType.SCAN, "bogus")
+    scheduled = [schedule for schedule in SCHEDULES.values() if schedule.job_type is JobType.SCAN]
+    assert [(item.key, item.action) for item in scheduled] == [("scan", "default")]  # never import_pull

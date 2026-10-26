@@ -23,9 +23,10 @@ from sqlalchemy.orm import Session
 
 from app.crypto.csr import parse_san
 from app.crypto.parse import ParseError, parse_certificates
-from app.jobs.queue import JobFailure, safe_error_message
-from app.models import Certificate, Endpoint, JSONValue, ScanResult
-from app.models.enums import ScanStatus
+from app.jobs.queue import JobFailure, enqueue, safe_error_message
+from app.models import Certificate, Endpoint, Job, JSONValue, ScanResult
+from app.models.enums import JobType, ScanStatus
+from app.services.audit import Actor
 from app.services.certificates import CertificateMetadata, InventoryError
 
 PULL_ACTION = "import_pull"
@@ -413,3 +414,94 @@ def record_scan(
         endpoint.last_scan_status = status
     db.flush()
     return result
+
+
+# --- scan/default: payload, target resolution and on-demand requests -----------------------------
+
+ON_DEMAND_PRIORITY = 200
+MAX_SCAN_ENDPOINTS = 1000
+_SCAN_KEYS = frozenset({"action", "endpoint_ids", "certificate_id"})
+
+
+@dataclass(frozen=True)
+class ScanTarget:
+    """Plain values for one endpoint, so no ORM object (or session) is needed during network I/O."""
+
+    endpoint_id: int
+    host: str
+    port: int
+    sni: str | None
+
+
+class ScanRequestError(LookupError):
+    """A scan was requested for an endpoint or certificate that does not exist."""
+
+
+def _positive_int(value: object) -> bool:
+    return type(value) is int and value >= 1
+
+
+def validate_scan_payload(payload: Mapping[str, JSONValue]) -> dict[str, JSONValue]:
+    """Accept ``{}``, ``{"endpoint_ids": [...]}`` or ``{"certificate_id": N}`` (plus ``action: default``).
+
+    Endpoint ids are 1-1000 unique positive integers and are returned sorted; ``action`` is dropped.
+    Anything else raises ``ValueError``.
+    """
+    if not isinstance(payload, Mapping) or not set(payload) <= _SCAN_KEYS:
+        raise ValueError("unexpected scan payload keys")
+    if payload.get("action", "default") != "default":
+        raise ValueError("invalid scan action")
+    if "endpoint_ids" in payload and "certificate_id" in payload:
+        raise ValueError("a scan targets endpoints or a certificate, not both")
+    clean: dict[str, JSONValue] = {}
+    if "endpoint_ids" in payload:
+        ids = payload["endpoint_ids"]
+        if (
+            not isinstance(ids, list)
+            or not 1 <= len(ids) <= MAX_SCAN_ENDPOINTS
+            or not all(_positive_int(item) for item in ids)
+            or len(set(ids)) != len(ids)
+        ):
+            raise ValueError("endpoint_ids must be 1-1000 unique positive integers")
+        clean["endpoint_ids"] = sorted(ids)
+    if "certificate_id" in payload:
+        if not _positive_int(payload["certificate_id"]):
+            raise ValueError("certificate_id must be a positive integer")
+        clean["certificate_id"] = payload["certificate_id"]
+    return clean
+
+
+def scan_targets(
+    db: Session, payload: Mapping[str, JSONValue], *, only_unreachable: bool = False
+) -> tuple[list[ScanTarget], int]:
+    """Resolve a payload to the active endpoints to scan, plus how many in scope are inactive.
+
+    ``only_unreachable`` (retry attempts) keeps just the endpoints whose latest scan was unreachable.
+    """
+    clean = validate_scan_payload(payload)
+    query = select(Endpoint).order_by(Endpoint.id)
+    if "endpoint_ids" in clean:
+        query = query.where(Endpoint.id.in_(clean["endpoint_ids"]))  # type: ignore[arg-type]
+    elif "certificate_id" in clean:
+        query = query.where(Endpoint.expected_certificate_id == clean["certificate_id"])
+    rows = db.scalars(query).all()
+    active = [row for row in rows if row.is_active]
+    if only_unreachable:
+        active = [row for row in active if row.last_scan_status is ScanStatus.UNREACHABLE]
+    targets = [ScanTarget(row.id, row.host, row.port, row.sni) for row in active]
+    return targets, len(rows) - sum(row.is_active for row in rows)
+
+
+def request_scan(db: Session, payload: Mapping[str, JSONValue], actor: Actor, now: datetime) -> Job:
+    """Validate and enqueue an on-demand ``scan/default`` job; the web process never connects out."""
+    clean = validate_scan_payload(payload)
+    if "endpoint_ids" in clean:
+        wanted = set(clean["endpoint_ids"])  # type: ignore[arg-type]
+        known = set(db.scalars(select(Endpoint.id).where(Endpoint.id.in_(wanted))))
+        if known != wanted:
+            raise ScanRequestError("One or more endpoints do not exist.")
+    elif "certificate_id" in clean and db.get(Certificate, clean["certificate_id"]) is None:
+        raise ScanRequestError("The certificate does not exist.")
+    return enqueue(
+        db, JobType.SCAN, clean, actor, priority=ON_DEMAND_PRIORITY, run_after=now, max_attempts=3
+    )

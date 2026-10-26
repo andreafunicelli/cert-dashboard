@@ -45,7 +45,15 @@ from app.services.certificates import (
     update_certificate,
     validate_upload,
 )
-from app.services.scans import PULL_ACTION, PullPayloadError, format_hostport, validate_pull_payload
+from app.services.scans import (
+    PULL_ACTION,
+    PullPayloadError,
+    ScanRequestError,
+    format_hostport,
+    request_scan,
+    scan_targets,
+    validate_pull_payload,
+)
 from app.web.common import (
     _actor,
     _render,
@@ -563,6 +571,7 @@ def _detail_page(request: Request, certificate_id: int, status: int = 200, **for
         timezone_name = display_timezone(db)
     registry = request.app.state.job_registry
     diagnostics = detail.diagnostics
+    context["scan_error"] = None  # a rejected "Scan now" passes its reason through ``forms``
     warnings = [describe_chain_message(code) for code in diagnostics.messages]
     cached = detail.certificate.chain_status.value
     context.update(
@@ -634,6 +643,27 @@ def _handle_status(request: Request, certificate_id: int, form: FormData) -> Res
             request, certificate_id, "status_panel", status_form=values, status_errors={"form": exc.message}
         )
     return _redirect(request, f"/certificates/{certificate_id}")
+
+
+def _handle_scan(request: Request, certificate_id: int) -> Response:
+    """Enqueue an on-demand scan of the endpoints expecting this certificate; never connects out."""
+    payload = {"certificate_id": certificate_id}
+
+    def enqueue_scan(db, now, actor):
+        if db.get(Certificate, certificate_id) is None:
+            raise HTTPException(404)
+        targets, _ = scan_targets(db, payload)
+        if not targets:
+            raise ScanRequestError("No active endpoint expects this certificate, so there is nothing to scan.")
+        request_scan(db, payload, actor, now)
+
+    try:
+        _transact(request, enqueue_scan)
+    except ScanRequestError as exc:
+        return _detail_page(request, certificate_id, 422, scan_error=str(exc))
+    response = _redirect(request, f"/certificates/{certificate_id}#endpoints-panel")
+    set_flash(response, request.app.state.settings.session_secret, ["Scan queued; results appear in the endpoints panel."])
+    return response
 
 
 def _handle_chain(request: Request, certificate_id: int, form: FormData) -> Response:
@@ -894,6 +924,10 @@ def register_certificate_routes(app: FastAPI) -> None:
             return await run_in_threadpool(_handle_status, request, certificate_id, form)
         finally:
             await form.close()
+
+    @app.post("/certificates/{certificate_id:int}/scan")
+    async def certificate_scan_submit(request: Request, certificate_id: int):
+        return await run_in_threadpool(_handle_scan, request, certificate_id)
 
     @app.post("/certificates/{certificate_id:int}/chain")
     async def certificate_chain_submit(request: Request, certificate_id: int):

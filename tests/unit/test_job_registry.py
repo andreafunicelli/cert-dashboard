@@ -51,13 +51,13 @@ def test_context_clock_defaults_to_utc_now():
     assert value.tzinfo is not None
 
 
-def test_build_registry_supports_cleanup_and_the_pull_import_only():
+def test_build_registry_supports_cleanup_pull_import_and_the_default_scan():
     registry = build_registry()
     assert registry.supports(JobType.CLEANUP)
     assert registry.supports(JobType.CLEANUP, "default")
     assert not registry.supports(JobType.DEPLOY)
     assert registry.supports(JobType.SCAN, "import_pull")  # Task 16
-    assert not registry.supports(JobType.SCAN)  # scan/default is Plan 2
+    assert registry.supports(JobType.SCAN)  # scan/default (Plan 2 Task 2)
     assert build_registry() is not build_registry()
 
 
@@ -243,16 +243,19 @@ def test_latest_occurrence_normalizes_to_utc():
     assert worker.latest_occurrence(local, (4, 0)) == datetime(2026, 10, 19, 4, 0, tzinfo=UTC)
 
 
-def test_default_schedule_table_has_cleanup_only():
-    assert set(worker.SCHEDULES) == {"cleanup"}
+def test_default_schedule_table_has_cleanup_and_scan():
+    assert set(worker.SCHEDULES) == {"cleanup", "scan"}
+    assert (worker.SCHEDULES["scan"].job_type, worker.SCHEDULES["scan"].action) == (JobType.SCAN, "default")
     assert worker.SCHEDULES["cleanup"].job_type == JobType.CLEANUP
     assert worker.SCHEDULES["cleanup"].action == "default"
 
 
 def test_register_schedule_rejects_duplicate_keys(monkeypatch):
     monkeypatch.setattr(worker, "SCHEDULES", dict(worker.SCHEDULES))
-    worker.register_schedule("scan", JobType.SCAN)
-    assert worker.SCHEDULES["scan"].job_type == JobType.SCAN
+    worker.register_schedule("expiry_check", JobType.ALERT_EXPIRY)
+    assert worker.SCHEDULES["expiry_check"].job_type == JobType.ALERT_EXPIRY
+    with pytest.raises(ValueError):
+        worker.register_schedule("expiry_check", JobType.ALERT_EXPIRY)
     with pytest.raises(ValueError):
         worker.register_schedule("scan", JobType.SCAN)
     with pytest.raises(ValueError):

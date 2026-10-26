@@ -642,3 +642,37 @@ def submitted_renewal(db, ca, keyring, previous_certificate, actor, now):
     renewal = create_draft(db, previous_certificate.id, basics, actor, now)
     generate_csr(db, renewal.id, KeySpec(kind="ecdsa"), keyring, actor, now)
     return mark_submitted(db, renewal.id, "ORDER-1", actor, now)
+
+
+# --- shared helpers for worker/scan tests (Plan 2) ---------------------------------------------
+
+
+def closed_port() -> int:
+    """A loopback TCP port with nothing listening (connections are refused)."""
+    import socket
+
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+def set_setting(factory, key, value) -> None:
+    from app.models import AppSetting
+
+    with factory.begin() as db:
+        row = db.get(AppSetting, key)
+        if row is None:
+            db.add(AppSetting(key=key, value=value))
+        else:
+            row.value = value
+
+
+# Schedule keys whose enabled flag is not ``<key>.enabled``. ``trust_recheck`` shares ``scan.enabled``
+# (Plan 2 contract decision 5); ``trust_recheck.enabled`` is not an allowlisted setting.
+_ENABLED_SETTINGS = {"digest": "alert.digest_enabled", "trust_recheck": "scan.enabled"}
+
+
+def disable_schedules(factory, *keys) -> None:
+    """Switch the named schedules off so ticks in a test enqueue only what the test queues itself."""
+    for key in keys:
+        set_setting(factory, _ENABLED_SETTINGS.get(key, f"{key}.enabled"), False)
