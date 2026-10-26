@@ -1,4 +1,6 @@
 import contextlib
+import functools
+import itertools
 import secrets
 from pathlib import Path
 
@@ -585,13 +587,18 @@ def tls_server(tls_servers, pull_certs):
 # --- Renewal state-machine fixtures (Task 18) ---------------------------------
 
 
-@pytest.fixture(scope="session")
-def ca():
+@functools.cache
+def _fixture_ca():
     from datetime import UTC, datetime
 
     from tests.fixtures.ca import FixtureCA
 
     return FixtureCA(datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
+
+
+@pytest.fixture(scope="session")
+def ca():
+    return _fixture_ca()
 
 
 @pytest.fixture
@@ -690,3 +697,51 @@ def configure_smtp(factory, capture, *, security="none", recipients=(), tls_veri
         "alert.recipients": list(recipients),
     }.items():
         set_setting(factory, key, value)
+
+
+_expiring_counter = itertools.count(1)
+
+
+def expiring(factory, days, **metadata):
+    """Commit an active certificate (issued by the session ``ca``) expiring ``days`` after the fixture ``now``.
+
+    ``metadata`` sets ownership columns (``owner_email``, ``owner_name``, ``team``, ``notes``); the
+    common name is unique per call. Returns the detached ``Certificate``.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app.crypto.parse import parse_certificates
+    from app.models import Certificate
+    from app.models.enums import ChainStatus
+
+    base = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+    name = f"expiring{next(_expiring_counter)}-{secrets.token_hex(3)}.example.test"
+    pem = _fixture_ca().issue(
+        public_key=ec.generate_private_key(ec.SECP256R1()).public_key(),
+        common_name=name,
+        sans=[name],
+        not_before=base - timedelta(days=300),
+        not_after=base + timedelta(days=days),
+    )
+    parsed = parse_certificates(pem)[0]
+    with factory.begin() as db:
+        row = Certificate(
+            common_name=parsed.common_name,
+            subject_dn=parsed.subject_dn,
+            sans=list(parsed.sans),
+            issuer_dn=parsed.issuer_dn,
+            issuer_cn=parsed.issuer_cn,
+            serial=parsed.serial,
+            not_before=parsed.not_before,
+            not_after=parsed.not_after,
+            sha256_fingerprint=parsed.sha256_fingerprint,
+            pem=parsed.pem,
+            chain_status=ChainStatus.UNCHECKED,
+            imported_from="upload_pem",
+            **metadata,
+        )
+        db.add(row)
+        db.flush()
+        return row
