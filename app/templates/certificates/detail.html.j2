@@ -40,7 +40,7 @@
 
 <section class="panel wide" id="actions-panel">
   <h2>Actions</h2>
-  <p class="actions">
+  <div class="actions">
     <a class="button" href="/certificates/{{ c.id }}/edit">Edit details</a>
     <a class="button" href="/certificates/{{ c.id }}/leaf.pem">Download certificate</a>
     {% if c.has_chain %}<a class="button" href="/certificates/{{ c.id }}/chain.pem">Download chain</a>
@@ -53,9 +53,13 @@
     {% else %}<button type="button" disabled title="Only active certificates can be renewed">Start renewal</button>{% endif %}
     {% if deploy_supported %}<a class="button" href="/deploy?certificate_id={{ c.id }}">Deploy</a>
     {% else %}<button type="button" disabled title="{{ deploy_reason }}">Deploy</button>{% endif %}
-    {% if scan_supported %}<a class="button" href="/scans?certificate_id={{ c.id }}">Scan now</a>
+    {% if scan_supported %}<form class="inline" method="post" action="/certificates/{{ c.id }}/scan">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit">Scan now</button>
+    </form>
     {% else %}<button type="button" disabled title="{{ scan_reason }}">Scan now</button>{% endif %}
-  </p>
+  </div>
+  {% if scan_error %}<p class="form-error" role="alert" data-field="scan">{{ scan_error }}</p>{% endif %}
   {% set in_flight = detail.renewals | selectattr("previous_certificate_id", "equalto", c.id) | rejectattr("state", "in", ["done", "cancelled"]) | list %}
   {% for item in in_flight %}
   <p class="notice" data-in-flight-renewal><a href="/renewals/{{ item.id }}">Continue renewal</a> ({{ item.state }}, started {{ time_tag(item.created_at, tz) }})</p>

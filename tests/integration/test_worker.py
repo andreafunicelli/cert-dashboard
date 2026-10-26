@@ -20,7 +20,7 @@ from app.config import Settings
 from app.crypto.keyring import Keyring
 from app.jobs import worker
 from app.jobs.handlers import build_registry
-from app.jobs.handlers.cleanup import cleanup
+from app.jobs.handlers.cleanup import cleanup, validate_cleanup_payload
 from app.jobs.queue import RETRY_POLICY, JobFailure, claim, enqueue, finish, retry_due
 from app.jobs.worker import (
     JobContext,
@@ -52,6 +52,7 @@ from app.models.enums import (
     ScanStatus,
 )
 from app.services.audit import Actor
+from tests.integration.conftest import disable_schedules, set_setting
 
 DAY = timedelta(days=1)
 FOUR_AM = datetime(2026, 10, 19, 4, 0, tzinfo=UTC)
@@ -72,15 +73,6 @@ def jobs_of(factory, job_type=JobType.CLEANUP):
         return list(db.scalars(select(Job).where(Job.type == job_type).order_by(Job.created_at)))
 
 
-def set_setting(factory, key, value):
-    with factory.begin() as db:
-        row = db.get(AppSetting, key)
-        if row is None:
-            db.add(AppSetting(key=key, value=value))
-        else:
-            row.value = value
-
-
 def last_run(factory, key="cleanup"):
     with factory() as db:
         return db.scalar(select(SchedulerState.last_run_at).where(SchedulerState.key == key))
@@ -93,7 +85,7 @@ def test_registry_capabilities_for_the_web_and_worker_processes():
     registry = build_registry()
     assert registry.supports(JobType.CLEANUP)
     assert not registry.supports(JobType.DEPLOY)
-    assert not registry.supports(JobType.SCAN)
+    assert registry.supports(JobType.SCAN)  # scan/default (Plan 2 Task 2)
 
 
 def test_poison_payload_fails_validation_and_is_never_retried(queue_factory, now):
@@ -171,8 +163,9 @@ def test_two_schedulers_ticking_simultaneously_enqueue_one_cleanup(queue_factory
     with ThreadPoolExecutor(max_workers=6) as pool:
         list(pool.map(tick, range(6)))
     assert len(jobs_of(queue_factory)) == 1
+    assert len(jobs_of(queue_factory, JobType.SCAN)) == 1  # the daily scan is deduplicated the same way
     with queue_factory() as db:
-        assert db.scalar(select(func.count()).select_from(SchedulerState)) == 1
+        assert set(db.scalars(select(SchedulerState.key))) == {"cleanup", "scan"}  # one state row each
 
 
 def test_a_scheduler_waits_on_the_state_row_lock_and_then_sees_the_winners_run(queue_factory):
@@ -248,15 +241,14 @@ def test_a_run_missed_by_twelve_hours_is_skipped_and_logged(queue_factory, caplo
 
 def test_no_unregistered_schedule_is_enqueued(queue_factory, monkeypatch):
     monkeypatch.setattr(worker, "SCHEDULES", dict(worker.SCHEDULES))
-    worker.register_schedule("scan", JobType.SCAN)
     worker.register_schedule("expiry_check", JobType.ALERT_EXPIRY)
     worker.register_schedule("discovery", JobType.DISCOVER)
     scheduler_tick(queue_factory, build_registry(), datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
     with queue_factory() as db:
         types = set(db.scalars(select(Job.type)))
         states = set(db.scalars(select(SchedulerState.key)))
-    assert types == {JobType.CLEANUP}
-    assert states == {"cleanup"}
+    assert types == {JobType.CLEANUP, JobType.SCAN}  # scan/default is registered; the other two are not
+    assert states == {"cleanup", "scan"}
 
 
 def test_registered_non_default_action_schedule_uses_its_settings_and_payload(queue_factory, monkeypatch):
@@ -595,6 +587,7 @@ def test_cleanup_runs_end_to_end_through_dispatch_and_the_claimed_job_row(
 ):
     with queue_factory.begin() as db:
         add_job(db, JobStatus.SUCCEEDED, finished_days_ago=100, now=now)
+    disable_schedules(queue_factory, "scan")  # the claim below must pick the cleanup job
     scheduler_tick(queue_factory, build_registry(), FOUR_AM)
     with queue_factory.begin() as db:
         job = claim(db, "w1", now, worker.timeout_for)
@@ -698,7 +691,9 @@ def gate():
 
 
 def registry_with(*pairs):
-    registry = build_registry()
+    """Cleanup plus the given default-action test handlers (never the real scan/discovery ones)."""
+    registry = worker.JobRegistry()
+    registry.register(JobType.CLEANUP, cleanup, validator=validate_cleanup_payload)
     for job_type, handler in pairs:
         registry.register(job_type, handler, validator=payload_validator)
     return registry
@@ -820,7 +815,7 @@ def test_at_most_worker_concurrency_jobs_run_at_once(queue_factory, make_worker,
 
 
 def test_types_without_a_registered_handler_are_never_claimed(queue_factory, make_worker, clock):
-    runtime = make_worker(queue_factory)  # only cleanup is registered
+    runtime = make_worker(queue_factory)  # cleanup and scan only; deploy/digest have no handler
     ignored = [queue_job(queue_factory, JobType.DEPLOY, clock()), queue_job(queue_factory, JobType.DIGEST, clock())]
     wanted = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
     assert runtime.run_queued() == 1

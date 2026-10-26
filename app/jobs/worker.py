@@ -187,6 +187,7 @@ def register_schedule(key: str, job_type: JobType, action: str = "default") -> N
 
 
 register_schedule("cleanup", JobType.CLEANUP)
+register_schedule("scan", JobType.SCAN)
 
 
 def parse_daily_time(value: object) -> tuple[int, int] | None:

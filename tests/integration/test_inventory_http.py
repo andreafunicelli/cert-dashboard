@@ -658,7 +658,7 @@ def test_navigation_enables_implemented_areas_only(signed_in):
     reasons = {
         "Servers": "Available in a later plan",
         "Deploy": "handler deploy/default not registered (Plan 3)",
-        "Scans": "handler scan/default not registered (Plan 2)",
+        "Scans": "Available in a later plan",  # scan/default is registered; Task 12 enables the screen
     }
     for label, reason in reasons.items():
         assert re.search(rf'<span aria-disabled="true" title="{re.escape(reason)}">{label}</span>', text), label
@@ -915,15 +915,16 @@ def test_detail_download_and_export_actions_are_live_and_other_buttons_are_place
     # Task 19 enabled the renewal wizard entry point for active certificates.
     assert f'href="/renewals/new?from={inventory.www}"' in page.text
     assert not re.search(r'<button[^>]*disabled[^>]*>[^<]*Renew', page.text)
-    reasons = {
-        "Deploy": "handler deploy/default not registered (Plan 3)",
-        "Scan now": "handler scan/default not registered (Plan 2)",
-    }
-    for label, reason in reasons.items():
-        assert re.search(
-            rf'<button type="button" disabled title="{re.escape(reason)}">{label}</button>', page.text
-        ), label
+    reason = "handler deploy/default not registered (Plan 3)"
+    assert re.search(rf'<button type="button" disabled title="{re.escape(reason)}">Deploy</button>', page.text)
+    # Plan 2 Task 2: "Scan now" is a CSRF-protected POST form that only enqueues a job.
     actions = page.text.split('id="actions-panel"', 1)[1].split("</section>", 1)[0]
+    assert re.search(
+        rf'<form[^>]*method="post" action="/certificates/{inventory.www}/scan"[^>]*>\s*'
+        r'<input type="hidden" name="csrf_token" value="[^"]+">\s*<button type="submit">Scan now</button>',
+        actions,
+    )
+    assert not re.search(r'<button[^>]*disabled[^>]*>Scan now', page.text)
     assert "Available in a later plan" not in actions
 
 
