@@ -165,7 +165,8 @@ def test_two_schedulers_ticking_simultaneously_enqueue_one_cleanup(queue_factory
     assert len(jobs_of(queue_factory)) == 1
     assert len(jobs_of(queue_factory, JobType.SCAN)) == 2  # the daily scan and trust recheck, each deduplicated
     with queue_factory() as db:
-        assert set(db.scalars(select(SchedulerState.key))) == {"cleanup", "scan", "trust_recheck", "expiry_check"}  # one row each
+        states = set(db.scalars(select(SchedulerState.key)))
+        assert states == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest"}  # one row each
 
 
 def test_a_scheduler_waits_on_the_state_row_lock_and_then_sees_the_winners_run(queue_factory):
@@ -246,9 +247,9 @@ def test_no_unregistered_schedule_is_enqueued(queue_factory, monkeypatch):
     with queue_factory() as db:
         types = set(db.scalars(select(Job.type)))
         states = set(db.scalars(select(SchedulerState.key)))
-    # scan/default and alert_expiry/default (Plan 2 Task 8) are registered; discover is not.
-    assert types == {JobType.CLEANUP, JobType.SCAN, JobType.ALERT_EXPIRY}
-    assert states == {"cleanup", "scan", "trust_recheck", "expiry_check"}
+    # scan/default, alert_expiry/default (Task 8) and digest/default (Task 10) are registered; discover is not.
+    assert types == {JobType.CLEANUP, JobType.SCAN, JobType.ALERT_EXPIRY, JobType.DIGEST}
+    assert states == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest"}
 
 
 def test_registered_non_default_action_schedule_uses_its_settings_and_payload(queue_factory, monkeypatch):
@@ -815,8 +816,8 @@ def test_at_most_worker_concurrency_jobs_run_at_once(queue_factory, make_worker,
 
 
 def test_types_without_a_registered_handler_are_never_claimed(queue_factory, make_worker, clock):
-    runtime = make_worker(queue_factory)  # cleanup and scan only; deploy/digest have no handler
-    ignored = [queue_job(queue_factory, JobType.DEPLOY, clock()), queue_job(queue_factory, JobType.DIGEST, clock())]
+    runtime = make_worker(queue_factory)  # digest/default is registered since Task 10; deploy and discover have no handler
+    ignored = [queue_job(queue_factory, JobType.DEPLOY, clock()), queue_job(queue_factory, JobType.DISCOVER, clock())]
     wanted = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
     assert runtime.run_queued() == 1
     assert statuses(queue_factory, ignored) == [JobStatus.QUEUED] * 2

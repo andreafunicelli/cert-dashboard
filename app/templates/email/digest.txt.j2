@@ -1,0 +1,19 @@
+Cert Dashboard daily digest
+Period: {{ since }} to {{ generated }}
+{% if not sections %}
+Nothing to report. This mail is the daily heartbeat of the alerting path.
+{% endif -%}
+{% for section in sections %}
+{{ section.title }}{% if section.shown %} ({{ section.shown }}){% endif %}
+
+{% if section.intro %}{{ section.intro }}
+{% endif -%}
+{% for row in section.rows -%}
+- {{ row.text }}{% if row.url %}
+  {{ row.url }}{% endif %}
+
+{% endfor -%}
+{% endfor %}
+{{ revision }}
+{% if dashboard_url %}Dashboard: {{ dashboard_url }}
+{% endif %}

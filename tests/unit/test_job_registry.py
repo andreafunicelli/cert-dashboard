@@ -244,8 +244,9 @@ def test_latest_occurrence_normalizes_to_utc():
     assert worker.latest_occurrence(local, (4, 0)) == datetime(2026, 10, 19, 4, 0, tzinfo=UTC)
 
 
-def test_default_schedule_table_has_cleanup_scan_and_expiry_check():
-    assert set(worker.SCHEDULES) == {"cleanup", "scan", "trust_recheck", "expiry_check"}
+def test_default_schedule_table_has_cleanup_scan_expiry_check_and_digest():
+    assert set(worker.SCHEDULES) == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest"}
+    assert worker.SCHEDULES["digest"] == worker.Schedule("digest", JobType.DIGEST, "default")
     assert (worker.SCHEDULES["expiry_check"].job_type, worker.SCHEDULES["expiry_check"].action) == (
         JobType.ALERT_EXPIRY,
         "default",
@@ -257,8 +258,6 @@ def test_default_schedule_table_has_cleanup_scan_and_expiry_check():
 
 def test_register_schedule_rejects_duplicate_keys(monkeypatch):
     monkeypatch.setattr(worker, "SCHEDULES", dict(worker.SCHEDULES))
-    worker.register_schedule("digest", JobType.DIGEST)
-    assert worker.SCHEDULES["digest"].job_type == JobType.DIGEST
     with pytest.raises(ValueError):
         worker.register_schedule("digest", JobType.DIGEST)
     with pytest.raises(ValueError):
