@@ -16,7 +16,7 @@ from typing import get_args
 from urllib.parse import unquote, urlsplit
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select, tuple_
+from sqlalchemy import func, literal, or_, select, true, tuple_
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import Session, aliased
 
@@ -462,29 +462,46 @@ def smtp_health(db: Session) -> dict[str, JSONValue]:
     """Delivery state from the ledger: the failure streak since the newest ``sent`` row (ordered by
     ``last_attempt_at DESC, id DESC``), its newest error, the last delivery and the last test send.
     Test sends are jobs, never ledger rows, so they never count as failures."""
-    sent = aliased(NotificationLog)
-    newer_sent = (
-        select(sent.id)
-        .where(
-            sent.status == NotificationStatus.SENT,
-            tuple_(sent.last_attempt_at, sent.id) > tuple_(NotificationLog.last_attempt_at, NotificationLog.id),
+
+    def in_streak():
+        sent = aliased(NotificationLog)
+        newer_sent = (
+            select(sent.id)
+            .where(
+                sent.status == NotificationStatus.SENT,
+                tuple_(sent.last_attempt_at, sent.id) > tuple_(NotificationLog.last_attempt_at, NotificationLog.id),
+            )
+            .exists()
         )
-        .exists()
-    )
-    streak = db.execute(
-        select(NotificationLog.error, func.count().over())
-        .where(NotificationLog.status == NotificationStatus.FAILED, NotificationLog.attempts >= 1, ~newer_sent)
+        return (NotificationLog.status == NotificationStatus.FAILED, NotificationLog.attempts >= 1, ~newer_sent)
+
+    streak_length = select(func.count()).where(*in_streak()).scalar_subquery()
+    streak_error = (
+        select(NotificationLog.error)
+        .where(*in_streak())
         .order_by(NotificationLog.last_attempt_at.desc(), NotificationLog.id.desc())
         .limit(1)
-    ).first()
-    last_success = db.scalar(
-        select(func.max(NotificationLog.sent_at)).where(NotificationLog.status == NotificationStatus.SENT)
+        .scalar_subquery()
     )
+    last_success = (
+        select(func.max(NotificationLog.sent_at))
+        .where(NotificationLog.status == NotificationStatus.SENT)
+        .scalar_subquery()
+    )
+    newest_test = aliased(
+        Job, smtp_test_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1).subquery()
+    )
+    one_row = select(literal(1).label("one")).subquery()
+    failures, error, success_at, test_job = db.execute(
+        select(streak_length, streak_error, last_success, newest_test)
+        .select_from(one_row)
+        .outerjoin(newest_test, true())
+    ).one()
     return {
-        "consecutive_failures": 0 if streak is None else streak[1],
-        "last_error": None if streak is None else streak[0],
-        "last_success_at": _iso(last_success),
-        "last_test": latest_smtp_test(db),
+        "consecutive_failures": failures,
+        "last_error": error,
+        "last_success_at": _iso(success_at),
+        "last_test": None if test_job is None else smtp_test_view(test_job),
     }
 
 
