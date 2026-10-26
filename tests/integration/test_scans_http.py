@@ -48,7 +48,7 @@ def test_history_shows_the_last_twenty_results_and_explains_a_mismatch(signed_in
     assert "Renew and deploy" in detail and "update the expectation" in detail
     assert f'href="/certificates/{scan_world.served_certificate_id}"' in detail  # served cert is in inventory
     assert f'href="/certificates/{scan_world.expected_certificate_id}"' in detail
-    assert f"/certificates/import?host={scan_world.mismatch_host}&amp;port=443" in detail
+    assert f"/certificates/import?host={scan_world.mismatch_host}&amp;port=443" not in detail  # already in inventory
     ok = signed_in.get(f"/scans/{scan_world.ok_id}").text
     assert "Renew and deploy" not in ok and scan_world.ok_sni in ok
 

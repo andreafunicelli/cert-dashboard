@@ -76,8 +76,13 @@
   <h3>Likely actions</h3>
   <ul>
     {% if row.expected_certificate_id %}<li>The old certificate is still being served: <a href="/renewals/new?from={{ row.expected_certificate_id }}">Renew and deploy</a> the expected certificate.</li>{% endif %}
-    <li><a href="{{ import_url }}">Import the served certificate</a> from this endpoint (host, port and SNI are prefilled){% if detail.observed_certificate_id %}; it is already in the inventory, so this only helps if you need its chain{% endif %}.</li>
+    {% if detail.observed_certificate_active %}
     <li id="expectation">If the virtual host changed on purpose, update the expectation to the certificate it now serves: <a href="#manage-panel">use the observed certificate</a>.</li>
+    {% elif detail.observed_certificate_id %}
+    <li id="expectation">The served certificate is in the inventory but is not active (revoked or superseded), so it cannot be expected. Choose an active certificate in the endpoint settings, or renew and deploy a new one.</li>
+    {% else %}
+    <li id="expectation"><a href="{{ import_url }}">Import the served certificate</a> from this endpoint (host, port and SNI are prefilled); if the virtual host changed on purpose, you can then use it as the expectation.</li>
+    {% endif %}
   </ul>
 </section>
 {% endif %}

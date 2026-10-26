@@ -250,7 +250,7 @@ def test_observed_certificate_inactive_in_inventory_is_unavailable_not_importabl
         db.add(
             ScanResult(
                 endpoint_id=endpoint_id,
-                status=ScanStatus.OK,
+                status=ScanStatus.MISMATCH,
                 observed_fingerprint=fingerprint,
                 observed_common_name=name,
                 source="scheduled",
@@ -263,6 +263,9 @@ def test_observed_certificate_inactive_in_inventory_is_unavailable_not_importabl
     assert 'name="use_observed"' not in page  # no enabled success action
     assert "in the inventory but is not active" in page
     assert f'href="/certificates/{retired.id}"' in page
+    mismatch = re.search(r'<section[^>]*id="mismatch".*?</section>', page, re.DOTALL).group(0)
+    assert "Import the served certificate" not in mismatch and "use the observed certificate" not in mismatch
+    assert "not active" in mismatch and 'href="#manage-panel"' not in mismatch
     for headers in (None, HX):
         response = _post(signed_in, f"/scans/{endpoint_id}/expectation", headers=headers, use_observed="1")
         assert response.status_code == 422
@@ -273,6 +276,26 @@ def test_observed_certificate_inactive_in_inventory_is_unavailable_not_importabl
         assert db.scalar(select(func.count()).select_from(Certificate)) == certificates_before
 
 
+def test_mismatch_for_an_absent_observed_certificate_offers_import_only(signed_in, web_factory, now):
+    with web_factory.begin() as db:
+        endpoint_id = add_endpoint(db, f"unknown-{secrets.token_hex(3)}.example.test")
+        db.add(
+            ScanResult(
+                endpoint_id=endpoint_id,
+                status=ScanStatus.MISMATCH,
+                observed_fingerprint=secrets.token_hex(32),
+                observed_common_name="unknown.example.test",
+                source="scheduled",
+                checked_at=now,
+            )
+        )
+    page = signed_in.get(f"/scans/{endpoint_id}").text
+    mismatch = re.search(r'<section[^>]*id="mismatch".*?</section>', page, re.DOTALL)
+    assert mismatch is not None
+    assert "Import the served certificate" in mismatch.group(0) and "use the observed certificate" not in mismatch.group(0)
+    assert 'name="use_observed"' not in page
+
+
 def test_scans_page_offers_the_management_forms(signed_in, scan_world):
     page = signed_in.get(f"/scans?expected_certificate_id={scan_world.served_certificate_id}")
     assert 'action="/scans/endpoints"' in page.text and 'id="add-endpoint"' in page.text
@@ -280,6 +303,8 @@ def test_scans_page_offers_the_management_forms(signed_in, scan_world):
     detail = signed_in.get(f"/scans/{scan_world.mismatch_id}").text
     assert f'action="/scans/{scan_world.mismatch_id}/expectation"' in detail
     assert 'name="use_observed" value="1"' in detail
+    mismatch = re.search(r'<section[^>]*id="mismatch".*?</section>', detail, re.DOTALL).group(0)
+    assert "use the observed certificate" in mismatch  # active inventory match keeps the action
     assert f'action="/scans/{scan_world.mismatch_id}/active"' in detail
 
 
