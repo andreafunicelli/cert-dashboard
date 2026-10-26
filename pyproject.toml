@@ -10,7 +10,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "testcontainers[postgres]", "pyyaml", "ruff", "pip-audit"]
+dev = ["pytest", "pytest-asyncio", "pytest-cov", "httpx", "testcontainers[postgres]", "pyyaml", "ruff", "pip-audit", "aiosmtpd"]
 
 [tool.uv]
 package = false
