@@ -656,11 +656,11 @@ def test_navigation_enables_implemented_areas_only(signed_in):
     text = signed_in.get("/").text
     assert '<a href="/">Overview</a>' in text and '<a href="/certificates">Certificates</a>' in text
     reasons = {
-        "Servers": "Available in a later plan",
         "Deploy": "handler deploy/default not registered (Plan 3)",
     }
     for label, reason in reasons.items():
         assert re.search(rf'<span aria-disabled="true" title="{re.escape(reason)}">{label}</span>', text), label
+    assert '<a href="/servers">Servers</a>' in text  # the read-only server map (Plan 2 Task 14)
     assert '<a href="/scans">Scans</a>' in text  # scan/default is registered (Plan 2 Task 12)
     assert '<a href="/audit">Audit</a>' in text
     assert '<a href="/settings">Settings</a>' in text

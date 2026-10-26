@@ -69,6 +69,7 @@ from app.web.common import (
 from app.web.overview import register_overview_routes
 from app.web.renewals import register_renewal_routes
 from app.web.scans import register_scan_routes
+from app.web.servers import register_server_routes
 from app.web.settings import register_settings_routes
 from app.web.users import register_user_routes
 
@@ -682,7 +683,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for label, url, enabled, reason in [
             ("Overview", "/", True, ""),
             ("Certificates", "/certificates", True, ""),
-            ("Servers", "/servers", False, "Available in a later plan"),
+            ("Servers", "/servers", True, ""),
             ("Deploy", "/deploy", False, deploy_reason),
             ("Scans", "/scans", registry.supports(JobType.SCAN, "default"), scan_reason),
             ("Audit", "/audit", True, ""),
@@ -703,6 +704,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_user_routes(app)
     register_settings_routes(app)
     register_scan_routes(app)
+    register_server_routes(app)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):
