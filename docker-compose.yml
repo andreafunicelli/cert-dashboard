@@ -74,6 +74,7 @@ services:
       <<: *app-env
       WORKER_CONCURRENCY: "4"
       MAX_PARALLEL_JOBS: "2"
+      DASHBOARD_URL: "${DASHBOARD_URL:-}"
     volumes: [inventory:/srv/inventory, artifacts:/srv/artifacts]
     tmpfs:
       - /tmp:noexec,nosuid,nodev,size=64m,mode=1777

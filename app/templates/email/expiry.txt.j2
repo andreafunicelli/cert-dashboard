@@ -1,0 +1,22 @@
+Certificate {{ common_name }} {{ phrase }}.
+
+Common name: {{ common_name }}
+SANs: {{ san_count }}
+Issuer: {{ issuer }}
+Serial: {{ serial }}
+Not after: {{ not_after_local }}{% if not same_zone %} ({{ not_after_utc }}){% endif %}
+
+Active bindings:
+{% for binding in bindings -%}
+- {{ binding }}
+{% else -%}
+- none
+{% endfor -%}
+{% if more_bindings %}+{{ more_bindings }} more
+{% endif %}
+Renewal: {% if renewal_state %}{{ renewal_state }}
+Renewal link: {{ renewal_url }}{% else %}no renewal in progress{% endif %}
+{% if notes %}
+Notes: {{ notes }}
+{% endif %}
+Certificate: {{ certificate_url }}
