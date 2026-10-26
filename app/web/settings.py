@@ -33,6 +33,7 @@ back to the tab; refusals are 422 and change nothing)::
     trust        POST /settings/trust                          include_public_bundle (toggle + recheck)
                  POST /settings/trust-anchors                  file | pem, notes   (add_anchor + recheck)
                  POST /settings/trust-anchors/{id}/delete      confirm=DELETE      (remove_anchor + recheck)
+                 POST /settings/trust-anchors/recheck          (no fields)         (enqueue scan/trust_recheck)
     status       read-only ``status_snapshot``
     maintenance  POST /settings/maintenance/prune              confirm=PRUNE OLD JOBS (enqueue cleanup)
 """
@@ -52,10 +53,12 @@ from starlette.datastructures import FormData, UploadFile
 
 from app.crypto.parse import MAX_INPUT_BYTES
 from app.jobs.handlers import build_registry
+from app.jobs.handlers.trust_recheck import TRUST_RECHECK_ACTION
 from app.jobs.queue import enqueue
 from app.models import Certificate, JSONValue, TrustAnchor, User
 from app.models.enums import JobType
 from app.services.audit import record
+from app.services.scans import ON_DEMAND_PRIORITY
 from app.services.settings import (
     SettingsValidationError,
     get_setting,
@@ -259,6 +262,7 @@ def _capabilities() -> dict[str, str]:
             registry, "Plan 2", (JobType.ALERT_EXPIRY, "default"), (JobType.DIGEST, "default")
         ),
         "test_pull": unsupported_reason(registry, "Plan 3", (JobType.DISCOVER, "default")),
+        "trust_recheck": unsupported_reason(registry, "Plan 2", (JobType.SCAN, TRUST_RECHECK_ACTION)),
     }
     return {key: reason for key, reason in reasons.items() if reason}
 
@@ -520,6 +524,27 @@ def _handle_anchor_delete(request: Request, anchor_id: int, form: FormData):
     return _done(request, "trust", "Trust anchor removed.", _recheck_note(summary))
 
 
+def _handle_trust_recheck(request: Request, form: FormData):
+    """Queue the background recheck; the web process never evaluates chains for this button."""
+    if not _only(form):
+        return _refused(request, "trust", _UNRECOGNISED)
+
+    def work(db, now, actor):
+        # max_attempts=2: the recheck is idempotent, so one retry after a transient failure is safe.
+        enqueue(
+            db,
+            JobType.SCAN,
+            {"action": TRUST_RECHECK_ACTION},
+            actor,
+            priority=ON_DEMAND_PRIORITY,
+            run_after=now,
+            max_attempts=2,
+        )
+
+    _transact(request, work)
+    return _done(request, "trust", "Trust recheck queued; chain statuses update once the worker has run it.")
+
+
 def _handle_prune(request: Request, form: FormData):
     if not _only(form, "confirm") or form.get("confirm") != _PRUNE_CONFIRMATION:
         return _refused(request, "maintenance", f"Type {_PRUNE_CONFIRMATION} exactly to confirm.")
@@ -567,6 +592,10 @@ def register_settings_routes(app: FastAPI) -> None:
     @app.post("/settings/trust-anchors")
     async def trust_anchor_upload_submit(request: Request):
         return await _submit(request, _handle_anchor_upload, max_files=1)
+
+    @app.post("/settings/trust-anchors/recheck")
+    async def trust_recheck_submit(request: Request):
+        return await _submit(request, _handle_trust_recheck)
 
     @app.post("/settings/trust-anchors/{anchor_id:int}/delete")
     async def trust_anchor_delete_submit(request: Request, anchor_id: int):

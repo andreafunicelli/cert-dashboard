@@ -202,7 +202,7 @@ def test_unreachable_endpoints_are_retried_alone_until_the_last_attempt(
 
 **Interfaces:** Consumes: `recheck_chain_statuses(db: Session, validation_time: datetime, diagnostic_roots: Sequence[x509.Certificate] = ()) -> dict[str, int]`, `add_anchor(db: Session, pem: bytes, notes: str | None, actor: Actor, validation_time: datetime) -> TrustAnchor`, `save_certificate(...)`, Task 2 `ON_DEMAND_PRIORITY`. Produces: `TRUST_RECHECK_ACTION = "trust_recheck"`; `validate_trust_recheck_payload(payload: Mapping[str, JSONValue]) -> dict[str, JSONValue]` (exactly `{"action": "trust_recheck"}`); `trust_recheck(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[str, JSONValue]` (status counts plus `validation_time`); schedule key `trust_recheck` with `_TIME_SETTING["trust_recheck"] = "scan.daily_at"` and `_ENABLED_SETTING["trust_recheck"] = "scan.enabled"`; POST `/settings/trust-anchors/recheck`.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_background_recheck_notices_an_intermediate_that_expired(queue_factory, make_worker, certs, clock):
@@ -218,10 +218,10 @@ def test_background_recheck_notices_an_intermediate_that_expired(queue_factory, 
 ```
 
   Also add `test_trust_recheck_is_scheduled_with_the_scan_time_and_flag` (private `queue_factory` + `make_worker`: a tick at 02:00:30 enqueues both `{}` and `{"action": "trust_recheck"}` scan jobs; with `scan.enabled=false` the next day enqueues neither), `test_recheck_now_button_requires_csrf_and_enqueues` (Trust anchors tab shows the button enabled; POST without CSRF → 403; with CSRF → 303 and one queued job priority 200), `test_trust_recheck_never_touches_endpoints_or_scan_results`, and a unit assertion in `tests/unit/test_job_registry.py` that the registry supports `(scan, 'trust_recheck')` and the payload validator rejects extra keys.
-- [ ] Run `uv run pytest tests/unit/test_job_registry.py -q` locally and `uv run pytest tests/integration/test_trust_recheck_job.py -q` in CI; expect FAIL, the action is unregistered.
-- [ ] Implement. The handler opens one transaction and calls `recheck_chain_statuses(db, context.clock())`; changed statuses get Plan 1's `certificate.chain_check` audits. Anchor upload/delete/toggle stay synchronous (Contract decision 5). The button is gated with `unsupported_reason(registry, "Plan 2", (JobType.SCAN, "trust_recheck"))`. As a `scan`-type job it counts against the two-job discovery/scan cap.
-- [ ] Run the same commands; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
-- [ ] Commit: `git add app/jobs/handlers app/jobs/worker.py app/web/settings.py app/templates/settings.html.j2 tests/unit/test_job_registry.py tests/integration/test_trust_recheck_job.py`; `git commit -m "feat: recheck certificate trust paths in the background"`.
+- [x] Run `uv run pytest tests/unit/test_job_registry.py -q` locally and `uv run pytest tests/integration/test_trust_recheck_job.py -q` in CI; expect FAIL, the action is unregistered.
+- [x] Implement. The handler opens one transaction and calls `recheck_chain_statuses(db, context.clock())`; changed statuses get Plan 1's `certificate.chain_check` audits. Anchor upload/delete/toggle stay synchronous (Contract decision 5). The button is gated with `unsupported_reason(registry, "Plan 2", (JobType.SCAN, "trust_recheck"))`. As a `scan`-type job it counts against the two-job discovery/scan cap.
+- [x] Run the same commands; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
+- [x] Commit: `git add app/jobs/handlers app/jobs/worker.py app/web/settings.py app/templates/settings.html.j2 tests/unit/test_job_registry.py tests/integration/test_trust_recheck_job.py`; `git commit -m "feat: recheck certificate trust paths in the background"`.
 
 ### Task 4: SMTP transport with typed outcomes and a local capture server
 

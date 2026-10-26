@@ -163,9 +163,9 @@ def test_two_schedulers_ticking_simultaneously_enqueue_one_cleanup(queue_factory
     with ThreadPoolExecutor(max_workers=6) as pool:
         list(pool.map(tick, range(6)))
     assert len(jobs_of(queue_factory)) == 1
-    assert len(jobs_of(queue_factory, JobType.SCAN)) == 1  # the daily scan is deduplicated the same way
+    assert len(jobs_of(queue_factory, JobType.SCAN)) == 2  # the daily scan and trust recheck, each deduplicated
     with queue_factory() as db:
-        assert set(db.scalars(select(SchedulerState.key))) == {"cleanup", "scan"}  # one state row each
+        assert set(db.scalars(select(SchedulerState.key))) == {"cleanup", "scan", "trust_recheck"}  # one row each
 
 
 def test_a_scheduler_waits_on_the_state_row_lock_and_then_sees_the_winners_run(queue_factory):
@@ -248,7 +248,7 @@ def test_no_unregistered_schedule_is_enqueued(queue_factory, monkeypatch):
         types = set(db.scalars(select(Job.type)))
         states = set(db.scalars(select(SchedulerState.key)))
     assert types == {JobType.CLEANUP, JobType.SCAN}  # scan/default is registered; the other two are not
-    assert states == {"cleanup", "scan"}
+    assert states == {"cleanup", "scan", "trust_recheck"}
 
 
 def test_registered_non_default_action_schedule_uses_its_settings_and_payload(queue_factory, monkeypatch):

@@ -148,4 +148,7 @@ def test_registry_registers_the_pull_and_default_actions_of_scan():
     assert registry.supports(JobType.SCAN)  # scan/default (Plan 2 Task 2)
     assert not registry.supports(JobType.SCAN, "bogus")
     scheduled = [schedule for schedule in SCHEDULES.values() if schedule.job_type is JobType.SCAN]
-    assert [(item.key, item.action) for item in scheduled] == [("scan", "default")]  # never import_pull
+    assert [(item.key, item.action) for item in scheduled] == [  # never import_pull
+        ("scan", "default"),
+        ("trust_recheck", "trust_recheck"),
+    ]

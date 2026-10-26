@@ -216,7 +216,8 @@ def test_scheduled_scan_runs_daily_with_system_source(worker_harness, web_factor
     worker_harness.tick()  # the same occurrence is never enqueued twice
     with web_factory() as db:
         jobs = list(db.scalars(select(Job).where(Job.type == JobType.SCAN)))
-    (job,) = jobs
+    # The 02:00 tick also enqueues scan/trust_recheck (shares scan.daily_at); pick scan/default by payload.
+    (job,) = [candidate for candidate in jobs if "action" not in candidate.payload]
     assert (job.status, job.priority, job.scheduled_reason, job.payload) == (JobStatus.QUEUED, 100, "daily", {})
     assert job.requested_by is None and job.max_attempts == 3
     worker_harness.run_queued()
