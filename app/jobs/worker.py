@@ -43,6 +43,7 @@ from app.jobs.queue import (
 from app.models import AppSetting, Job, JSONValue, SchedulerState, WorkerHeartbeat
 from app.models.enums import JobType
 from app.services.audit import SecretRedactionFilter
+from app.services.notifications import enqueue_notification_retry
 
 _LOG = logging.getLogger(__name__)
 
@@ -274,8 +275,33 @@ def _run_schedule(db: Session, schedule: Schedule, now: datetime) -> bool:
     return True
 
 
+# --- tick steps ---------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TickStep:
+    """A sweep run on every scheduler tick, only while its handler is registered."""
+
+    name: str
+    step: Callable[[Session, datetime], int]
+    requires: tuple[JobType, str]
+
+
+TICK_STEPS: dict[str, TickStep] = {}
+
+
+def register_tick_step(name: str, step: Callable[[Session, datetime], int], *, requires: tuple[JobType, str]) -> None:
+    if name in TICK_STEPS:
+        raise ValueError(f"tick step {name!r} already registered")
+    TICK_STEPS[name] = TickStep(name, step, (JobType(requires[0]), requires[1]))
+
+
+# Inert until the expiry handler (``alert_expiry/default``) is registered.
+register_tick_step("notification_retry", enqueue_notification_retry, requires=(JobType.ALERT_EXPIRY, "default"))
+
+
 def scheduler_tick(factory: sessionmaker[Session], registry: JobRegistry, now: datetime) -> None:
-    """Enqueue due scheduled jobs, then reap timed-out jobs and requeue retryable failures.
+    """Enqueue due scheduled jobs, reap timed-out jobs, requeue retryable failures, run tick steps.
 
     Each step has its own transaction; a failing step is logged by class name and never stops
     the others. Correctness across concurrent schedulers rests on the per-schedule row lock, not
@@ -297,6 +323,14 @@ def scheduler_tick(factory: sessionmaker[Session], registry: JobRegistry, now: d
                 step(db, now)
         except Exception as exc:  # noqa: BLE001 - one failing step must not stop the others
             _LOG.error("scheduler %s failed: %s", name, type(exc).__name__)
+    for tick_step in list(TICK_STEPS.values()):
+        if not registry.supports(*tick_step.requires):
+            continue
+        try:
+            with factory.begin() as db:
+                tick_step.step(db, now)
+        except Exception as exc:  # noqa: BLE001 - one failing step must not stop the others
+            _LOG.error("tick step %s failed: %s", tick_step.name, type(exc).__name__)
 
 
 # --- liveness -----------------------------------------------------------------------------------

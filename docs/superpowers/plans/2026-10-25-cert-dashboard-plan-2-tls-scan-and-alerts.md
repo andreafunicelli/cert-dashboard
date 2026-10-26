@@ -307,7 +307,7 @@ def test_test_email_is_sent_by_the_worker_to_the_signed_in_user(signed_in, worke
 
 **Interfaces:** Consumes: `NotificationLog`, `NotificationStatus`, Task 4 `SendOutcome`, `retry_delay_seconds(attempt: int) -> int`, `enqueue`, `SYSTEM_ACTOR`. Produces in `app/services/notifications.py`: `MAX_NOTIFICATION_ATTEMPTS = 3`; `next_attempt_after(attempts: int, now: datetime, retryable: bool) -> datetime | None`; `open_notification(db: Session, *, kind: Literal['expiry','digest'], dedupe_key: str, certificate_id: int | None, threshold_days: int | None, recipients: Sequence[str], now: datetime) -> NotificationLog | None`; `record_attempt(db: Session, row: NotificationLog, outcome: SendOutcome, now: datetime) -> NotificationLog`; `due_retries(db: Session, kind: Literal['expiry','digest'], now: datetime) -> list[NotificationLog]`; `enqueue_notification_retry(db: Session, now: datetime) -> int`. In `app/jobs/worker.py`: `TickStep(name: str, step: Callable[[Session, datetime], int], requires: tuple[JobType, str])`; `TICK_STEPS: dict[str, TickStep]`; `register_tick_step(name: str, step: Callable[[Session, datetime], int], *, requires: tuple[JobType, str]) -> None`; `scheduler_tick` runs registered steps after reap/retry, each in its own transaction, skipping steps whose `requires` is not in the registry and logging failures by class name only.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_failed_attempts_back_off_then_stop_at_three(db, previous_certificate, now):
@@ -329,10 +329,10 @@ def test_failed_attempts_back_off_then_stop_at_three(db, previous_certificate, n
 ```
 
   Also add `test_success_sets_sent_at_with_last_attempt_at`, `test_permanent_failure_is_not_rescheduled`, `test_sent_row_is_never_reopened`, `test_concurrent_open_returns_the_row_to_one_session_only` (two `queue_factory` sessions; the second gets `None` while the first holds the lock), `test_error_text_is_redacted_and_bounded`, `test_tick_step_enqueues_one_retry_job_for_due_expiry_rows` (custom registry with a stub `alert_expiry/default`; due row from today → one queued job `{"mode": "retry_failed"}`, priority 100, `scheduled_reason='retry'`, `max_attempts=1`; a second tick adds nothing while it is queued; a due row created yesterday enqueues nothing), `test_tick_steps_are_skipped_without_their_handler`, `test_failing_tick_step_does_not_stop_other_steps`. Unit: `next_attempt_after` ladder (1 → +30 s, 2 → +120 s, 3 → None, non-retryable → None).
-- [ ] Run `uv run pytest tests/unit/test_notification_backoff.py -q` locally and `uv run pytest tests/integration/test_notifications.py tests/integration/test_worker.py -q` in CI; expect FAIL, ledger and tick steps absent.
-- [ ] Implement per Contract decisions 7 and 10. `due_retries` selects `status='failed' AND attempts BETWEEN 1 AND 2 AND next_attempt_at <= now AND created_at >= <UTC midnight of now>` ordered by id `FOR UPDATE SKIP LOCKED`. Register `register_tick_step("notification_retry", enqueue_notification_retry, requires=(JobType.ALERT_EXPIRY, "default"))` at module level in `worker.py` (inert until Task 8 registers the handler). Plan 3 reuses `register_tick_step` for its paused-deploy sweep.
-- [ ] Run the same commands; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
-- [ ] Commit: `git add app/services/notifications.py app/jobs/worker.py tests/unit/test_notification_backoff.py tests/integration/test_notifications.py`; `git commit -m "feat: track bounded notification attempts and sweep due retries"`.
+- [x] Run `uv run pytest tests/unit/test_notification_backoff.py -q` locally and `uv run pytest tests/integration/test_notifications.py tests/integration/test_worker.py -q` in CI; expect FAIL, ledger and tick steps absent.
+- [x] Implement per Contract decisions 7 and 10. `due_retries` selects `status='failed' AND attempts BETWEEN 1 AND 2 AND next_attempt_at <= now AND created_at >= <UTC midnight of now>` ordered by id `FOR UPDATE SKIP LOCKED`. Register `register_tick_step("notification_retry", enqueue_notification_retry, requires=(JobType.ALERT_EXPIRY, "default"))` at module level in `worker.py` (inert until Task 8 registers the handler). Plan 3 reuses `register_tick_step` for its paused-deploy sweep.
+- [x] Run the same commands; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
+- [x] Commit: `git add app/services/notifications.py app/jobs/worker.py tests/unit/test_notification_backoff.py tests/integration/test_notifications.py`; `git commit -m "feat: track bounded notification attempts and sweep due retries"`.
 
 ### Task 7: Expiry evaluation, recipients and message rendering
 
