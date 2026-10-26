@@ -653,7 +653,7 @@ def test_where_is_this_certificate_used(signed_in, server_map):
 
 **Interfaces:** Consumes: `expiry_counts(db: Session, now: datetime) -> dict[str, int]` (unchanged), `worker_liveness(db: Session, now: datetime) -> Literal['ok','stale']`, ORM `Endpoint`, `Binding`, `Job`, `User`, `Renewal`, `NotificationLog`, `WorkerHeartbeat`. Produces: `TLSHealth(ok: int, mismatch: int, expired: int, unreachable: int, error: int, never_scanned: int, unknown_certificates: int, key_mismatch_bindings: int)`; `RecentJob(id: str, type: str, summary: str, status: str, duration_seconds: int | None, actor: str, finished_at: datetime | None, href: str)`; `RenewalInFlight(id: str, common_name: str, state: str, age_days: int)`; `StatusStrip(worker: str, last_heartbeat_at: datetime | None, inventory_rev: str | None, inventory_rev_age_hours: int | None, last_digest_at: datetime | None)`; `OverviewSnapshot(tls: TLSHealth, recent_jobs: list[RecentJob], renewals: list[RenewalInFlight], status: StatusStrip)`; `overview_snapshot(db: Session, now: datetime) -> OverviewSnapshot`; `job_summary(job_type: JobType, payload: Mapping[str, JSONValue]) -> str`.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_overview_snapshot_counts_tls_health_and_recent_work(db, overview_world, now):
@@ -672,9 +672,9 @@ def test_job_summaries_never_echo_raw_payloads():
 
   Also add `test_overview_page_fills_every_slot_and_links_filters` (TLS counters link `/scans?status=…`, unknown → `/bindings?match_state=unknown`, key mismatch → `/bindings?match_state=key_mismatch`; failed jobs carry a distinct class; import-pull jobs link `/imports/{id}`; renewal rows link `/renewals/{id}` with age; status strip shows heartbeat, "no inventory revision recorded yet" until Plan 3, and the last digest time), `test_expiry_counters_are_unchanged` (Plan 1 Task 17's bucket assertions still pass), `test_overview_query_count_is_constant`.
 - [ ] Run `uv run pytest tests/integration/test_overview_slots.py tests/integration/test_inventory_http.py -q` in CI; expect FAIL, slots empty.
-- [ ] Implement with one aggregate query per slot. Unknown certificates count distinct `on_disk_fingerprint` of active `unknown` bindings. Recent jobs are the newest 10 by `COALESCE(finished_at, started_at, created_at)` with actor = requester username or `system`; `job_summary` uses a closed per-type allowlist (`endpoint_ids` count, `certificate_id`, import host:port, `mode`, `reason`), never raw payload text. Renewals in flight are states `draft`, `csr_generated`, `submitted`, `issued`, `deployed`, oldest first. Template blocks `tls_health`, `recent_jobs`, `renewals_in_flight`, `status_strip` are filled; the expiry counters block is untouched.
+- [x] Implement with one aggregate query per slot. Unknown certificates count distinct `on_disk_fingerprint` of active `unknown` bindings. Recent jobs are the newest 10 by `COALESCE(finished_at, started_at, created_at)` with actor = requester username or `system`; `job_summary` uses a closed per-type allowlist (`endpoint_ids` count, `certificate_id`, import host:port, `mode`, `reason`), never raw payload text. Renewals in flight are states `draft`, `csr_generated`, `submitted`, `issued`, `deployed`, oldest first. Template blocks `tls_health`, `recent_jobs`, `renewals_in_flight`, `status_strip` are filled; the expiry counters block is untouched.
 - [ ] Run the same command; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
-- [ ] Commit: `git add app/services/overview.py app/web/overview.py app/templates/overview.html.j2 tests/integration/test_overview_slots.py`; `git commit -m "feat: fill overview TLS health jobs renewals and status"`.
+- [x] Commit: `git add app/services/overview.py app/web/overview.py app/templates/overview.html.j2 tests/integration/test_overview_slots.py`; `git commit -m "feat: fill overview TLS health jobs renewals and status"`.
 
 ### Task 17: Local TLS/SMTP targets in the test stack and final verification
 

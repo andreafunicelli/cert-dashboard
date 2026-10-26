@@ -18,8 +18,57 @@
   </ol>
 </section>
 {% endif %}
-{% block tls_health %}{% endblock %}
-{% block recent_jobs %}{% endblock %}
-{% block renewals_in_flight %}{% endblock %}
-{% block status_strip %}{% endblock %}
+{% block tls_health %}
+<h2>TLS health</h2>
+<section class="counters" aria-label="TLS health">
+  {% for counter in tls_counters %}
+  <a class="counter tls-counter tls-{{ counter.key }}" data-tls="{{ counter.key }}" href="{{ counter.href }}"><strong>{{ counter.count }}</strong><span>{{ counter.label }}</span></a>
+  {% endfor %}
+</section>
+{% endblock %}
+{% block recent_jobs %}
+<h2>Recent jobs</h2>
+{% if snapshot.recent_jobs %}
+<div class="table-wrap">
+<table class="recent-jobs">
+  <thead><tr><th scope="col">Type</th><th scope="col">Target</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Actor</th><th scope="col">Finished</th><th scope="col"></th></tr></thead>
+  <tbody>
+  {% for job in snapshot.recent_jobs %}
+  <tr class="job{% if job.status == 'failed' %} job-failed{% endif %}" data-job-id="{{ job.id }}">
+    <td>{{ job.type }}</td>
+    <td>{{ job.summary or "—" }}</td>
+    <td><span class="chip {% if job.status == 'failed' %}chip-critical{% elif job.status == 'succeeded' %}chip-ok{% endif %}">{{ job.status }}</span></td>
+    <td>{% if job.duration_seconds is not none %}{{ job.duration_seconds // 60 }}m {{ job.duration_seconds % 60 }}s{% else %}—{% endif %}</td>
+    <td>{{ job.actor }}</td>
+    <td>{{ time_tag(job.finished_at, tz) }}</td>
+    <td><a href="{{ job.href }}">Details</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="panel wide">No jobs have run yet.</p>
+{% endif %}
+{% endblock %}
+{% block renewals_in_flight %}
+<h2>Renewals in flight</h2>
+{% if snapshot.renewals %}
+<ul class="renewals-in-flight">
+  {% for renewal in snapshot.renewals %}
+  <li data-renewal-id="{{ renewal.id }}"><a href="/renewals/{{ renewal.id }}">{{ renewal.common_name }}</a> <span class="chip">{{ renewal.state }}</span> · {{ renewal.age_days }} day{{ "" if renewal.age_days == 1 else "s" }} in this state</li>
+  {% endfor %}
+</ul>
+{% else %}
+<p class="panel wide">No renewals in flight.</p>
+{% endif %}
+{% endblock %}
+{% block status_strip %}
+{% set status = snapshot.status %}
+<section class="panel wide status-strip" data-status-strip="true" aria-label="Status">
+  <span>Worker: <span class="chip {{ 'chip-ok' if status.worker == 'ok' else 'chip-warning' }}">{{ status.worker }}</span>{% if status.last_heartbeat_at %} (last heartbeat {{ time_tag(status.last_heartbeat_at, tz) }}){% endif %}</span>
+  · <span>Inventory revision: {% if status.inventory_rev %}<code>{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} ({{ status.inventory_rev_age_hours }} h old){% endif %}{% else %}no inventory revision recorded yet{% endif %}</span>
+  · <span>Last digest: {% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</span>
+</section>
+{% endblock %}
 {% endblock %}
