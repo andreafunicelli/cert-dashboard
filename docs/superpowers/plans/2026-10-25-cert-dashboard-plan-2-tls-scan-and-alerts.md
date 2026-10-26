@@ -626,7 +626,7 @@ def test_servers_list_counts_and_filters_without_n_plus_one(signed_in, server_ma
 
 **Interfaces:** Consumes: Task 14 `BindingRow`, `server_map`, `count_statements`. Produces: `BindingFilters(certificate_id: int | None = None, server_id: int | None = None, group: str | None = None, webserver: WebserverType | None = None, match_state: Literal['matched','unknown','key_mismatch','missing_file'] | None = None, vhost: str | None = None, active: bool | None = True)`; `BindingPage(items: list[BindingRow], total: int, page: int, page_size: int)`; `list_bindings(db: Session, filters: BindingFilters, page: int = 1, page_size: int = 50, sort: str = 'server') -> BindingPage`; `export_bindings(db: Session, filters: BindingFilters, limit: int = 5000) -> list[dict[str, JSONValue]]`; `BINDING_EXPORT_FIELDS`; routes GET `/bindings`, `/bindings/export.json`, `/bindings/help`.
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_where_is_this_certificate_used(signed_in, server_map):
@@ -641,9 +641,9 @@ def test_where_is_this_certificate_used(signed_in, server_map):
 
   Also add `test_every_binding_filter` (server, group, webserver, match state, vhost substring over `vhost_name`/`vhost_names`, `active=all`; invalid enum values → 422), `test_attention_rows_link_to_fix_instructions` (persistent badge for `key_mismatch`/`missing_file` linking `/bindings/help#key_mismatch` / `#missing_file`; the help page states the app does not fix them and that `key_mismatch` blocks deploys of that vhost), `test_bindings_query_count_is_independent_of_rows`, `test_pagination_limits_and_whitelisted_sorts`, `test_bindings_require_sign_in_and_escape_paths`.
 - [ ] Run `uv run pytest tests/integration/test_bindings_http.py -q` in CI; expect FAIL, view absent.
-- [ ] Implement with one paginated query joining `server` and `certificate` (no lazy loads), using `ix_binding_certificate_id`, `ix_binding_server_active` and `ix_binding_match_state`. `BINDING_EXPORT_FIELDS`: `id`, `server`, `webserver`, `vhost_name`, `vhost_names`, `port`, `config_file`, `cert_path`, `chain_path`, `key_path`, `cert_owner`, `cert_group`, `cert_mode`, `key_owner`, `key_group`, `key_mode`, `on_disk_fingerprint`, `on_disk_key_public_sha256`, `certificate_id`, `match_state`, `last_seen_at`, `is_active` (public metadata only; free-text `notes` excluded). Modes render and export as octal strings such as `"0600"`.
+- [x] Implement with one paginated query joining `server` and `certificate` (no lazy loads), using `ix_binding_certificate_id`, `ix_binding_server_active` and `ix_binding_match_state`. `BINDING_EXPORT_FIELDS`: `id`, `server`, `webserver`, `vhost_name`, `vhost_names`, `port`, `config_file`, `cert_path`, `chain_path`, `key_path`, `cert_owner`, `cert_group`, `cert_mode`, `key_owner`, `key_group`, `key_mode`, `on_disk_fingerprint`, `on_disk_key_public_sha256`, `certificate_id`, `match_state`, `last_seen_at`, `is_active` (public metadata only; free-text `notes` excluded). Modes render and export as octal strings such as `"0600"`.
 - [ ] Run the same command; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
-- [ ] Commit: `git add app/services/servers.py app/web/servers.py app/templates/bindings tests/integration/test_bindings_http.py`; `git commit -m "feat: answer where each certificate is used across servers"`.
+- [x] Commit: `git add app/services/servers.py app/web/servers.py app/templates/bindings tests/integration/test_bindings_http.py`; `git commit -m "feat: answer where each certificate is used across servers"`.
 
 ### Task 16: Overview TLS health, recent jobs, renewals in flight and status strip
 

@@ -1,0 +1,82 @@
+{% extends "base.html.j2" %}
+{% block title %}Bindings · Cert Dashboard{% endblock %}
+{% macro owner_mode(owner, group, mode) %}{% if owner or group or mode %}{{ owner or "?" }}:{{ group or "?" }} {{ mode or "?" }}{% else %}—{% endif %}{% endmacro %}
+{% block content %}
+<h1>Where is a certificate used?</h1>
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/bindings" class="filters">
+    <label>Certificate id <input type="number" name="certificate_id" min="1" value="{{ values.certificate_id or '' }}"></label>
+    <label>Server id <input type="number" name="server_id" min="1" value="{{ values.server_id or '' }}"></label>
+    <label>Group <input name="group" value="{{ values.group or '' }}" maxlength="200"></label>
+    <label>Virtual host <input type="search" name="vhost" value="{{ values.vhost or '' }}" maxlength="200" placeholder="Name contains"></label>
+    <label>Web server
+      <select name="webserver">
+        <option value="">Any</option>
+        {% for name in webservers %}<option value="{{ name }}"{% if values.webserver == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select></label>
+    <label>Match
+      <select name="match_state">
+        <option value="">Any</option>
+        {% for name in match_states %}<option value="{{ name }}"{% if values.match_state == name %} selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select></label>
+    <label>Bindings
+      <select name="active">
+        <option value="true"{% if not values.active %} selected{% endif %}>Active</option>
+        <option value="false"{% if values.active == "false" %} selected{% endif %}>Retired</option>
+        <option value="all"{% if values.active == "all" %} selected{% endif %}>All</option>
+      </select></label>
+    <input type="hidden" name="sort" value="{{ sort_state }}">
+    <input type="hidden" name="page_size" value="{{ page.page_size }}">
+    <button type="submit">Apply filters</button>
+    <a href="/bindings">Reset</a>
+  </form>
+</section>
+
+<div class="list-summary" data-total="{{ page.total }}">{{ page.total }} binding{{ "" if page.total == 1 else "s" }}
+  · <a href="{{ export_url }}" download="bindings.json">Export list as JSON</a>
+  · <a href="/bindings/help">What do the match states mean?</a></div>
+
+{% if page.items %}
+<div class="table-wrap">
+<table class="bindings">
+  <thead><tr>
+    <th scope="col"><a href="{{ sort_url('server') }}">Server</a></th>
+    <th scope="col"><a href="{{ sort_url('vhost') }}">Virtual host</a></th>
+    <th scope="col">Port</th>
+    <th scope="col">Certificate</th>
+    <th scope="col">Chain</th>
+    <th scope="col">Key</th>
+    <th scope="col">On-disk fingerprint</th>
+    <th scope="col">Matched certificate</th>
+    <th scope="col"><a href="{{ sort_url('match_state') }}">Match</a></th>
+    <th scope="col"><a href="{{ sort_url('last_seen_at') }}">Last seen</a></th>
+  </tr></thead>
+  <tbody>
+  {% for b in page.items %}
+  <tr class="binding-row{% if b.match_state in ('key_mismatch', 'missing_file') %} row-attention{% elif not b.is_active %} row-inactive{% endif %}" data-binding-id="{{ b.id }}" data-vhost="{{ b.vhost_name }}">
+    <td><a href="/servers/{{ b.server_id }}">{{ b.server }}</a><br><small>{{ b.webserver }}</small></td>
+    <td>{{ b.vhost_name }}{% if not b.is_active %} <small>(retired)</small>{% endif %}{% if b.vhost_names | length > 1 %}<br><small>{{ b.vhost_names | join(", ") }}</small>{% endif %}</td>
+    <td>{{ b.port }}</td>
+    <td><code>{{ b.cert_path }}</code><br><small>{{ owner_mode(b.cert_owner, b.cert_group, b.cert_mode) }}</small></td>
+    <td>{% if b.chain_path %}<code>{{ b.chain_path }}</code>{% else %}—{% endif %}</td>
+    <td><code>{{ b.key_path }}</code><br><small>{{ owner_mode(b.key_owner, b.key_group, b.key_mode) }}</small></td>
+    <td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
+    <td>{% if b.certificate_id %}<a href="/certificates/{{ b.certificate_id }}">{{ b.certificate_common_name }}</a>{% else %}—{% endif %}</td>
+    <td>{% if b.match_state in ('key_mismatch', 'missing_file') %}<a class="badge badge-revoked" href="/bindings/help#{{ b.match_state }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</a>
+      {%- else %}<span class="badge {{ 'badge-ok' if b.match_state == 'matched' else 'badge-superseded' }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</span>{% endif %}</td>
+    <td>{{ time_tag(b.last_seen_at, tz) }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="panel wide">No bindings match these filters. <a href="/bindings">Clear the filters</a>. Bindings appear once discovery has run (a later plan).</p>
+{% endif %}
+
+<nav class="pager" aria-label="Pages">
+  {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
+  <span>Page {{ page.page }} of {{ pages }}</span>
+  {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

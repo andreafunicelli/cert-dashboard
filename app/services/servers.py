@@ -9,12 +9,13 @@ Nothing here writes.
 
 from dataclasses import dataclass, fields
 from datetime import datetime
+from typing import Literal
 
 from sqlalchemy import ARRAY, Text, func, literal, select
 from sqlalchemy.orm import Session
 
 from app.models import Binding, Certificate, Endpoint, Job, JobHost, JSONValue, Server
-from app.models.enums import JobType, ScanStatus
+from app.models.enums import JobType, ScanStatus, WebserverType
 from app.services.audit import redact
 
 EXPORT_LIMIT = 5000
@@ -115,6 +116,41 @@ class BindingRow:
     match_state: str
     last_seen_at: datetime
     is_active: bool
+
+
+# Public metadata only: no free-text notes, no key material (only the key's public hash is stored).
+BINDING_EXPORT_FIELDS = tuple(
+    field.name for field in fields(BindingRow) if field.name not in ("server_id", "certificate_common_name")
+)
+BINDING_SORTS = {
+    "server": (Server.hostname, Binding.vhost_name, Binding.port),
+    "-server": (Server.hostname.desc(), Binding.vhost_name, Binding.port),
+    "vhost": (Binding.vhost_name, Server.hostname, Binding.port),
+    "-vhost": (Binding.vhost_name.desc(), Server.hostname.desc(), Binding.port.desc()),
+    "match_state": (Binding.match_state, Server.hostname, Binding.vhost_name),
+    "-match_state": (Binding.match_state.desc(), Server.hostname, Binding.vhost_name),
+    "last_seen_at": (Binding.last_seen_at, Server.hostname, Binding.vhost_name),
+    "-last_seen_at": (Binding.last_seen_at.desc(), Server.hostname, Binding.vhost_name),
+}
+
+
+@dataclass(frozen=True)
+class BindingFilters:
+    certificate_id: int | None = None
+    server_id: int | None = None
+    group: str | None = None
+    webserver: WebserverType | None = None
+    match_state: Literal["matched", "unknown", "key_mismatch", "missing_file"] | None = None
+    vhost: str | None = None  # substring of the primary name or of any served name
+    active: bool | None = True  # None: active and retired bindings
+
+
+@dataclass(frozen=True)
+class BindingPage:
+    items: list[BindingRow]
+    total: int
+    page: int
+    page_size: int
 
 
 @dataclass(frozen=True)
@@ -236,6 +272,60 @@ def binding_row(binding: Binding, server: str, certificate_common_name: str | No
         last_seen_at=binding.last_seen_at,
         is_active=bool(binding.is_active),
     )
+
+
+def _filtered_bindings(filters: BindingFilters):
+    query = binding_query()
+    if filters.certificate_id is not None:
+        query = query.where(Binding.certificate_id == filters.certificate_id)
+    if filters.server_id is not None:
+        query = query.where(Binding.server_id == filters.server_id)
+    if filters.group:
+        query = query.where(Server.ansible_groups.op("@>")(literal([filters.group], ARRAY(Text))))
+    if filters.webserver is not None:
+        query = query.where(Binding.webserver == filters.webserver)
+    if filters.match_state is not None:
+        query = query.where(Binding.match_state == filters.match_state)
+    if filters.vhost:
+        names = func.array_to_string(Binding.vhost_names, " ")
+        query = query.where(
+            Binding.vhost_name.icontains(filters.vhost, autoescape=True)
+            | names.icontains(filters.vhost, autoescape=True)
+        )
+    if filters.active is not None:
+        query = query.where(Binding.is_active.is_(filters.active))
+    return query
+
+
+def list_bindings(
+    db: Session, filters: BindingFilters, page: int = 1, page_size: int = 50, sort: str = "server"
+) -> BindingPage:
+    """One page of bindings across servers; two statements (count, page) whatever the page holds."""
+    if page < 1 or page_size < 1:
+        raise ValueError("page and page_size must be positive")
+    if sort not in BINDING_SORTS:
+        raise ValueError("unsupported sort")
+    base = _filtered_bindings(filters)
+    total = db.scalar(select(func.count()).select_from(base.with_only_columns(Binding.id).subquery())) or 0
+    rows = db.execute(
+        base.order_by(*BINDING_SORTS[sort], Binding.id).limit(page_size).offset((page - 1) * page_size)
+    )
+    return BindingPage([binding_row(*row) for row in rows], total, page, page_size)
+
+
+def export_bindings(
+    db: Session, filters: BindingFilters, limit: int = EXPORT_LIMIT
+) -> list[dict[str, JSONValue]]:
+    """Allowlisted fields only (``BINDING_EXPORT_FIELDS``): never notes."""
+    rows = db.execute(_filtered_bindings(filters).order_by(*BINDING_SORTS["server"], Binding.id).limit(limit))
+    exported: list[dict[str, JSONValue]] = []
+    for row in rows:
+        binding = binding_row(*row)
+        item = {name: getattr(binding, name) for name in BINDING_EXPORT_FIELDS}
+        item["vhost_names"] = list(binding.vhost_names)
+        item["last_seen_at"] = binding.last_seen_at.isoformat()
+        exported.append(item)  # type: ignore[arg-type]
+    return exported
 
 
 def _history(db: Session, server_id: int) -> list[DiscoveryRun]:
