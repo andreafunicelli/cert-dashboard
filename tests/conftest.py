@@ -27,3 +27,28 @@ def certs():
     from tests.fixtures.certificates import generate_certificates
 
     return generate_certificates(datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
+
+
+@pytest.fixture
+def tls_material():
+    """A 127.0.0.1 leaf from a wall-clock-dated fixture CA with ``server_context()``/``client_context()``."""
+    from tests.fixtures.smtp_capture import make_tls_material
+
+    return make_tls_material()
+
+
+@pytest.fixture
+def smtp_server():
+    """Factory for loopback ``CaptureServer`` instances; every one is closed at teardown."""
+    from tests.fixtures.smtp_capture import CaptureServer
+
+    started = []
+
+    def start(**options):
+        server = CaptureServer(**options)
+        started.append(server)
+        return server
+
+    yield start
+    for server in started:
+        server.close()
