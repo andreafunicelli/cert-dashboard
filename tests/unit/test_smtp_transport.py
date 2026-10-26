@@ -230,6 +230,19 @@ def test_peer_text_in_every_reply_position_is_discarded(
     assert capture.messages == []
 
 
+@pytest.mark.parametrize("verb", ["MAIL", "RCPT", "DATA"])
+@pytest.mark.parametrize("code", [530, 534, 535])
+def test_auth_reply_codes_are_smtp_auth_whatever_command_elicited_them(smtp_server, now, caplog, verb, code):
+    capture = smtp_server(replies={verb: f"{code} 5.7.0 PEER-TEXT-CANARY {SECRET} {{password}}"})
+    outcome, steps = send_one(make_config(capture), now)
+    assert (outcome.code, outcome.retryable) == ("smtp_auth", False)
+    assert outcome.message == f"{code} at {verb.lower()}"
+    assert job_error_class(outcome.code) == "auth"
+    assert (steps[-1].step, steps[-1].code) == (verb.lower(), code)
+    assert "PEER-TEXT-CANARY" not in repr(outcome) + repr(steps) + caplog.text
+    assert capture.messages == []
+
+
 def test_failed_transaction_is_reset_for_the_next_message(smtp_server, now):
     capture = smtp_server()
     config = make_config(capture)

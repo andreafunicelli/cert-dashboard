@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.services.settings import get_setting
 
 SMTP_TIMEOUT_SECONDS = 30
+_AUTH_REPLY_CODES = frozenset({530, 534, 535})
 
 SmtpSecurity = Literal["starttls", "ssl", "none"]
 SmtpStepName = Literal["connect", "ehlo", "starttls", "auth", "mail", "rcpt", "data", "quit"]
@@ -173,7 +174,7 @@ def _reply_failure(step: SmtpStepName, code: object, *, connect: bool = False) -
     text = outcome_message("reply", step=step, code=reply)
     if connect or (reply is not None and 400 <= reply < 500):
         return "smtp_transient", text
-    if step == "auth":
+    if step == "auth" or reply in _AUTH_REPLY_CODES:  # Contract decision 8: 530/534/535 whatever the command
         return "smtp_auth", text
     return ("smtp_tls" if step == "starttls" else "smtp_rejected"), text
 
