@@ -36,12 +36,13 @@ def smtp_test_jobs(factory):
 
 
 def logged(caplog) -> str:
-    """Everything the product logged; the in-process capture server's own ``mail.log`` is not product code."""
-    return "\n".join(
-        f"{record.name} {record.getMessage()} {record.exc_text or ''}"
-        for record in caplog.records
-        if not record.name.startswith("mail.log")
-    )
+    """Every captured log record, unfiltered."""
+    return "\n".join(f"{record.name} {record.getMessage()} {record.exc_text or ''}" for record in caplog.records)
+
+
+def quiet_capture_server(monkeypatch) -> None:
+    """Drop the fixture relay's own DEBUG echo of its server replies (``mail.log``); application loggers stay as they are."""
+    monkeypatch.setattr(logging.getLogger("mail.log"), "level", logging.INFO)
 
 
 def everything(factory) -> str:
@@ -72,6 +73,23 @@ def test_test_email_is_sent_by_the_worker_to_the_signed_in_user(
         assert db.scalar(select(NotificationLog.id).limit(1)) is None  # a test send is not a notification
 
 
+def test_recipient_is_the_requesters_e_mail_read_when_the_worker_runs(
+    signed_in, worker_harness, web_factory, web_user, smtp_server
+):
+    capture = smtp_server()
+    configure_smtp(web_factory, capture)
+    post(signed_in)
+    [queued] = smtp_test_jobs(web_factory)
+    assert queued.payload == {"action": "smtp_test"} and queued.requested_by == web_user.id
+    with web_factory.begin() as db:
+        db.execute(update(User).where(User.id == web_user.id).values(email="changed-after-queue@example.test"))
+    worker_harness.run_queued()
+    [message] = capture.messages
+    assert message["To"] == "changed-after-queue@example.test"
+    [job] = smtp_test_jobs(web_factory)
+    assert job.payload == {"action": "smtp_test"} and job.result["recipient"] == "changed-after-queue@example.test"
+
+
 def test_failed_test_email_reports_the_real_reply_and_is_never_retried(
     signed_in, worker_harness, web_factory, web_user, smtp_server, clock
 ):
@@ -93,10 +111,11 @@ def test_failed_test_email_reports_the_real_reply_and_is_never_retried(
 
 
 def test_relay_echoing_the_password_never_leaks_through_the_test_send(
-    signed_in, make_worker, web_factory, smtp_server, tls_material, caplog
+    signed_in, make_worker, web_factory, smtp_server, tls_material, caplog, monkeypatch
 ):
     caplog.set_level(logging.DEBUG, logger="app")
     capture = smtp_server(tls=tls_material, password="another-password", replies=ECHO)
+    quiet_capture_server(monkeypatch)
     configure_smtp(web_factory, capture, security="starttls", username="mailer", tls_verify=False)
     worker = make_worker(web_factory, smtp_password=PASSWORD.encode())
     response = post(signed_in)
@@ -110,15 +129,17 @@ def test_relay_echoing_the_password_never_leaks_through_the_test_send(
         signed_in.get(f"/settings/smtp/test/{job.id}").text,
     ]
     assert "535 at auth" in pages[0] and "535 at auth" in pages[2]
+    assert any(record.name.startswith("app") for record in caplog.records)  # application logging was not suppressed
     for haystack in (everything(web_factory), logged(caplog), *pages):
         assert PASSWORD not in haystack and CANARY not in haystack
 
 
 def test_smtp_password_never_reaches_payload_result_audit_logs_or_page(
-    signed_in, make_worker, web_factory, smtp_server, tls_material, caplog
+    signed_in, make_worker, web_factory, smtp_server, tls_material, caplog, monkeypatch
 ):
     caplog.set_level(logging.DEBUG, logger="app")
     capture = smtp_server(tls=tls_material, password=PASSWORD)
+    quiet_capture_server(monkeypatch)
     configure_smtp(web_factory, capture, security="starttls", username="mailer", tls_verify=False)
     worker = make_worker(web_factory, smtp_password=PASSWORD.encode())
     response = post(signed_in)
@@ -191,3 +212,31 @@ def test_fragment_polls_every_two_seconds_only_while_the_job_is_pending(
     done = signed_in.get(f"/settings/smtp/test/{job.id}").text
     assert "hx-trigger" not in done and "Delivered" in done
     assert signed_in.get("/settings/smtp/test/00000000-0000-0000-0000-000000000000").status_code == 404
+
+
+def test_tab_shows_the_newest_test_job_with_its_own_finish_time(
+    signed_in, worker_harness, web_factory, web_user, smtp_server, clock
+):
+    configure_smtp(web_factory, smtp_server())
+    post(signed_in)
+    worker_harness.run_queued()
+    [first] = smtp_test_jobs(web_factory)
+    first_stamp = f'datetime="{first.finished_at:%Y-%m-%dT%H:%M:%SZ}"'
+    tab = signed_in.get("/settings?tab=smtp").text
+    assert "Delivered" in tab and first_stamp in tab
+    clock.advance(seconds=300)
+    with web_factory.begin() as db:
+        db.execute(update(User).where(User.id == web_user.id).values(email="tempfail@example.test"))
+    post(signed_in)
+    [second] = [job for job in smtp_test_jobs(web_factory) if job.id != first.id]
+    queued = signed_in.get("/settings?tab=smtp").text  # the newest job is still queued: not the earlier delivery
+    assert 'data-test-status="queued"' in queued and f"/settings/smtp/test/{second.id}" in queued
+    assert 'hx-trigger="every 2s"' in queued and "Delivered" not in queued and first_stamp not in queued
+    worker_harness.run_queued()
+    with web_factory() as db:
+        second = db.get(Job, second.id)
+    second_stamp = f'datetime="{second.finished_at:%Y-%m-%dT%H:%M:%SZ}"'
+    assert second_stamp != first_stamp
+    done = signed_in.get("/settings?tab=smtp").text
+    assert 'data-test-status="failed"' in done and "451 at rcpt" in done and second_stamp in done
+    assert "Delivered" not in done and first_stamp not in done and "hx-trigger" not in done
