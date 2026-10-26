@@ -119,8 +119,10 @@ class BindingRow:
 
 
 # Public metadata only: no free-text notes, no key material (only the key's public hash is stored).
-BINDING_EXPORT_FIELDS = tuple(
-    field.name for field in fields(BindingRow) if field.name not in ("server_id", "certificate_common_name")
+BINDING_EXPORT_FIELDS = (
+    "id", "server", "webserver", "vhost_name", "vhost_names", "port", "config_file", "cert_path", "chain_path",
+    "key_path", "cert_owner", "cert_group", "cert_mode", "key_owner", "key_group", "key_mode",
+    "on_disk_fingerprint", "on_disk_key_public_sha256", "certificate_id", "match_state", "last_seen_at", "is_active",
 )
 BINDING_SORTS = {
     "server": (Server.hostname, Binding.vhost_name, Binding.port),

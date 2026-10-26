@@ -7,6 +7,13 @@ from app.models.enums import WebserverType
 from app.services.servers import BINDING_EXPORT_FIELDS
 from tests.integration.conftest import add_server
 
+# Independent literal contract (spec §8.6 / Plan 2 Task 15): a new BindingRow field must not leak into the export.
+EXPECTED_EXPORT_KEYS = {
+    "id", "server", "webserver", "vhost_name", "vhost_names", "port", "config_file", "cert_path", "chain_path",
+    "key_path", "cert_owner", "cert_group", "cert_mode", "key_owner", "key_group", "key_mode",
+    "on_disk_fingerprint", "on_disk_key_public_sha256", "certificate_id", "match_state", "last_seen_at", "is_active",
+}
+
 HOSTILE = '<script>alert("x")</script>'
 
 
@@ -26,7 +33,8 @@ def test_where_is_this_certificate_used(signed_in, server_map):
     assert all(host in page.text for host in server_map.hosts_using_certificate)
     exported = signed_in.get(f"/bindings/export.json?certificate_id={server_map.certificate_id}").json()
     assert {row["server"] for row in exported} == set(server_map.hosts_using_certificate)
-    assert all(set(row) == set(BINDING_EXPORT_FIELDS) for row in exported)
+    assert all(set(row) == EXPECTED_EXPORT_KEYS for row in exported)
+    assert set(BINDING_EXPORT_FIELDS) == EXPECTED_EXPORT_KEYS and len(BINDING_EXPORT_FIELDS) == 22
     assert all("notes" not in row and "key" not in row for row in exported)
     by_vhost = {row["vhost_name"]: row for row in exported}
     mismatch = by_vhost[f"api-{server_map.token}.example.test"]
