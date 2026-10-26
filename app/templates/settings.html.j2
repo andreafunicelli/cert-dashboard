@@ -97,6 +97,17 @@
     <li>Failed in the last 24 hours {{ q.failed_24h }}</li>
   </ul>
 
+  {% set s = snapshot.smtp %}
+  <h3>SMTP delivery</h3>
+  <ul data-smtp-health>
+    {% if s.consecutive_failures %}
+    <li><strong>{{ s.consecutive_failures }} consecutive delivery failure{{ "" if s.consecutive_failures == 1 else "s" }}</strong>; last error: <code>{{ s.last_error or "unknown" }}</code></li>
+    {% else %}<li>No delivery failures since the last successful delivery.</li>{% endif %}
+    <li>Last successful delivery: {% if s.last_success_at %}{{ time_tag(when(s.last_success_at), timezone) }}{% else %}never{% endif %}</li>
+    <li>Last test e-mail: {% if s.last_test %}{{ s.last_test.status }}, {{ time_tag(when(s.last_test.finished_at or s.last_test.requested_at), timezone) }}{% else %}none yet{% endif %}</li>
+  </ul>
+  <p><a href="/settings?tab=smtp">Send a test email</a> from the SMTP tab to check the connection.</p>
+
   <h3>Keyring</h3>
   <ul>
     <li>Active version {{ k.active_version }}</li>
@@ -203,6 +214,25 @@ docker compose up -d --force-recreate web worker</code></pre></li>
   </div>
   {% else %}<p id="smtp-test-result">No test e-mail has been sent yet.</p>{% endif %}
   {% endblock %}
+  {% elif tab == "alerts" %}
+  <h3>Recent delivery failures</h3>
+  {% if failures %}
+  <table data-failures>
+    <thead><tr><th>Kind</th><th>Certificate</th><th>Recipients</th><th>Attempts</th><th>Last attempt</th><th>Error</th></tr></thead>
+    <tbody>
+    {% for f in failures %}
+      <tr data-notification="{{ f.id }}">
+        <td>{{ f.kind }}{% if f.threshold_days is not none %} ({{ f.threshold_days }} days){% endif %}</td>
+        <td>{% if f.certificate_id %}<a href="/certificates/{{ f.certificate_id }}">Certificate #{{ f.certificate_id }}</a>{% else %}—{% endif %}</td>
+        <td>{{ f.recipients | join(", ") or "none" }}</td>
+        <td>attempt {{ f.attempts }} of {{ max_attempts }}; {% if f.next_attempt_at %}next attempt {{ time_tag(f.next_attempt_at, timezone) }}{% else %}no further attempts{% endif %}</td>
+        <td>{{ time_tag(f.last_attempt_at, timezone) }}</td>
+        <td><code>{{ f.error or "unknown" }}</code></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p>No delivery failures.</p>{% endif %}
   {% elif tab == "inventory" %}
   {% if disabled.get("test_pull") %}{{ disabled_action("Test pull", disabled["test_pull"]) }}
   {% else %}<form method="post" action="/settings/inventory/test-pull"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Test pull</button></form>{% endif %}

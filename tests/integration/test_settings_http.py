@@ -1042,6 +1042,12 @@ def test_status_snapshot_pins_liveness_constants_and_is_json_native(db, keyring,
     }
     assert isinstance(snapshot["db_size_bytes"], int) and snapshot["db_size_bytes"] > 0
     assert snapshot["last_jobs"] == {}
+    assert snapshot["smtp"] == {
+        "consecutive_failures": 0,
+        "last_error": None,
+        "last_success_at": None,
+        "last_test": None,
+    }
 
 
 def test_status_snapshot_never_contains_secret_material(db, keyring, now):
@@ -1108,6 +1114,9 @@ def test_configuration_warnings_follow_the_settings(db, keyring, now, admin):
         )
     db.commit()
     assert _snapshot(db, keyring, now)["warnings"] == ["worker_stale"]
+    update_settings(db, {"smtp.tls_verify": False}, admin)
+    db.commit()
+    assert _snapshot(db, keyring, now)["warnings"] == ["smtp_tls_unverified", "worker_stale"]
 
 
 def test_no_alert_recipients_warns_only_when_an_active_certificate_lacks_an_owner(db, keyring, now, admin):

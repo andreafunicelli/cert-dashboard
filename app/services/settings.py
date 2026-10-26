@@ -12,24 +12,39 @@ import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import get_args
 from urllib.parse import unquote, urlsplit
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, literal, or_, select, true, tuple_
 from sqlalchemy.dialects.postgresql import distinct_on
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from app.crypto.keyring import Keyring
 from app.jobs.worker import LIVENESS_WINDOW, TICK_INTERVAL_SECONDS, worker_liveness
-from app.models import AppSetting, Certificate, Job, JSONValue, SchedulerState, WorkerHeartbeat
-from app.models.enums import CertificateStatus, JobStatus
+from app.models import (
+    AppSetting,
+    Certificate,
+    Job,
+    JSONValue,
+    NotificationLog,
+    SchedulerState,
+    WorkerHeartbeat,
+)
+from app.models.enums import CertificateStatus, JobStatus, JobType, NotificationStatus
 from app.services.audit import Actor, record
 from app.services.certificates import missing_master_key_versions, stale_master_key_rows
 
 __all__ = [
     "SETTING_KEYS",
+    "NotificationFailureView",
     "SettingsValidationError",
     "get_setting",
+    "latest_smtp_test",
+    "notification_failures",
+    "smtp_health",
+    "smtp_test_jobs",
+    "smtp_test_view",
     "status_snapshot",
     "update_settings",
 ]
@@ -362,6 +377,134 @@ def _iso(value: datetime | None) -> str | None:
     return None if value is None else value.astimezone(UTC).isoformat()
 
 
+# --- delivery failures and SMTP health (read-only) ---------------------------------------------------
+
+
+@dataclass(frozen=True)
+class NotificationFailureView:
+    id: int
+    kind: str
+    certificate_id: int | None
+    threshold_days: int | None
+    recipients: tuple[str, ...]
+    attempts: int
+    last_attempt_at: datetime | None
+    next_attempt_at: datetime | None
+    error: str | None
+
+
+def notification_failures(db: Session, limit: int = 50) -> list[NotificationFailureView]:
+    """Attempted-but-undelivered ledger rows, newest attempt first (one bounded query)."""
+    rows = db.scalars(
+        select(NotificationLog)
+        .where(NotificationLog.status == NotificationStatus.FAILED, NotificationLog.attempts >= 1)
+        .order_by(NotificationLog.last_attempt_at.desc(), NotificationLog.id.desc())
+        .limit(limit)
+    )
+    return [
+        NotificationFailureView(
+            row.id,
+            row.kind,
+            row.certificate_id,
+            row.threshold_days,
+            tuple(row.recipients),
+            row.attempts,
+            row.last_attempt_at,
+            row.next_attempt_at,
+            row.error,
+        )
+        for row in rows
+    ]
+
+
+def smtp_test_view(job: Job) -> dict[str, JSONValue]:
+    """A test job as plain values; steps are re-filtered to ``{step, code}`` so only fixed text renders."""
+    from app.services.smtp import SmtpStepName  # smtp imports this module: a top-level import is circular
+
+    step_names = frozenset(get_args(SmtpStepName))
+    result = job.result if isinstance(job.result, dict) else {}
+    raw_steps = result.get("steps")
+    steps: list[JSONValue] = [
+        {"step": item["step"], "code": item["code"]}
+        for item in (raw_steps if isinstance(raw_steps, list) else [])
+        if isinstance(item, dict)
+        and item.get("step") in step_names
+        and (item.get("code") is None or type(item.get("code")) is int)
+    ]
+    recipient = result.get("recipient")
+    return {
+        "job_id": str(job.id),
+        "status": getattr(job.status, "value", job.status),
+        "requested_at": job.created_at.isoformat(),
+        "finished_at": job.finished_at.isoformat() if job.finished_at is not None else None,
+        "recipient": recipient if isinstance(recipient, str) else None,
+        "steps": steps,
+        "error_class": job.error_class,
+        "error_message": job.error_message,
+    }
+
+
+def smtp_test_jobs():
+    from app.jobs.handlers.smtp_test import (
+        SMTP_TEST_ACTION,  # handler -> smtp -> this module: circular at top level
+    )
+
+    return select(Job).where(Job.type == JobType.ALERT_EXPIRY, Job.payload["action"].as_string() == SMTP_TEST_ACTION)
+
+
+def latest_smtp_test(db: Session) -> dict[str, JSONValue] | None:
+    """The newest ``alert_expiry/smtp_test`` job as plain values, or None when none was ever queued."""
+    job = db.scalars(smtp_test_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1)).first()
+    return None if job is None else smtp_test_view(job)
+
+
+def smtp_health(db: Session) -> dict[str, JSONValue]:
+    """Delivery state from the ledger: the failure streak since the newest ``sent`` row (ordered by
+    ``last_attempt_at DESC, id DESC``), its newest error, the last delivery and the last test send.
+    Test sends are jobs, never ledger rows, so they never count as failures."""
+
+    def in_streak():
+        sent = aliased(NotificationLog)
+        newer_sent = (
+            select(sent.id)
+            .where(
+                sent.status == NotificationStatus.SENT,
+                tuple_(sent.last_attempt_at, sent.id) > tuple_(NotificationLog.last_attempt_at, NotificationLog.id),
+            )
+            .exists()
+        )
+        return (NotificationLog.status == NotificationStatus.FAILED, NotificationLog.attempts >= 1, ~newer_sent)
+
+    streak_length = select(func.count()).where(*in_streak()).scalar_subquery()
+    streak_error = (
+        select(NotificationLog.error)
+        .where(*in_streak())
+        .order_by(NotificationLog.last_attempt_at.desc(), NotificationLog.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    last_success = (
+        select(func.max(NotificationLog.sent_at))
+        .where(NotificationLog.status == NotificationStatus.SENT)
+        .scalar_subquery()
+    )
+    newest_test = aliased(
+        Job, smtp_test_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1).subquery()
+    )
+    one_row = select(literal(1).label("one")).subquery()
+    failures, error, success_at, test_job = db.execute(
+        select(streak_length, streak_error, last_success, newest_test)
+        .select_from(one_row)
+        .outerjoin(newest_test, true())
+    ).one()
+    return {
+        "consecutive_failures": failures,
+        "last_error": error,
+        "last_success_at": _iso(success_at),
+        "last_test": None if test_job is None else smtp_test_view(test_job),
+    }
+
+
 def status_snapshot(
     db: Session,
     keyring: Keyring,
@@ -405,8 +548,13 @@ def status_snapshot(
         )
     }
     warnings: list[JSONValue] = []
+    smtp = smtp_health(db)
     if not get_setting(db, "smtp.host"):
         warnings.append("smtp_not_configured")
+    if smtp["consecutive_failures"]:
+        warnings.append("smtp_failing")
+    if get_setting(db, "smtp.tls_verify") is False:
+        warnings.append("smtp_tls_unverified")
     if not get_setting(db, "inventory.repo_url"):
         warnings.append("inventory_not_configured")
     if not get_setting(db, "alert.recipients") and db.scalar(
@@ -451,5 +599,6 @@ def status_snapshot(
             )
         },
         "last_jobs": last_jobs,
+        "smtp": smtp,
         "warnings": warnings,
     }
