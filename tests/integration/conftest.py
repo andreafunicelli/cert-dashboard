@@ -676,3 +676,17 @@ def disable_schedules(factory, *keys) -> None:
     """Switch the named schedules off so ticks in a test enqueue only what the test queues itself."""
     for key in keys:
         set_setting(factory, _ENABLED_SETTINGS.get(key, f"{key}.enabled"), False)
+
+
+def configure_smtp(factory, capture, *, security="none", recipients=(), tls_verify=True, username="") -> None:
+    """Point the SMTP settings at a loopback ``CaptureServer`` (reused by the alert and digest tests)."""
+    for key, value in {
+        "smtp.host": "127.0.0.1",
+        "smtp.port": capture.port,
+        "smtp.security": security,
+        "smtp.from": "dashboard@example.test",
+        "smtp.username": username,
+        "smtp.tls_verify": tls_verify,
+        "alert.recipients": list(recipients),
+    }.items():
+        set_setting(factory, key, value)

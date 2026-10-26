@@ -36,6 +36,8 @@ back to the tab; refusals are 422 and change nothing)::
                  POST /settings/trust-anchors/recheck          (no fields)         (enqueue scan/trust_recheck)
     status       read-only ``status_snapshot``
     maintenance  POST /settings/maintenance/prune              confirm=PRUNE OLD JOBS (enqueue cleanup)
+    smtp         POST /settings/smtp/test                      (no fields)         (enqueue alert_expiry/smtp_test)
+                 GET  /settings/smtp/test/{job_id}             htmx fragment: the test job's outcome
 """
 
 import re
@@ -43,6 +45,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from importlib.metadata import version as package_version
+from typing import get_args
+from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -53,9 +57,10 @@ from starlette.datastructures import FormData, UploadFile
 
 from app.crypto.parse import MAX_INPUT_BYTES
 from app.jobs.handlers import build_registry
+from app.jobs.handlers.smtp_test import SMTP_TEST_ACTION
 from app.jobs.handlers.trust_recheck import TRUST_RECHECK_ACTION
 from app.jobs.queue import enqueue
-from app.models import Certificate, JSONValue, TrustAnchor, User
+from app.models import Certificate, Job, JSONValue, TrustAnchor, User
 from app.models.enums import JobType
 from app.services.audit import record
 from app.services.scans import ON_DEMAND_PRIORITY
@@ -66,6 +71,7 @@ from app.services.settings import (
     status_snapshot,
     update_settings,
 )
+from app.services.smtp import SmtpStepName
 from app.services.trust_anchors import (
     AnchorValidationError,
     add_anchor,
@@ -258,9 +264,7 @@ def _capabilities() -> dict[str, str]:
     """Why a control is disabled: computed from what the worker registry can actually run."""
     registry = build_registry()
     reasons = {
-        "test_email": unsupported_reason(
-            registry, "Plan 2", (JobType.ALERT_EXPIRY, "default"), (JobType.DIGEST, "default")
-        ),
+        "test_email": unsupported_reason(registry, "Plan 2", (JobType.ALERT_EXPIRY, SMTP_TEST_ACTION)),
         "test_pull": unsupported_reason(registry, "Plan 3", (JobType.DISCOVER, "default")),
         "trust_recheck": unsupported_reason(registry, "Plan 2", (JobType.SCAN, TRUST_RECHECK_ACTION)),
     }
@@ -287,6 +291,43 @@ def _human_bytes(size: int) -> str:
 
 def _when(value: str | None) -> datetime | None:
     return None if value is None else datetime.fromisoformat(value)
+
+
+_STEP_NAMES = frozenset(get_args(SmtpStepName))
+
+
+def _smtp_test_view(job: Job) -> dict[str, JSONValue]:
+    """A test job as plain values; steps are re-filtered to ``{step, code}`` so only fixed text renders."""
+    result = job.result if isinstance(job.result, dict) else {}
+    raw_steps = result.get("steps")
+    steps: list[JSONValue] = [
+        {"step": item["step"], "code": item["code"]}
+        for item in (raw_steps if isinstance(raw_steps, list) else [])
+        if isinstance(item, dict)
+        and item.get("step") in _STEP_NAMES
+        and (item.get("code") is None or type(item.get("code")) is int)
+    ]
+    recipient = result.get("recipient")
+    return {
+        "job_id": str(job.id),
+        "status": getattr(job.status, "value", job.status),
+        "requested_at": job.created_at.isoformat(),
+        "finished_at": job.finished_at.isoformat() if job.finished_at is not None else None,
+        "recipient": recipient if isinstance(recipient, str) else None,
+        "steps": steps,
+        "error_class": job.error_class,
+        "error_message": job.error_message,
+    }
+
+
+def _smtp_test_jobs():
+    return select(Job).where(Job.type == JobType.ALERT_EXPIRY, Job.payload["action"].as_string() == SMTP_TEST_ACTION)
+
+
+def latest_smtp_test(db: Session) -> dict[str, JSONValue] | None:
+    """The newest ``alert_expiry/smtp_test`` job as plain values, or None when none was ever queued."""
+    job = db.scalars(_smtp_test_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1)).first()
+    return None if job is None else _smtp_test_view(job)
 
 
 def _trust_context(db: Session) -> dict:
@@ -358,6 +399,8 @@ def _page(
         if tab in _TAB_FIELDS:
             context["values"] = _current_values(db, tab) | dict(values or {})
             context["tls_unsafe"] = tab == "smtp" and get_setting(db, "smtp.tls_verify") is False
+            if tab == "smtp":
+                context.update(smtp_test=latest_smtp_test(db), timezone=display_timezone(db), when=_when)
         elif tab == "trust":
             context.update(_trust_context(db))
         else:  # status and maintenance both render the snapshot (maintenance shows the keyring state)
@@ -566,6 +609,37 @@ def _handle_prune(request: Request, form: FormData):
     return _done(request, "maintenance", "Retention cleanup queued; audit rows are never removed.")
 
 
+def _handle_smtp_test(request: Request, form: FormData):
+    """Queue the test send; only the worker holds ``smtp_password`` and opens SMTP."""
+    if not _only(form):
+        return _refused(request, "smtp", _UNRECOGNISED)
+
+    def work(db, now, actor):
+        # max_attempts=1: a test is never retried, so the outcome shown is the one real attempt.
+        enqueue(
+            db,
+            JobType.ALERT_EXPIRY,
+            {"action": SMTP_TEST_ACTION},
+            actor,
+            priority=ON_DEMAND_PRIORITY,
+            run_after=now,
+            max_attempts=1,
+        )
+
+    _transact(request, work)
+    return _done(request, "smtp", "Test e-mail queued; the worker sends it and the result appears below.")
+
+
+def _smtp_test_fragment(request: Request, job_id: UUID):
+    with request.app.state.factory() as db:
+        job = db.scalars(_smtp_test_jobs().where(Job.id == job_id)).first()
+        if job is None:
+            raise HTTPException(404)
+        view = _smtp_test_view(job)
+        timezone = display_timezone(db)
+    return render_block(request, "settings.html.j2", "smtp_test_result", smtp_test=view, timezone=timezone, when=_when)
+
+
 async def _submit(request: Request, handler, *args, max_files: int = 0):
     form = await request.form(max_files=max_files, max_fields=20, max_part_size=MAX_INPUT_BYTES * 2)
     try:
@@ -604,6 +678,14 @@ def register_settings_routes(app: FastAPI) -> None:
     @app.post("/settings/maintenance/prune")
     async def maintenance_prune_submit(request: Request):
         return await _submit(request, _handle_prune)
+
+    @app.post("/settings/smtp/test")
+    async def smtp_test_submit(request: Request):
+        return await _submit(request, _handle_smtp_test)
+
+    @app.get("/settings/smtp/test/{job_id}")
+    def smtp_test_result(request: Request, job_id: UUID):
+        return _smtp_test_fragment(request, job_id)
 
     @app.post("/settings/{tab}")
     async def settings_submit(request: Request, tab: str):

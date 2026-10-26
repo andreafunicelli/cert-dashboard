@@ -15,7 +15,7 @@ import socket
 import ssl
 from collections.abc import Sequence
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from email import policy
 from email.message import EmailMessage
@@ -159,6 +159,20 @@ def build_message(
     if html is not None:
         message.add_alternative(html, subtype="html")
     return message
+
+
+def test_message(config: SmtpConfig, recipient: str, now: datetime) -> EmailMessage:
+    """The fixed test e-mail: no settings value beyond ``From`` (not even the team ``Reply-To``)."""
+    text = "This is a test message from Cert Dashboard. SMTP delivery works; no action is needed.\n"
+    return build_message(replace(config, reply_to=()), [recipient], "Cert Dashboard test email", text, None, now)
+
+
+test_message.__test__ = False  # type: ignore[attr-defined]  # not a pytest test when imported by name
+
+
+def transcript_summary(steps: Sequence[SmtpStep]) -> str:
+    """``connect 220, ehlo 250, auth 535``: fixed step names and integer codes only."""
+    return ", ".join(f"{s.step} {s.code}" if s.code is not None else s.step for s in steps)
 
 
 class _Abort(Exception):
