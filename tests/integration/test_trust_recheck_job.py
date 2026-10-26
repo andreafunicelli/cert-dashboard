@@ -2,7 +2,11 @@
 
 from datetime import UTC, datetime, timedelta
 
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.serialization import Encoding
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from sqlalchemy import func, select
 
 from app.crypto.chain import order_chain
@@ -65,15 +69,63 @@ def scan_jobs(factory):
         return list(db.scalars(select(Job).where(Job.type == JobType.SCAN).order_by(Job.created_at)))
 
 
-def expired_intermediate_certificate(queue_factory, certs, clock):
-    leaf, chain = certs.expired_intermediate_leaf, certs.expired_intermediate_chain
-    valid_at = max(leaf.not_valid_before_utc, certs.expired_intermediate.not_valid_before_utc) + timedelta(seconds=1)
-    assert valid_at < certs.expired_intermediate.not_valid_after_utc < clock()
-    return save_with_root_anchor(queue_factory, leaf, chain, certs.root, validation_time=valid_at)
+def issue(cn, key, parent, parent_key, *, ca, before, after):
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, cn)])
+    builder = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(parent.subject if parent else subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(before)
+        .not_valid_after(after)
+        .add_extension(x509.BasicConstraints(ca=ca, path_length=0 if ca and parent else None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=ca,
+                crl_sign=ca,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+        .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+        .add_extension(
+            x509.AuthorityKeyIdentifier.from_issuer_public_key((parent_key or key).public_key()), critical=False
+        )
+    )
+    if not ca:
+        builder = builder.add_extension(x509.SubjectAlternativeName([x509.DNSName(cn)]), critical=False)
+        builder = builder.add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
+    return builder.sign(parent_key or key, hashes.SHA256())
 
 
-def test_background_recheck_notices_an_intermediate_that_expired(queue_factory, make_worker, certs, clock):
-    certificate_id = expired_intermediate_certificate(queue_factory, certs, clock)
+def expired_intermediate_certificate(queue_factory, clock):
+    """Store a leaf whose intermediate has since expired, trusted as of the time it was still valid.
+
+    The shared ``certs`` fixture cannot do this: its leaf is only valid after its intermediate expired.
+    """
+    now = clock()
+    root_key, ca_key, leaf_key = (ec.generate_private_key(ec.SECP256R1()) for _ in range(3))
+    root = issue("Recheck Root", root_key, None, None, ca=True, before=now - timedelta(days=400), after=now + timedelta(days=365))
+    intermediate = issue(
+        "Recheck Intermediate", ca_key, root, root_key, ca=True, before=now - timedelta(days=90), after=now - timedelta(days=30)
+    )
+    leaf = issue(
+        "recheck.example.test", leaf_key, intermediate, ca_key, ca=False, before=now - timedelta(days=60), after=now + timedelta(days=300)
+    )
+    valid_at = max(leaf.not_valid_before_utc, intermediate.not_valid_before_utc) + timedelta(seconds=1)
+    assert valid_at < intermediate.not_valid_after_utc < now
+    return save_with_root_anchor(queue_factory, leaf, (intermediate,), root, validation_time=valid_at)
+
+
+def test_background_recheck_notices_an_intermediate_that_expired(queue_factory, make_worker, clock):
+    certificate_id = expired_intermediate_certificate(queue_factory, clock)
     assert chain_status(queue_factory, certificate_id) == "trusted"
     job_id = enqueue_recheck(queue_factory, clock())
     make_worker(queue_factory).run_queued()
@@ -126,8 +178,8 @@ def test_recheck_now_button_requires_csrf_and_enqueues(signed_in, web_factory, w
         assert db.get(Job, job.id).status == JobStatus.SUCCEEDED
 
 
-def test_trust_recheck_never_touches_endpoints_or_scan_results(queue_factory, make_worker, certs, clock):
-    certificate_id = expired_intermediate_certificate(queue_factory, certs, clock)
+def test_trust_recheck_never_touches_endpoints_or_scan_results(queue_factory, make_worker, clock):
+    certificate_id = expired_intermediate_certificate(queue_factory, clock)
     with queue_factory.begin() as db:
         endpoint = Endpoint(
             host="198.51.100.7", port=443, sni="www.example.internal", source=EndpointSource.MANUAL,
