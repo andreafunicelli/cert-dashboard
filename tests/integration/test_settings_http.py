@@ -419,14 +419,16 @@ def test_defaults_are_shown_in_forms(signed_in):
     assert 'value="webserver_type"' in signed_in.get("/settings?tab=inventory").text
 
 
-def test_smtp_tab_explains_password_and_disables_test_send(signed_in, web_factory, admin):
+def test_smtp_tab_explains_password_and_enables_test_send(signed_in, web_factory, admin):
     page = signed_in.get("/settings?tab=smtp").text
     assert "provided only via the worker secret file" in page
     assert "smtp_password" in page and 'name="smtp_password"' not in page
     assert "unsafe: TLS certificate verification disabled" not in page
-    assert "Send test email" in page
-    assert "handler alert_expiry/default, digest/default not registered (Plan 2)" in page
-    assert "disabled" in page
+    assert 'action="/settings/smtp/test"' in page
+    assert '<button type="submit">Send test email</button>' in page  # enabled: alert_expiry/smtp_test is registered
+    assert "alert_expiry/smtp_test not registered" not in page
+    assert "digest/default not registered" not in page
+    assert "No test e-mail has been sent yet." in page
     _save(web_factory, {"smtp.tls_verify": False}, admin)
     assert "unsafe: TLS certificate verification disabled" in signed_in.get("/settings?tab=smtp").text
 

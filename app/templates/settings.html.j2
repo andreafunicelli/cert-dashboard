@@ -189,6 +189,20 @@ docker compose up -d --force-recreate web worker</code></pre></li>
   <p class="hint">SMTP password: provided only via the worker secret file <code>smtp_password</code>; not settable or visible here.</p>
   {% if disabled.get("test_email") %}{{ disabled_action("Send test email", disabled["test_email"]) }}
   {% else %}<form method="post" action="/settings/smtp/test"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Send test email</button></form>{% endif %}
+  {% block smtp_test_result %}
+  {% if smtp_test %}{% set st = smtp_test %}
+  <div id="smtp-test-result" data-test-status="{{ st.status }}"{% if st.status in ("queued", "running") %} hx-get="/settings/smtp/test/{{ st.job_id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+    <h3>Last test e-mail</h3>
+    {% if st.status == "succeeded" %}<p><strong>Delivered</strong>{% if st.recipient %} to {{ st.recipient }}{% endif %}, {{ time_tag(when(st.finished_at), timezone) }}</p>
+    {% elif st.status == "failed" %}<p><strong>Failed</strong>, {{ time_tag(when(st.finished_at), timezone) }}</p>
+    {% elif st.status in ("queued", "running") %}<p><strong>{{ st.status | capitalize }}</strong> since {{ time_tag(when(st.requested_at), timezone) }}; the worker has not finished it yet.</p>
+    {% else %}<p><strong>{{ st.status | capitalize }}</strong></p>{% endif %}
+    {% if st.steps %}<p>SMTP conversation (step and reply code only):</p>
+    <ol class="smtp-steps">{% for s in st.steps %}<li>{{ s.step }}{% if s.code is not none %} {{ s.code }}{% endif %}</li>{% endfor %}</ol>{% endif %}
+    {% if st.status == "failed" %}<p class="form-error" role="alert" data-field="smtp-test">{{ st.error_class }}: {{ st.error_message }}</p>{% endif %}
+  </div>
+  {% else %}<p id="smtp-test-result">No test e-mail has been sent yet.</p>{% endif %}
+  {% endblock %}
   {% elif tab == "inventory" %}
   {% if disabled.get("test_pull") %}{{ disabled_action("Test pull", disabled["test_pull"]) }}
   {% else %}<form method="post" action="/settings/inventory/test-pull"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Test pull</button></form>{% endif %}

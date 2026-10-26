@@ -3,6 +3,7 @@
 from app.jobs.handlers.cleanup import cleanup, validate_cleanup_payload
 from app.jobs.handlers.import_pull import import_pull as pull_import
 from app.jobs.handlers.scan import scan_endpoints
+from app.jobs.handlers.smtp_test import SMTP_TEST_ACTION, smtp_test, validate_smtp_test_payload
 from app.jobs.handlers.trust_recheck import (
     TRUST_RECHECK_ACTION,
     trust_recheck,
@@ -21,5 +22,8 @@ def build_registry() -> JobRegistry:
     registry.register(JobType.SCAN, pull_import, action=PULL_ACTION, validator=validate_pull_payload)
     registry.register(
         JobType.SCAN, trust_recheck, action=TRUST_RECHECK_ACTION, validator=validate_trust_recheck_payload
+    )
+    registry.register(
+        JobType.ALERT_EXPIRY, smtp_test, action=SMTP_TEST_ACTION, validator=validate_smtp_test_payload
     )
     return registry
