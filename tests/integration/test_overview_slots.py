@@ -31,7 +31,16 @@ from app.models.enums import (
     ScanStatus,
 )
 from app.services.certificates import expiry_counts
-from app.services.overview import RecentJob, TLSHealth, job_summary, overview_snapshot
+from app.services.overview import (
+    RecentJob,
+    TLSHealth,
+    job_summary,
+    overview_snapshot,
+    recent_jobs,
+    renewals_in_flight,
+    status_strip,
+    tls_health,
+)
 from tests.integration.conftest import add_binding, add_server, expiring
 
 MINUTE = timedelta(minutes=1)
@@ -171,6 +180,34 @@ def test_job_summaries_never_echo_raw_payloads():
     assert job_summary(JobType.SCAN, {"endpoint_ids": "not-a-list", "certificate_id": "7; drop"}) == "all endpoints"
     assert job_summary(JobType.SCAN, {"action": "import_pull", "host": ["h"], "port": "x"}) == "pull"
     assert job_summary(JobType.DIGEST, {"notes": "x"}) == ""
+    assert job_summary(JobType.CLEANUP, {"reason": "scheduled", "notes": "x"}) == "scheduled"
+    assert job_summary(JobType.ALERT_EXPIRY, {"mode": "retry_failed"}) == "retry failed"
+
+
+CANARY = "CANARY123"
+
+
+@pytest.mark.parametrize("job_type", list(JobType))
+@pytest.mark.parametrize("field", ["reason", "mode", "action", "notes", "host", "metadata"])
+def test_job_summaries_ignore_values_outside_the_per_type_allowlist(job_type, field):
+    """A valid-looking canary word under any key never renders, whatever the job type."""
+    assert CANARY not in job_summary(job_type, {field: CANARY, "certificate_id": 7, "endpoint_ids": [1]})
+    assert CANARY not in job_summary(job_type, {field: CANARY})
+
+
+@pytest.mark.parametrize(
+    ("job_type", "payload", "expected"),
+    [
+        (JobType.DIGEST, {"reason": CANARY, "mode": CANARY, "certificate_id": 7}, ""),
+        (JobType.DISCOVER, {"reason": CANARY, "mode": CANARY, "certificate_id": 7}, ""),
+        (JobType.SCAN, {"reason": CANARY, "mode": CANARY}, "all endpoints"),
+        (JobType.CLEANUP, {"reason": CANARY, "mode": "dry_run", "certificate_id": 7}, ""),
+        (JobType.ALERT_EXPIRY, {"reason": CANARY, "mode": CANARY, "certificate_id": 7}, ""),
+        (JobType.DEPLOY, {"reason": "scheduled", "mode": CANARY}, ""),
+    ],
+)
+def test_job_summaries_render_only_the_fields_each_type_allows(job_type, payload, expected):
+    assert job_summary(job_type, payload) == expected
 
 
 def test_inventory_revision_comes_from_the_newest_succeeded_discover_or_deploy_job(db, now):
@@ -255,3 +292,19 @@ def test_overview_query_count_is_constant(signed_in, web_world, count_statements
         page = signed_in.get("/")
     assert small.count == large.count and page.text.count("data-job-id=") == 10
     assert page.text.count("data-renewal-id=") == 32
+
+
+def test_each_overview_slot_costs_a_fixed_number_of_statements(db, overview_world, now, engine, count_statements):
+    """Task 16: one aggregate per slot; the status strip adds only the shared worker_liveness helper."""
+    overview_snapshot(db, now)  # warm: savepoint and type caches
+    slots = {
+        "tls": (lambda: tls_health(db), 1),
+        "jobs": (lambda: recent_jobs(db), 1),
+        "renewals": (lambda: renewals_in_flight(db, now), 1),
+        "status": (lambda: status_strip(db, now), 2),
+        "snapshot": (lambda: overview_snapshot(db, now), 5),
+    }
+    for name, (run, expected) in slots.items():
+        with count_statements(engine) as counter:
+            run()
+        assert counter.count == expected, name

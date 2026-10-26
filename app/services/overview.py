@@ -16,8 +16,11 @@ from sqlalchemy.orm import Session
 
 from app.jobs.worker import worker_liveness
 from app.models import Binding, Endpoint, Job, JSONValue, NotificationLog, Renewal, User, WorkerHeartbeat
-from app.models.enums import JobType, NotificationStatus, RenewalState
-from app.services.digest import _inventory_revision  # same Plan 3 result keys as the digest
+from app.models.enums import JobType, NotificationStatus, RenewalState, ScanStatus
+from app.services.digest import (  # same Plan 3 result keys as the digest
+    inventory_revision_result,
+    parse_inventory_revision,
+)
 from app.services.scans import format_hostport
 
 RECENT_JOBS = 10
@@ -28,7 +31,10 @@ IN_FLIGHT = (
     RenewalState.ISSUED,
     RenewalState.DEPLOYED,
 )
-_WORD = re.compile(r"[A-Za-z0-9_.-]{1,40}")
+_SCAN_COUNTED = (ScanStatus.OK, ScanStatus.MISMATCH, ScanStatus.EXPIRED, ScanStatus.UNREACHABLE, ScanStatus.ERROR)
+_CLEANUP_REASONS = frozenset({"scheduled", "manual_prune"})  # validate_cleanup_payload
+_EXPIRY_MODES = frozenset({"retry_failed"})  # validate_expiry_payload
+_DEPLOY_MODES = frozenset({"dry_run", "canary", "full"})
 _HOST = re.compile(r"[A-Za-z0-9._:-]{1,255}")
 
 
@@ -85,55 +91,55 @@ def _positive_int(value: object) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else None
 
 
-def _word(value: object) -> str | None:
-    return value if isinstance(value, str) and _WORD.fullmatch(value) else None
+def _member(value: object, allowed: frozenset[str]) -> str | None:
+    """The value itself when it is one of the fixed ``allowed`` strings, else ``None`` (never arbitrary text)."""
+    return value if isinstance(value, str) and value in allowed else None
 
 
 def job_summary(job_type: JobType, payload: Mapping[str, JSONValue]) -> str:
-    """One short line built only from allowlisted payload keys (never raw payload text)."""
+    """One short line from a closed per-job-type allowlist; anything else in the payload contributes nothing."""
     action = payload.get("action", "default")
-    if job_type is JobType.SCAN and action == "import_pull":
-        host, port = payload.get("host"), _positive_int(payload.get("port"))
-        if not isinstance(host, str) or not _HOST.fullmatch(host):
-            return "pull"
-        return f"pull {format_hostport(host, port)}" if port else f"pull {host}"
-    if job_type is JobType.SCAN and action == "default":
+    if job_type is JobType.SCAN:
+        if action == "import_pull":
+            host, port = payload.get("host"), _positive_int(payload.get("port"))
+            if not isinstance(host, str) or not _HOST.fullmatch(host):
+                return "pull"
+            return f"pull {format_hostport(host, port)}" if port else f"pull {host}"
+        if action != "default":
+            return ""
         ids = payload.get("endpoint_ids")
         if isinstance(ids, list) and ids:
             return f"{len(ids)} endpoint{'' if len(ids) == 1 else 's'}"
-    parts = []
-    if certificate_id := _positive_int(payload.get("certificate_id")):
-        parts.append(f"certificate {certificate_id}")
-    if mode := _word(payload.get("mode")):
-        parts.append(f"({mode})")
-    if reason := _word(payload.get("reason")):
-        parts.append(reason)
-    if not parts and job_type is JobType.SCAN and action == "default":
-        return "all endpoints"
-    return " ".join(parts)
+        certificate_id = _positive_int(payload.get("certificate_id"))
+        return f"certificate {certificate_id}" if certificate_id else "all endpoints"
+    if job_type is JobType.DEPLOY:  # mode names are fixed here for Plan 3 to extend; unknown ones render nothing
+        parts = [f"certificate {cid}"] if (cid := _positive_int(payload.get("certificate_id"))) else []
+        if mode := _member(payload.get("mode"), _DEPLOY_MODES):
+            parts.append(f"({mode})")
+        return " ".join(parts)
+    if job_type is JobType.CLEANUP:
+        return _member(payload.get("reason"), _CLEANUP_REASONS) or ""
+    if job_type is JobType.ALERT_EXPIRY:
+        if _member(payload.get("mode"), _EXPIRY_MODES):
+            return "retry failed"
+        return "SMTP test" if action == "smtp_test" else ""
+    return ""  # discover and digest carry no summarisable fields
 
 
-def _tls_health(db: Session) -> TLSHealth:
-    by_status = {
-        status: count
-        for status, count in db.execute(
-            select(Endpoint.last_scan_status, func.count()).where(Endpoint.is_active).group_by(Endpoint.last_scan_status)
-        )
-    }
-    unknown, key_mismatch = db.execute(
-        select(
-            func.count(func.distinct(Binding.on_disk_fingerprint)).filter(Binding.match_state == "unknown"),
-            func.count().filter(Binding.match_state == "key_mismatch"),
-        ).where(Binding.is_active)
-    ).one()
-    return TLSHealth(  # keys are ScanStatus members (equal to their values) or None for never scanned
-        ok=by_status.get("ok", 0), mismatch=by_status.get("mismatch", 0), expired=by_status.get("expired", 0),
-        unreachable=by_status.get("unreachable", 0), error=by_status.get("error", 0), never_scanned=by_status.get(None, 0),
-        unknown_certificates=unknown, key_mismatch_bindings=key_mismatch,
-    )
+def tls_health(db: Session) -> TLSHealth:
+    """One statement: two single-row aggregates (endpoint scan states, binding states) side by side."""
+    scans = select(
+        *(func.count().filter(Endpoint.last_scan_status == status).label(status.value) for status in _SCAN_COUNTED),
+        func.count().filter(Endpoint.last_scan_status.is_(None)).label("never_scanned"),
+    ).where(Endpoint.is_active).subquery()
+    bindings = select(
+        func.count(func.distinct(Binding.on_disk_fingerprint)).filter(Binding.match_state == "unknown").label("unknown_certificates"),
+        func.count().filter(Binding.match_state == "key_mismatch").label("key_mismatch_bindings"),
+    ).where(Binding.is_active).subquery()
+    return TLSHealth(**db.execute(select(scans, bindings)).one()._asdict())
 
 
-def _recent_jobs(db: Session) -> list[RecentJob]:
+def recent_jobs(db: Session) -> list[RecentJob]:
     moment = func.coalesce(Job.finished_at, Job.started_at, Job.created_at)
     rows = db.execute(
         select(Job.id, Job.type, Job.status, Job.payload, Job.started_at, Job.finished_at, User.username)
@@ -157,7 +163,7 @@ def _recent_jobs(db: Session) -> list[RecentJob]:
     return jobs
 
 
-def _renewals(db: Session, now: datetime) -> list[RenewalInFlight]:
+def renewals_in_flight(db: Session, now: datetime) -> list[RenewalInFlight]:
     rows = db.execute(
         select(Renewal.id, Renewal.common_name, Renewal.state, Renewal.state_changed_at)
         .where(Renewal.state.in_(IN_FLIGHT))
@@ -169,21 +175,24 @@ def _renewals(db: Session, now: datetime) -> list[RenewalInFlight]:
     ]
 
 
-def _status(db: Session, now: datetime) -> StatusStrip:
-    revision, revision_date = _inventory_revision(db)
+def status_strip(db: Session, now: datetime) -> StatusStrip:
+    """Two statements: the shared ``worker_liveness`` helper, then one SELECT of heartbeat, digest and revision."""
+    heartbeat, digest, result = db.execute(
+        select(
+            select(func.max(WorkerHeartbeat.last_seen_at)).scalar_subquery(),
+            select(func.max(NotificationLog.sent_at))
+            .where(NotificationLog.kind == "digest", NotificationLog.status == NotificationStatus.SENT)
+            .scalar_subquery(),
+            inventory_revision_result().scalar_subquery(),
+        )
+    ).one()
+    revision, revision_date = parse_inventory_revision(result)
     age = max(int((now - revision_date).total_seconds() // 3600), 0) if revision_date else None
     return StatusStrip(
-        worker=worker_liveness(db, now),
-        last_heartbeat_at=db.scalar(select(func.max(WorkerHeartbeat.last_seen_at))),
-        inventory_rev=revision,
-        inventory_rev_age_hours=age,
-        last_digest_at=db.scalar(
-            select(func.max(NotificationLog.sent_at)).where(
-                NotificationLog.kind == "digest", NotificationLog.status == NotificationStatus.SENT
-            )
-        ),
+        worker=worker_liveness(db, now), last_heartbeat_at=heartbeat, inventory_rev=revision,
+        inventory_rev_age_hours=age, last_digest_at=digest,
     )
 
 
 def overview_snapshot(db: Session, now: datetime) -> OverviewSnapshot:
-    return OverviewSnapshot(_tls_health(db), _recent_jobs(db), _renewals(db, now), _status(db, now))
+    return OverviewSnapshot(tls_health(db), recent_jobs(db), renewals_in_flight(db, now), status_strip(db, now))
