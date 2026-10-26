@@ -8,10 +8,13 @@ from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 
 from sqlalchemy import Text, any_, case, func, literal, select, true
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Certificate, Endpoint, JSONValue, ScanResult, Server
-from app.models.enums import ScanStatus
+from app.models.enums import CertificateStatus, EndpointSource, ScanStatus
+from app.services.audit import Actor, record
+from app.services.scans import EndpointInputError, validate_endpoint_target
 
 EXPORT_LIMIT = 5000
 
@@ -216,3 +219,121 @@ def export_endpoints(db: Session, filters: EndpointFilters, limit: int = EXPORT_
 def server_choices(db: Session, limit: int = 500) -> list[tuple[int, str]]:
     """``(id, hostname)`` pairs for the list's server filter."""
     return [(row.id, row.hostname) for row in db.execute(select(Server.id, Server.hostname).order_by(Server.hostname).limit(limit))]
+
+
+def certificate_choices(db: Session, limit: int = 500) -> list[tuple[int, str, datetime]]:
+    """``(id, common name, expiry)`` of the active certificates an endpoint may expect."""
+    rows = db.execute(
+        select(Certificate.id, Certificate.common_name, Certificate.not_after)
+        .where(Certificate.status == CertificateStatus.ACTIVE)
+        .order_by(Certificate.common_name, Certificate.id)
+        .limit(limit)
+    )
+    return [(row.id, row.common_name, row.not_after) for row in rows]
+
+
+# --- management (spec 4.9 manual source, 4.16 audit; Plan 2 Contract decision 16) -----------------
+# Every function stages the change and its audit row on the caller's session; the caller commits.
+# Nothing here touches ``scan_result``: past expected-certificate snapshots stay as they were.
+
+NOT_ACTIVE = "Choose an active certificate from the inventory."
+
+
+class DuplicateEndpoint(EndpointInputError):
+    """The host, port and (coalesced) SNI already identify ``existing_id``."""
+
+    def __init__(self, existing_id: int | None) -> None:
+        super().__init__({"host": "An endpoint with this host, port and SNI already exists."})
+        self.existing_id = existing_id
+
+
+def _active_certificate(db: Session, certificate_id: int | None, field: str = "certificate_id") -> Certificate:
+    certificate = db.get(Certificate, certificate_id) if certificate_id is not None else None
+    if certificate is None or certificate.status != CertificateStatus.ACTIVE:
+        raise EndpointInputError({field: NOT_ACTIVE})
+    return certificate
+
+
+def _locked(db: Session, endpoint_id: int) -> Endpoint:
+    endpoint = db.get(Endpoint, endpoint_id, with_for_update=True)
+    if endpoint is None:
+        raise EndpointNotFound(endpoint_id)
+    return endpoint
+
+
+def _change(db: Session, endpoint: Endpoint, field: str, value: int | bool, actor: Actor) -> None:
+    previous = getattr(endpoint, field)
+    if previous == value:
+        return  # nothing changes, nothing to audit
+    setattr(endpoint, field, value)
+    record(db, actor, "endpoint.update", "endpoint", str(endpoint.id), {"field": field, "from": previous, "to": value})
+
+
+def create_endpoint(
+    db: Session, host: str, port: int, sni: str | None, expected_certificate_id: int | None, actor: Actor
+) -> Endpoint:
+    """Add a manual, active endpoint; the unique identity index decides duplicates, even under concurrency."""
+    host, port, sni = validate_endpoint_target(host, port, sni)
+    if expected_certificate_id is not None:
+        _active_certificate(db, expected_certificate_id, "expected_certificate_id")
+    endpoint = Endpoint(
+        host=host,
+        port=port,
+        sni=sni,
+        source=EndpointSource.MANUAL,
+        expected_certificate_id=expected_certificate_id,
+        is_active=True,
+    )
+    try:
+        with db.begin_nested():
+            db.add(endpoint)
+            db.flush()
+    except IntegrityError:
+        existing = db.scalar(
+            select(Endpoint.id).where(
+                Endpoint.host == host, Endpoint.port == port, func.coalesce(Endpoint.sni, Endpoint.host) == (sni or host)
+            )
+        )
+        if existing is None:
+            raise
+        raise DuplicateEndpoint(existing) from None
+    created: dict[str, JSONValue] = {"host": host, "port": port, "sni": sni, "expected_certificate_id": expected_certificate_id}
+    record(db, actor, "endpoint.create", "endpoint", str(endpoint.id), {"field": "endpoint", "from": None, "to": created})
+    return endpoint
+
+
+def set_expectation(db: Session, endpoint_id: int, certificate_id: int, actor: Actor) -> Endpoint:
+    """Expect an active inventory certificate from now on (``scan_result`` snapshots are untouched)."""
+    endpoint = _locked(db, endpoint_id)
+    _change(db, endpoint, "expected_certificate_id", _active_certificate(db, certificate_id).id, actor)
+    return endpoint
+
+
+def expect_observed(db: Session, endpoint_id: int, actor: Actor) -> Endpoint:
+    """Expect the certificate the newest scan served, when its fingerprint is an active inventory row.
+
+    Never creates a certificate: an unknown fingerprint has to be imported first (observed is not trusted).
+    """
+    endpoint = _locked(db, endpoint_id)
+    fingerprint = db.scalar(
+        select(ScanResult.observed_fingerprint)
+        .where(ScanResult.endpoint_id == endpoint_id)
+        .order_by(ScanResult.checked_at.desc(), ScanResult.id.desc())
+        .limit(1)
+    )
+    if fingerprint is None:
+        raise EndpointInputError({"certificate_id": "No certificate has been observed for this endpoint yet; scan it first."})
+    certificate = db.scalar(select(Certificate).where(Certificate.sha256_fingerprint == fingerprint.lower()))
+    if certificate is None:
+        raise EndpointInputError({"certificate_id": "The observed certificate is not in the inventory; import it first."})
+    if certificate.status != CertificateStatus.ACTIVE:
+        raise EndpointInputError({"certificate_id": "The observed certificate is in the inventory but is not active."})
+    _change(db, endpoint, "expected_certificate_id", certificate.id, actor)
+    return endpoint
+
+
+def set_endpoint_active(db: Session, endpoint_id: int, active: bool, actor: Actor) -> Endpoint:
+    """Switch scheduled scanning on or off; endpoints and their history are never deleted."""
+    endpoint = _locked(db, endpoint_id)
+    _change(db, endpoint, "is_active", active, actor)
+    return endpoint

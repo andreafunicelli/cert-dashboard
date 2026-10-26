@@ -4,23 +4,30 @@ import math
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.models import Endpoint
 from app.models.enums import JobType, ScanStatus
 from app.services.endpoints import (
     EXPORT_LIMIT,
+    NOT_ACTIVE,
     SORTS,
+    DuplicateEndpoint,
     EndpointFilters,
     EndpointNotFound,
+    certificate_choices,
+    create_endpoint,
     endpoint_detail,
+    expect_observed,
     export_endpoints,
     list_endpoints,
     server_choices,
+    set_endpoint_active,
+    set_expectation,
 )
-from app.services.scans import request_scan
-from app.web.certificates import LIST_DEFAULT_PAGE_SIZE, LIST_MAX_PAGE_SIZE, _query_int
+from app.services.scans import EndpointInputError, request_scan
+from app.web.certificates import LIST_DEFAULT_PAGE_SIZE, LIST_MAX_PAGE_SIZE, _is_htmx, _query_int
 from app.web.common import (
     _render,
     _transact,
@@ -33,6 +40,7 @@ from app.web.common import (
 
 _ACTIVE = {"true": True, "false": False, "all": None}
 _ID_LIMIT = 10**9 - 1
+_ADD_FIELDS = ("host", "port", "sni", "expected_certificate_id")
 
 
 class _Query:
@@ -93,7 +101,16 @@ def _scan_context(request: Request) -> dict:
     }
 
 
-def _list_page(request: Request):
+def _add_context(request: Request, values: dict[str, str] | None = None, errors: dict[str, str] | None = None, existing_id: int | None = None) -> dict:
+    """What the add-endpoint form needs; a certificate in the query string prefills the expectation."""
+    if values is None:
+        values = {"host": "", "port": "443", "sni": "", "expected_certificate_id": request.query_params.get("expected_certificate_id", "")[:12]}
+    with request.app.state.factory() as db:
+        certificates = certificate_choices(db)
+    return {"add_form": values, "add_errors": errors or {}, "existing_id": existing_id, "certificates": certificates}
+
+
+def _list_page(request: Request, status: int = 200, **add):
     query = _query(request)
     with request.app.state.factory() as db:
         page = list_endpoints(db, query.filters, query.page, query.page_size, query.sort)
@@ -105,6 +122,7 @@ def _list_page(request: Request):
     return _render(
         request,
         "scans/list.html.j2",
+        status,
         page=page,
         pages=pages,
         values=query.params,
@@ -115,6 +133,7 @@ def _list_page(request: Request):
         page_url=lambda number: _url("/scans", {**paging, "page": str(number)} if number > 1 else paging),
         sort_url=lambda column: _sort_url(query, column),
         export_url=_url("/scans/export.json", export),
+        **_add_context(request, **add),
         **_scan_context(request),
     )
 
@@ -133,13 +152,16 @@ def _export_json(request: Request) -> JSONResponse:
     )
 
 
-def _detail(request: Request, endpoint_id: int) -> dict:
+def _detail(
+    request: Request, endpoint_id: int, errors: dict[str, str] | None = None, form_certificate: str = "", offer_import: bool = False
+) -> dict:
     with request.app.state.factory() as db:
         try:
             detail = endpoint_detail(db, endpoint_id)
         except EndpointNotFound:
             raise HTTPException(404) from None
         timezone_name = display_timezone(db)
+        certificates = certificate_choices(db)
     row = detail.row
     target = {"host": row.host, "port": str(row.port), **({"sni": row.sni} if row.sni else {})}
     return {
@@ -147,6 +169,10 @@ def _detail(request: Request, endpoint_id: int) -> dict:
         "row": row,
         "tz": timezone_name,
         "import_url": _url("/certificates/import", target) + "#pull-panel",
+        "certificates": certificates,
+        "errors": errors or {},
+        "form_certificate": form_certificate,
+        "offer_import": offer_import,
         **_scan_context(request),
     }
 
@@ -181,8 +207,117 @@ def _run(request: Request, scope: object, endpoint_id: object) -> RedirectRespon
     return response
 
 
+def _text(value: object, limit: int = 300) -> str:
+    return value[:limit] if isinstance(value, str) else ""
+
+
+def _certificate_id(raw: str) -> int | None:
+    try:
+        return _query_int(raw.strip(), 0, 1, _ID_LIMIT)
+    except ValueError:
+        return None
+
+
+def _saved(request: Request, endpoint_id: int, note: str) -> Response:
+    """Success: a redirect to the endpoint page (htmx navigates the browser, plain posts follow the 303)."""
+    location = f"/scans/{endpoint_id}"
+    if _is_htmx(request):
+        response = Response(status_code=200, headers={"HX-Redirect": location})
+    else:
+        response = RedirectResponse(location, status_code=303)
+    set_flash(response, request.app.state.settings.session_secret, [note])
+    return response
+
+
+def _add_endpoint(request: Request, form) -> Response:
+    values = {name: _text(form.get(name)) for name in _ADD_FIELDS}
+    expected = None
+    errors: dict[str, str] = {}
+    existing_id = None
+    if values["expected_certificate_id"].strip():
+        expected = _certificate_id(values["expected_certificate_id"])
+        if expected is None:
+            errors["expected_certificate_id"] = NOT_ACTIVE
+    if not errors:
+        try:
+            endpoint_id, _ = _transact(
+                request,
+                lambda db, now, actor: create_endpoint(
+                    db, values["host"], values["port"], values["sni"], expected, actor  # type: ignore[arg-type]  # validated to int
+                ).id,
+            )
+            return _saved(request, endpoint_id, "Endpoint added.")
+        except DuplicateEndpoint as exc:
+            errors, existing_id = exc.errors, exc.existing_id
+        except EndpointInputError as exc:
+            errors = exc.errors
+    context = _add_context(request, values, errors, existing_id)
+    if _is_htmx(request):
+        return render_block(request, "scans/list.html.j2", "add_endpoint", 422, **context, **_scan_context(request))
+    return _list_page(request, 422, values=values, errors=errors, existing_id=existing_id)
+
+
+def _manage_failure(
+    request: Request, endpoint_id: int, errors: dict[str, str], form_certificate: str = "", offer_import: bool = False
+) -> Response:
+    context = _detail(request, endpoint_id, errors, form_certificate, offer_import)
+    if _is_htmx(request):
+        return render_block(request, "scans/detail.html.j2", "manage", 422, **context)
+    return _render(request, "scans/detail.html.j2", 422, **context)
+
+
+def _expectation(request: Request, endpoint_id: int, form) -> Response:
+    observed = form.get("use_observed") == "1"
+    raw = _text(form.get("certificate_id"), 20)
+    certificate_id = None if observed else _certificate_id(raw)
+    if not observed and certificate_id is None:
+        return _manage_failure(request, endpoint_id, {"certificate_id": NOT_ACTIVE}, raw)
+    try:
+        _transact(
+            request,
+            lambda db, now, actor: expect_observed(db, endpoint_id, actor)
+            if observed
+            else set_expectation(db, endpoint_id, certificate_id, actor),  # type: ignore[arg-type]  # not None here
+        )
+    except EndpointNotFound:
+        raise HTTPException(404) from None
+    except EndpointInputError as exc:
+        return _manage_failure(request, endpoint_id, exc.errors, raw, offer_import=observed)
+    return _saved(request, endpoint_id, "Expected certificate updated.")
+
+
+def _active(request: Request, endpoint_id: int, form) -> Response:
+    state = form.get("active")
+    if state not in ("true", "false"):
+        raise HTTPException(422)
+    try:
+        _transact(request, lambda db, now, actor: set_endpoint_active(db, endpoint_id, state == "true", actor))
+    except EndpointNotFound:
+        raise HTTPException(404) from None
+    return _saved(request, endpoint_id, "Endpoint activated." if state == "true" else "Endpoint deactivated.")
+
+
 def register_scan_routes(app: FastAPI) -> None:
     install_template_helpers(app)
+
+    async def submit(request: Request, handler, *args):
+        form = await request.form(max_files=0, max_fields=20)
+        try:
+            return await run_in_threadpool(handler, request, *args, form)
+        finally:
+            await form.close()
+
+    @app.post("/scans/endpoints")
+    async def scan_endpoint_add(request: Request):
+        return await submit(request, _add_endpoint)
+
+    @app.post("/scans/{endpoint_id:int}/expectation")
+    async def scan_endpoint_expectation(request: Request, endpoint_id: int):
+        return await submit(request, _expectation, endpoint_id)
+
+    @app.post("/scans/{endpoint_id:int}/active")
+    async def scan_endpoint_active(request: Request, endpoint_id: int):
+        return await submit(request, _active, endpoint_id)
 
     @app.get("/scans")
     def scan_list(request: Request):

@@ -1172,6 +1172,7 @@ class BindingView:
 
 @dataclass(frozen=True)
 class EndpointView:
+    id: int
     host: str
     port: int
     sni: str | None
@@ -1215,6 +1216,7 @@ def _endpoint_view(item: Endpoint, scan: ScanResult | None, expected_fingerprint
     """An endpoint with what its latest scan observed, compared with the certificate it expects."""
     observed = scan.observed_fingerprint if scan is not None else None
     return EndpointView(
+        id=item.id,
         host=item.host,
         port=item.port,
         sni=item.sni,

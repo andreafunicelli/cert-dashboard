@@ -558,7 +558,7 @@ def test_history_shows_the_last_twenty_results_and_explains_a_mismatch(signed_in
 
 **Interfaces:** Consumes: `canonical_host(value: object) -> str` and the existing SNI rule in `app/services/scans.py`, `record`, Task 12 read models. Produces in `app/services/scans.py`: `EndpointInputError(ValueError)` with `errors: dict[str, str]`; `validate_endpoint_target(host: object, port: object, sni: object) -> tuple[str, int, str | None]`. In `app/services/endpoints.py`: `create_endpoint(db: Session, host: str, port: int, sni: str | None, expected_certificate_id: int | None, actor: Actor) -> Endpoint`; `set_expectation(db: Session, endpoint_id: int, certificate_id: int, actor: Actor) -> Endpoint`; `expect_observed(db: Session, endpoint_id: int, actor: Actor) -> Endpoint`; `set_endpoint_active(db: Session, endpoint_id: int, active: bool, actor: Actor) -> Endpoint`. `EndpointView` gains `id: int`. Routes POST `/scans/endpoints`, `/scans/{endpoint_id}/expectation` (`certificate_id` or `use_observed=1`), `/scans/{endpoint_id}/active` (`active=true|false`).
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_update_the_expectation_to_the_observed_certificate(signed_in, web_factory, scan_world):
@@ -583,10 +583,10 @@ def test_manual_endpoint_entry_validates_and_audits(signed_in, web_factory, scan
 ```
 
   Also add `test_use_observed_without_an_inventory_match_offers_import` (422 with an import link, nothing changed), `test_expectation_requires_an_active_certificate`, `test_duplicate_endpoint_identity_links_the_existing_row` (same host/port/coalesced SNI → 422 naming the existing endpoint; the unique index is the arbiter under concurrency), `test_deactivate_and_reactivate_never_delete_history`, `test_certificate_detail_panel_links_history_and_scans_each_endpoint` (rows link to `/scans/{id}`, per-endpoint "Scan now" posts scope endpoint, "Add endpoint" is prefilled with the certificate; update the Plan 1 `Scan now` expectation in `tests/integration/test_inventory_http.py`), `test_every_mutation_requires_csrf_and_is_audited_once`.
-- [ ] Run `uv run pytest tests/integration/test_endpoints_http.py tests/integration/test_inventory_http.py -q` in CI; expect FAIL, management forms absent.
-- [ ] Implement per Contract decision 16. Validation reuses the pull-import host/SNI rules (host literal or DNS name, ports 1–65535, SNI a DNS name or empty); `sni` equal to the host is stored as NULL so identity matches the coalesced unique index. Mutations lock the endpoint row, audit `endpoint.create`/`endpoint.update` with `{field, from, to}` metadata only, and commit with the change; htmx failures return the form fragment with 422, non-JS posts re-render the page. Expectation changes do not rewrite past `scan_result.expected_certificate_id` snapshots.
-- [ ] Run the same command; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
-- [ ] Commit: `git add app/services/endpoints.py app/services/scans.py app/services/certificates.py app/web/scans.py app/templates/scans app/templates/certificates/detail.html.j2 tests/integration/test_inventory_http.py tests/integration/test_endpoints_http.py`; `git commit -m "feat: manage endpoints and their expected certificates"`.
+- [x] Run `uv run pytest tests/integration/test_endpoints_http.py tests/integration/test_inventory_http.py -q` in CI; expect FAIL, management forms absent.
+- [x] Implement per Contract decision 16. Validation reuses the pull-import host/SNI rules (host literal or DNS name, ports 1–65535, SNI a DNS name or empty); `sni` equal to the host is stored as NULL so identity matches the coalesced unique index. Mutations lock the endpoint row, audit `endpoint.create`/`endpoint.update` with `{field, from, to}` metadata only, and commit with the change; htmx failures return the form fragment with 422, non-JS posts re-render the page. Expectation changes do not rewrite past `scan_result.expected_certificate_id` snapshots.
+- [x] Run the same command; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
+- [x] Commit: `git add app/services/endpoints.py app/services/scans.py app/services/certificates.py app/web/scans.py app/templates/scans app/templates/certificates/detail.html.j2 tests/integration/test_inventory_http.py tests/integration/test_endpoints_http.py`; `git commit -m "feat: manage endpoints and their expected certificates"`.
 
 ### Task 14: Servers list and server detail (`/servers`, `/servers/{id}`)
 

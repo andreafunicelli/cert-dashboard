@@ -2,6 +2,30 @@
 {% block title %}Scans · Cert Dashboard{% endblock %}
 {% block content %}
 <h1>Scans</h1>
+{% block add_endpoint %}
+<section class="panel wide" id="add-endpoint" aria-label="Add endpoint">
+  <h2>Add endpoint</h2>
+  <p class="hint">Endpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.</p>
+  <form method="post" action="/scans/endpoints" hx-post="/scans/endpoints" hx-target="#add-endpoint" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="add_host">Host name or IP address</label>
+    <input id="add_host" name="host" value="{{ add_form.host }}" maxlength="300" required autocomplete="off" spellcheck="false">
+    {% if add_errors.host %}<div class="form-error" data-error="host" role="alert"><p>{{ add_errors.host }}{% if existing_id %} <a href="/scans/{{ existing_id }}">View endpoint #{{ existing_id }}</a>{% endif %}</p></div>{% endif %}
+    <label for="add_port">Port</label>
+    <input id="add_port" name="port" value="{{ add_form.port }}" inputmode="numeric" maxlength="5" autocomplete="off">
+    {% if add_errors.port %}<div class="form-error" data-error="port" role="alert"><p>{{ add_errors.port }}</p></div>{% endif %}
+    <label for="add_sni">SNI server name (optional)</label>
+    <input id="add_sni" name="sni" value="{{ add_form.sni }}" maxlength="300" autocomplete="off" spellcheck="false">
+    {% if add_errors.sni %}<div class="form-error" data-error="sni" role="alert"><p>{{ add_errors.sni }}</p></div>{% endif %}
+    <label for="add_expected">Expected certificate (optional)</label>
+    <select id="add_expected" name="expected_certificate_id"><option value="">None</option>
+      {% for id, name, not_after in certificates %}<option value="{{ id }}"{% if add_form.expected_certificate_id == id | string %} selected{% endif %}>{{ name }} (#{{ id }}, expires {{ not_after.date() }})</option>{% endfor %}
+    </select>
+    {% if add_errors.expected_certificate_id %}<div class="form-error" data-error="expected_certificate_id" role="alert"><p>{{ add_errors.expected_certificate_id }}</p></div>{% endif %}
+    <button type="submit">Add endpoint</button>
+  </form>
+</section>
+{% endblock %}
 <section class="panel wide" aria-label="Filters">
   <form method="get" action="/scans" class="filters">
     <label>Search <input type="search" name="search" value="{{ values.search or '' }}" maxlength="200" placeholder="Host or SNI"></label>
@@ -89,4 +113,12 @@
   <span>Page {{ page.page }} of {{ pages }}</span>
   {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
 </nav>
+{% endblock %}
+{% block scripts %}
+<script>
+  // htmx ignores 4xx bodies by default; a refused form answers 422 with the re-rendered panel.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
+  });
+</script>
 {% endblock %}
