@@ -1,0 +1,82 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ server.hostname }} · Servers · Cert Dashboard{% endblock %}
+{% macro owner_mode(owner, group, mode) %}{% if owner or group or mode %}{{ owner or "?" }}:{{ group or "?" }} {{ mode or "?" }}{% else %}—{% endif %}{% endmacro %}
+{% block content %}
+<p><a href="/servers">← All servers</a></p>
+<h1>{{ server.hostname }}{% if not server.is_active %} <small>(inactive)</small>{% endif %}</h1>
+<section class="panel wide" id="server-panel" aria-label="Server">
+  <dl>
+    <dt>Display name</dt><dd>{{ server.display_name or "—" }}</dd>
+    <dt>Groups</dt><dd>{{ server.groups | join(", ") or "—" }}</dd>
+    <dt>Web server</dt><dd>{{ server.webserver or "—" }}</dd>
+    <dt>Connection address</dt><dd>{{ detail.connection_address or "—" }}</dd>
+    <dt>Inventory source</dt><dd>{{ detail.inventory_source }}</dd>
+    <dt>Last discovery</dt><dd>{% if server.last_discovery_at %}{{ time_tag(server.last_discovery_at, tz) }} ({{ server.last_discovery_status or "unknown" }}){% else %}never{% endif %}</dd>
+    <dt>Bindings</dt><dd>{{ server.binding_count }}{% if server.attention_count %} — {{ server.attention_count }} need attention{% endif %}</dd>
+    <dt>Mismatched endpoints</dt><dd>{{ server.mismatch_count }} of {{ detail.endpoint_count }} active endpoint{{ "" if detail.endpoint_count == 1 else "s" }}</dd>
+    <dt>Notes</dt><dd>{{ detail.notes or "—" }}</dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="actions" aria-label="Actions">
+  <h2>Actions</h2>
+  {% if discovery_reason %}
+  <button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
+  <button type="button" disabled title="{{ discovery_reason }}">Last raw dump summary</button>
+  <p class="hint">{{ discovery_reason }}</p>
+  {% endif %}
+  <p><a href="/scans?server_id={{ server.id }}">Open endpoint scan</a></p>
+</section>
+
+<section class="panel wide" id="bindings-panel">
+  <h2>Bindings</h2>
+  {% if detail.bindings %}
+  <div class="table-wrap"><table class="bindings">
+    <thead><tr><th scope="col">Virtual host</th><th scope="col">Port</th><th scope="col">Config file</th><th scope="col">Certificate</th><th scope="col">Chain</th><th scope="col">Key</th><th scope="col">On-disk fingerprint</th><th scope="col">Matched certificate</th><th scope="col">Match</th></tr></thead>
+    <tbody>
+    {% for b in detail.bindings %}
+    <tr class="binding-row{% if b.match_state in ('key_mismatch', 'missing_file') %} row-attention{% elif not b.is_active %} row-inactive{% endif %}" data-binding-id="{{ b.id }}">
+      <td>{{ b.vhost_name }}{% if not b.is_active %} <small>(inactive)</small>{% endif %}{% if b.vhost_names | length > 1 %}<br><small>{{ b.vhost_names | join(", ") }}</small>{% endif %}<br><small>{{ b.webserver }}</small></td>
+      <td>{{ b.port }}</td>
+      <td><code>{{ b.config_file }}</code></td>
+      <td><code>{{ b.cert_path }}</code><br><small>{{ owner_mode(b.cert_owner, b.cert_group, b.cert_mode) }}</small></td>
+      <td>{% if b.chain_path %}<code>{{ b.chain_path }}</code>{% else %}—{% endif %}</td>
+      <td><code>{{ b.key_path }}</code><br><small>{{ owner_mode(b.key_owner, b.key_group, b.key_mode) }}</small></td>
+      <td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
+      <td>{% if b.certificate_id %}<a href="/certificates/{{ b.certificate_id }}">{{ b.certificate_common_name }}</a>{% else %}—{% endif %}</td>
+      <td><span class="badge {{ 'badge-revoked' if b.match_state in ('key_mismatch', 'missing_file') else ('badge-ok' if b.match_state == 'matched' else 'badge-superseded') }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</span>
+        {% if b.match_state == "key_mismatch" %}<br><small>The key at the configured path does not belong to this certificate. <a href="/bindings/help">How to fix it</a></small>
+        {% elif b.match_state == "missing_file" %}<br><small>The certificate file is missing or unreadable. <a href="/bindings/help">How to fix it</a></small>{% endif %}
+        <br><small>seen {{ time_tag(b.last_seen_at, tz) }}</small></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p>No bindings recorded for this server.</p>
+  {% endif %}
+</section>
+
+<section class="panel wide" id="discovery-history">
+  <h2>Discovery history</h2>
+  {% if detail.discovery_history %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Started</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Inventory revision</th><th scope="col">Error</th></tr></thead>
+    <tbody>
+    {% for run in detail.discovery_history %}
+    <tr class="discovery-run" data-job-status="{{ run.status }}">
+      <td>{{ time_tag(run.started_at, tz) }}</td>
+      <td><span class="chip chip-{{ 'ok' if run.status == 'succeeded' else ('critical' if run.status == 'failed' else 'soon') }}">{{ run.status }}</span></td>
+      <td>{% if run.duration_seconds is none %}—{% elif run.duration_seconds >= 60 %}{{ run.duration_seconds // 60 }} min {{ run.duration_seconds % 60 }} s{% else %}{{ run.duration_seconds }} s{% endif %}</td>
+      <td>{% if run.inventory_rev %}<code>{{ run.inventory_rev[:40] }}</code>{% else %}—{% endif %}</td>
+      <td>{{ run.error_message or "—" }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="hint">The newest 20 runs.</p>
+  {% else %}
+  <p>This server has not been discovered yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

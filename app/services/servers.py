@@ -1,0 +1,310 @@
+"""Read models for the Servers screens (spec 4.6, 4.7, 8.6): list, export, detail, discovery history.
+
+Counts come from grouped aggregate subqueries joined once, so the statement count does not depend on the
+number of rows. Binding counts cover active bindings; "attention" is an active binding whose match state is
+``key_mismatch`` or ``missing_file`` (the states that carry the persistent warning badge); the mismatch count is
+Plan 2 Contract decision 17 (active endpoints of the server whose latest scan status is ``mismatch``).
+Nothing here writes.
+"""
+
+from dataclasses import dataclass, fields
+from datetime import datetime
+
+from sqlalchemy import ARRAY, Text, func, literal, select
+from sqlalchemy.orm import Session
+
+from app.models import Binding, Certificate, Endpoint, Job, JobHost, JSONValue, Server
+from app.models.enums import JobType, ScanStatus
+from app.services.audit import redact
+
+EXPORT_LIMIT = 5000
+HISTORY_LIMIT = 20
+ATTENTION_STATES = ("key_mismatch", "missing_file")
+_ERROR_CHARS = 300
+
+_bindings = (
+    select(
+        Binding.server_id,
+        func.count().label("total"),
+        func.count().filter(Binding.match_state.in_(ATTENTION_STATES)).label("attention"),
+    )
+    .where(Binding.is_active)
+    .group_by(Binding.server_id)
+    .subquery("binding_counts")
+)
+_mismatches = (
+    select(Endpoint.server_id, func.count().label("total"))
+    .where(Endpoint.is_active, Endpoint.last_scan_status == ScanStatus.MISMATCH)
+    .group_by(Endpoint.server_id)
+    .subquery("mismatch_counts")
+)
+_binding_count = func.coalesce(_bindings.c.total, 0)
+_mismatch_count = func.coalesce(_mismatches.c.total, 0)
+SORTS = {
+    "hostname": (Server.hostname,),
+    "-hostname": (Server.hostname.desc(),),
+    "last_discovery_at": (Server.last_discovery_at.asc().nulls_first(), Server.hostname),
+    "-last_discovery_at": (Server.last_discovery_at.desc().nulls_last(), Server.hostname),
+    "mismatch_count": (_mismatch_count, Server.hostname),
+    "-mismatch_count": (_mismatch_count.desc(), Server.hostname),
+    "binding_count": (_binding_count, Server.hostname),
+    "-binding_count": (_binding_count.desc(), Server.hostname),
+}
+
+
+class ServerNotFound(LookupError):
+    """No server has this id."""
+
+
+@dataclass(frozen=True)
+class ServerFilters:
+    search: str | None = None
+    group: str | None = None
+    active: bool | None = True  # None: active and inactive servers
+
+
+@dataclass(frozen=True)
+class ServerRow:
+    id: int
+    hostname: str
+    display_name: str | None
+    groups: tuple[str, ...]
+    webserver: str | None
+    binding_count: int
+    attention_count: int
+    last_discovery_at: datetime | None
+    last_discovery_status: str | None
+    mismatch_count: int
+    is_active: bool
+
+
+SERVER_EXPORT_FIELDS = tuple(field.name for field in fields(ServerRow))
+
+
+@dataclass(frozen=True)
+class ServerPage:
+    items: list[ServerRow]
+    total: int
+    page: int
+    page_size: int
+
+
+@dataclass(frozen=True)
+class BindingRow:
+    id: int
+    server_id: int
+    server: str
+    webserver: str
+    vhost_name: str
+    vhost_names: tuple[str, ...]
+    port: int
+    config_file: str
+    cert_path: str
+    chain_path: str | None
+    key_path: str
+    cert_owner: str | None
+    cert_group: str | None
+    cert_mode: str | None
+    key_owner: str | None
+    key_group: str | None
+    key_mode: str | None
+    on_disk_fingerprint: str | None
+    on_disk_key_public_sha256: str | None
+    certificate_id: int | None
+    certificate_common_name: str | None
+    match_state: str
+    last_seen_at: datetime
+    is_active: bool
+
+
+@dataclass(frozen=True)
+class DiscoveryRun:
+    job_id: str
+    status: str
+    started_at: datetime | None
+    finished_at: datetime | None
+    duration_seconds: int | None
+    inventory_rev: str | None
+    error_message: str | None
+
+
+@dataclass(frozen=True)
+class ServerDetail:
+    server: ServerRow
+    connection_address: str | None
+    inventory_source: str
+    notes: str | None
+    bindings: list[BindingRow]
+    discovery_history: list[DiscoveryRun]
+    endpoint_count: int
+
+
+def _query(filters: ServerFilters):
+    query = (
+        select(
+            Server.id,
+            Server.hostname,
+            Server.display_name,
+            Server.ansible_groups,
+            Server.webserver,
+            _binding_count.label("binding_count"),
+            func.coalesce(_bindings.c.attention, 0).label("attention_count"),
+            Server.last_discovery_at,
+            Server.last_discovery_status,
+            _mismatch_count.label("mismatch_count"),
+            Server.is_active,
+            Server.connection_address,
+            Server.inventory_source,
+            Server.notes,
+        )
+        .select_from(Server)
+        .outerjoin(_bindings, _bindings.c.server_id == Server.id)
+        .outerjoin(_mismatches, _mismatches.c.server_id == Server.id)
+    )
+    if filters.search:
+        query = query.where(
+            Server.hostname.icontains(filters.search, autoescape=True)
+            | Server.display_name.icontains(filters.search, autoescape=True)
+        )
+    if filters.group:
+        query = query.where(Server.ansible_groups.op("@>")(literal([filters.group], ARRAY(Text))))
+    if filters.active is not None:
+        query = query.where(Server.is_active.is_(filters.active))
+    return query
+
+
+def _row(mapping) -> ServerRow:
+    values = {name: mapping[name] for name in SERVER_EXPORT_FIELDS if name != "groups"}
+    webserver = values["webserver"]
+    values["webserver"] = webserver.value if webserver is not None else None
+    return ServerRow(groups=tuple(mapping["ansible_groups"]), **values)
+
+
+def list_servers(
+    db: Session, filters: ServerFilters, page: int = 1, page_size: int = 50, sort: str = "hostname"
+) -> ServerPage:
+    """One page of servers with their counts; two statements whatever the page holds."""
+    if page < 1 or page_size < 1:
+        raise ValueError("page and page_size must be positive")
+    if sort not in SORTS:
+        raise ValueError("unsupported sort")
+    base = _query(filters)
+    total = db.scalar(select(func.count()).select_from(base.subquery())) or 0
+    rows = db.execute(
+        base.order_by(*SORTS[sort], Server.id).limit(page_size).offset((page - 1) * page_size)
+    ).mappings()
+    return ServerPage([_row(row) for row in rows], total, page, page_size)
+
+
+def _octal(mode: int | None) -> str | None:
+    return f"{mode:04o}" if mode is not None else None
+
+
+def binding_query():
+    """Bindings with their server name and matched certificate; shared by the cross-server view."""
+    return (
+        select(Binding, Server.hostname, Certificate.common_name)
+        .join(Server, Server.id == Binding.server_id)
+        .outerjoin(Certificate, Certificate.id == Binding.certificate_id)
+    )
+
+
+def binding_row(binding: Binding, server: str, certificate_common_name: str | None) -> BindingRow:
+    return BindingRow(
+        id=binding.id,
+        server_id=binding.server_id,
+        server=server,
+        webserver=binding.webserver.value,
+        vhost_name=binding.vhost_name,
+        vhost_names=tuple(binding.vhost_names),
+        port=binding.port,
+        config_file=binding.config_file,
+        cert_path=binding.cert_path,
+        chain_path=binding.chain_path,
+        key_path=binding.key_path,
+        cert_owner=binding.cert_owner,
+        cert_group=binding.cert_group,
+        cert_mode=_octal(binding.cert_mode),
+        key_owner=binding.key_owner,
+        key_group=binding.key_group,
+        key_mode=_octal(binding.key_mode),
+        on_disk_fingerprint=binding.on_disk_fingerprint,
+        on_disk_key_public_sha256=binding.on_disk_key_public_sha256,
+        certificate_id=binding.certificate_id,
+        certificate_common_name=certificate_common_name,
+        match_state=binding.match_state,
+        last_seen_at=binding.last_seen_at,
+        is_active=bool(binding.is_active),
+    )
+
+
+def _history(db: Session, server_id: int) -> list[DiscoveryRun]:
+    started = func.coalesce(JobHost.started_at, Job.started_at)
+    finished = func.coalesce(JobHost.finished_at, Job.finished_at)
+    rows = db.execute(
+        select(
+            JobHost.job_id,
+            JobHost.status,
+            started.label("started_at"),
+            finished.label("finished_at"),
+            Job.result["inventory_rev"].astext.label("inventory_rev"),
+            JobHost.error_message,
+        )
+        .join(Job, Job.id == JobHost.job_id)
+        .where(JobHost.server_id == server_id, JobHost.binding_id.is_(None), Job.type == JobType.DISCOVER)
+        .order_by(func.coalesce(started, Job.created_at).desc(), JobHost.created_at.desc(), JobHost.id)
+        .limit(HISTORY_LIMIT)
+    ).mappings()
+    return [
+        DiscoveryRun(
+            job_id=str(row["job_id"]),
+            status=row["status"].value,
+            started_at=row["started_at"],
+            finished_at=row["finished_at"],
+            duration_seconds=max(0, int((row["finished_at"] - row["started_at"]).total_seconds()))
+            if row["started_at"] and row["finished_at"]
+            else None,
+            inventory_rev=row["inventory_rev"],
+            error_message=str(redact(row["error_message"]))[:_ERROR_CHARS] if row["error_message"] else None,
+        )
+        for row in rows
+    ]
+
+
+def server_detail(db: Session, server_id: int) -> ServerDetail:
+    found = db.execute(_query(ServerFilters(active=None)).where(Server.id == server_id)).mappings().first()
+    if found is None:
+        raise ServerNotFound(server_id)
+    bindings = db.execute(
+        binding_query()
+        .where(Binding.server_id == server_id)
+        .order_by(Binding.is_active.desc(), Binding.vhost_name, Binding.port, Binding.id)
+    )
+    endpoints = db.scalar(
+        select(func.count()).select_from(Endpoint).where(Endpoint.server_id == server_id, Endpoint.is_active)
+    )
+    return ServerDetail(
+        server=_row(found),
+        connection_address=found["connection_address"],
+        inventory_source=found["inventory_source"],
+        notes=found["notes"],
+        bindings=[binding_row(*row) for row in bindings],
+        discovery_history=_history(db, server_id),
+        endpoint_count=endpoints or 0,
+    )
+
+
+def export_servers(
+    db: Session, filters: ServerFilters, limit: int = EXPORT_LIMIT
+) -> list[dict[str, JSONValue]]:
+    """Allowlisted fields only (``SERVER_EXPORT_FIELDS``): never notes, connection address or inventory source."""
+    rows = db.execute(_query(filters).order_by(*SORTS["hostname"], Server.id).limit(limit)).mappings()
+    exported: list[dict[str, JSONValue]] = []
+    for mapping in rows:
+        row = _row(mapping)
+        item = {name: getattr(row, name) for name in SERVER_EXPORT_FIELDS}
+        item["groups"] = list(item["groups"])  # type: ignore[arg-type]
+        if item["last_discovery_at"] is not None:
+            item["last_discovery_at"] = item["last_discovery_at"].isoformat()  # type: ignore[union-attr]
+        exported.append(item)  # type: ignore[arg-type]
+    return exported

@@ -951,3 +951,130 @@ def scan_world(web_factory, now):
         served_certificate_id=served.id,
         served_fingerprint=served.sha256_fingerprint,
     )
+
+
+@pytest.fixture
+def server_map(web_factory, now):
+    """Committed servers, bindings in every ``match_state``, endpoints and discover jobs (Plan 3 will write them for real).
+
+    Hostnames carry a per-use ``token`` (the database outlives a test); ``server("web01.example.internal")`` takes
+    the short name and returns an object with the real ``hostname`` and ``id``. ``group`` holds web01, web02 and the
+    inactive old01. web01: three active bindings (matched, key_mismatch, missing_file) plus one inactive, one active
+    mismatching endpoint (and an inactive one), three discover runs. web02: one unknown and one matched binding.
+    ``certificate_id`` is used by web01's matched and key_mismatch bindings and by web02's matched one.
+    """
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from app.models import Binding, Endpoint, Job, JobHost
+    from app.models.enums import EndpointSource, JobHostStatus, JobStatus, JobType, ScanStatus, WebserverType
+
+    token = "sm" + secrets.token_hex(4)
+    group = f"grp-{token}"
+    certificate = expiring(web_factory, 90)
+    other = expiring(web_factory, 45)
+    fingerprint = certificate.sha256_fingerprint
+    servers: dict[str, SimpleNamespace] = {}
+
+    def binding(server, vhost, state, **columns):
+        values = {
+            "server_id": server.id,
+            "webserver": WebserverType.NGINX,
+            "vhost_name": vhost,
+            "vhost_names": [vhost],
+            "port": 443,
+            "config_file": f"/etc/nginx/conf.d/{vhost}.conf",
+            "cert_path": f"/etc/ssl/{vhost}/fullchain.pem",
+            "chain_path": f"/etc/ssl/{vhost}/chain.pem",
+            "key_path": f"/etc/ssl/{vhost}/privkey.pem",
+            "cert_owner": "root",
+            "cert_group": "ssl-cert",
+            "cert_mode": 0o644,
+            "key_owner": "root",
+            "key_group": "ssl-cert",
+            "key_mode": 0o640,
+            "match_state": state,
+            "last_seen_at": now,
+            "is_active": True,
+        }
+        return Binding(**{**values, **columns})
+
+    def endpoint(server, host, status, *, active=True):
+        return Endpoint(
+            host=host,
+            port=443,
+            source=EndpointSource.DISCOVERY,
+            server_id=server.id,
+            is_active=active,
+            last_scan_at=now,
+            last_scan_status=ScanStatus(status),
+        )
+
+    with web_factory.begin() as db:
+        specs = {
+            "web01.example.internal": {"ansible_groups": [group, "web"], "webserver": WebserverType.NGINX,
+                                           "last_discovery_at": now - timedelta(hours=1), "last_discovery_status": "ok",
+                                           "connection_address": "10.20.0.11", "notes": "web01 note"},
+            "web02.example.internal": {"ansible_groups": [group], "webserver": WebserverType.APACHE,
+                                           "last_discovery_at": now - timedelta(days=2), "last_discovery_status": "failed"},
+            "db01.example.internal": {"ansible_groups": ["db"]},
+            "old01.example.internal": {"ansible_groups": [group], "is_active": False},
+        }
+        for short, columns in specs.items():
+            row = add_server(db, short.replace(".", f"-{token}.", 1), **columns)
+            servers[short] = SimpleNamespace(id=row.id, hostname=row.hostname)
+        web01, web02 = (SimpleNamespace(id=servers[name].id) for name in list(specs)[:2])
+        db.add_all(
+            [
+                binding(web01, f"www-{token}.example.test", "matched", certificate_id=certificate.id,
+                        on_disk_fingerprint=fingerprint, on_disk_key_public_sha256="a" * 64),
+                binding(web01, f"api-{token}.example.test", "key_mismatch", certificate_id=certificate.id,
+                        on_disk_fingerprint=fingerprint, on_disk_key_public_sha256="b" * 64, key_mode=0o600),
+                binding(web01, f"gone-{token}.example.test", "missing_file", cert_owner=None, cert_group=None,
+                        cert_mode=None),
+                binding(web01, f"retired-{token}.example.test", "matched", certificate_id=other.id,
+                        on_disk_fingerprint=other.sha256_fingerprint, is_active=False),
+                binding(web02, f"shop-{token}.example.test", "unknown", on_disk_fingerprint="c" * 64,
+                        webserver=WebserverType.APACHE),
+                binding(web02, f"blog-{token}.example.test", "matched", certificate_id=certificate.id,
+                        on_disk_fingerprint=fingerprint, webserver=WebserverType.APACHE),
+            ]
+        )
+        db.add_all(
+            [
+                endpoint(web01, f"www-{token}.example.test", "mismatch"),
+                endpoint(web01, f"api-{token}.example.test", "ok"),
+                endpoint(web01, f"retired-{token}.example.test", "mismatch", active=False),
+                endpoint(web02, f"shop-{token}.example.test", "expired"),
+            ]
+        )
+        # (age in hours, host status, job status, inventory_rev, error): newest first is "ok".
+        for age, host_status, job_status, rev, error in [
+            (1, JobHostStatus.SUCCEEDED, JobStatus.SUCCEEDED, "1f3c9a7", None),
+            (25, JobHostStatus.FAILED, JobStatus.FAILED, None, "ssh: connect to host failed password=fixture-leaked-secret"),
+            (49, JobHostStatus.SUCCEEDED, JobStatus.SUCCEEDED, "0d4e5b2", None),
+        ]:
+            started = now - timedelta(hours=age)
+            job = Job(type=JobType.DISCOVER, status=job_status, priority=100, payload={}, run_after=started,
+                      started_at=started, finished_at=started + timedelta(seconds=95),
+                      result={"inventory_rev": rev} if rev else None)
+            db.add(job)
+            db.flush()
+            db.add(JobHost(job_id=job.id, server_id=web01.id, status=host_status, started_at=started,
+                           finished_at=started + timedelta(seconds=95), error_message=error))
+        deploy = Job(type=JobType.DEPLOY, status=JobStatus.SUCCEEDED, priority=100, payload={}, run_after=now,
+                     started_at=now, finished_at=now)
+        db.add(deploy)
+        db.flush()
+        db.add(JobHost(job_id=deploy.id, server_id=web01.id, status=JobHostStatus.SUCCEEDED, started_at=now,
+                       finished_at=now))
+    return SimpleNamespace(
+        token=token,
+        group=group,
+        server=lambda short: servers[short],
+        certificate_id=certificate.id,
+        certificate_fingerprint=fingerprint,
+        other_certificate_id=other.id,
+        hosts_using_certificate={servers["web01.example.internal"].hostname, servers["web02.example.internal"].hostname},
+        discovery_age_hours=(1, 25, 49),
+    )
