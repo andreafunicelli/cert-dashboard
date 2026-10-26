@@ -16,6 +16,7 @@ from app.services.endpoints import (
     DuplicateEndpoint,
     EndpointFilters,
     EndpointNotFound,
+    ObservedNotInInventory,
     certificate_choices,
     create_endpoint,
     endpoint_detail,
@@ -281,15 +282,17 @@ def _expectation(request: Request, endpoint_id: int, form) -> Response:
         )
     except EndpointNotFound:
         raise HTTPException(404) from None
+    except ObservedNotInInventory as exc:
+        return _manage_failure(request, endpoint_id, exc.errors, raw, offer_import=True)
     except EndpointInputError as exc:
-        return _manage_failure(request, endpoint_id, exc.errors, raw, offer_import=observed)
+        return _manage_failure(request, endpoint_id, exc.errors, raw)
     return _saved(request, endpoint_id, "Expected certificate updated.")
 
 
 def _active(request: Request, endpoint_id: int, form) -> Response:
     state = form.get("active")
     if state not in ("true", "false"):
-        raise HTTPException(422)
+        return _manage_failure(request, endpoint_id, {"active": "Choose activate or deactivate."})  # 404s if unknown
     try:
         _transact(request, lambda db, now, actor: set_endpoint_active(db, endpoint_id, state == "true", actor))
     except EndpointNotFound:

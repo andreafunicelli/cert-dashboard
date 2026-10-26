@@ -222,11 +222,55 @@ def test_deactivate_and_reactivate_never_delete_history(signed_in, web_factory, 
         {"field": "is_active", "from": True, "to": False},
         {"field": "is_active", "from": False, "to": True},
     ]
-    assert _post(signed_in, f"/scans/{target}/active", active="maybe").status_code == 422
     assert _post(signed_in, "/scans/999999999/active", active="false").status_code == 404
     for method, path in (("delete", f"/scans/{target}"), ("post", f"/scans/{target}/delete")):
         assert getattr(signed_in, method)(path).status_code in (403, 404, 405)  # no delete route exists
     assert fetch(web_factory, Endpoint, target) is not None
+
+
+def test_invalid_active_value_rerenders_the_manage_form_without_changes(signed_in, web_factory, scan_world):
+    target = scan_world.mismatch_id
+    htmx = _post(signed_in, f"/scans/{target}/active", headers=HX, active="maybe")
+    assert htmx.status_code == 422 and 'data-error="active"' in htmx.text
+    assert 'id="manage-panel"' in htmx.text and "<html" not in htmx.text
+    page = _post(signed_in, f"/scans/{target}/active", active="")
+    assert page.status_code == 422 and "<html" in page.text and 'data-error="active"' in page.text
+    assert fetch(web_factory, Endpoint, target).is_active
+    assert audits(web_factory, target) == []
+    assert _post(signed_in, "/scans/999999999/active", active="maybe").status_code == 404
+
+
+def test_observed_certificate_inactive_in_inventory_is_unavailable_not_importable(signed_in, web_factory, now):
+    retired = expiring(web_factory, 10)
+    with web_factory.begin() as db:
+        certificate = db.get(Certificate, retired.id)
+        certificate.status = CertificateStatus.REVOKED
+        fingerprint, name = certificate.sha256_fingerprint, certificate.common_name
+        endpoint_id = add_endpoint(db, f"retired-{secrets.token_hex(3)}.example.test")
+        db.add(
+            ScanResult(
+                endpoint_id=endpoint_id,
+                status=ScanStatus.OK,
+                observed_fingerprint=fingerprint,
+                observed_common_name=name,
+                source="scheduled",
+                checked_at=now,
+            )
+        )
+    with web_factory() as db:
+        certificates_before = db.scalar(select(func.count()).select_from(Certificate))
+    page = signed_in.get(f"/scans/{endpoint_id}").text
+    assert 'name="use_observed"' not in page  # no enabled success action
+    assert "in the inventory but is not active" in page
+    assert f'href="/certificates/{retired.id}"' in page
+    for headers in (None, HX):
+        response = _post(signed_in, f"/scans/{endpoint_id}/expectation", headers=headers, use_observed="1")
+        assert response.status_code == 422
+        assert "not active" in response.text and "Import the served certificate" not in response.text
+    assert fetch(web_factory, Endpoint, endpoint_id).expected_certificate_id is None
+    assert audits(web_factory, endpoint_id) == []
+    with web_factory() as db:
+        assert db.scalar(select(func.count()).select_from(Certificate)) == certificates_before
 
 
 def test_scans_page_offers_the_management_forms(signed_in, scan_world):

@@ -131,6 +131,7 @@ class EndpointDetail:
     row: EndpointRow
     history: list[ScanResult]
     observed_certificate_id: int | None  # the inventory certificate whose fingerprint was served, if any
+    observed_certificate_active: bool = False  # ... and whether it can be expected (status active)
 
 
 def _query(filters: EndpointFilters):
@@ -198,10 +199,12 @@ def endpoint_detail(db: Session, endpoint_id: int, history_limit: int = 20) -> E
     )
     observed = None
     if row.observed_fingerprint is not None:
-        observed = db.scalar(
-            select(Certificate.id).where(Certificate.sha256_fingerprint == row.observed_fingerprint.lower())
-        )
-    return EndpointDetail(row, history, observed)
+        observed = db.execute(
+            select(Certificate.id, Certificate.status).where(Certificate.sha256_fingerprint == row.observed_fingerprint.lower())
+        ).first()
+    if observed is None:
+        return EndpointDetail(row, history, None)
+    return EndpointDetail(row, history, observed.id, observed.status == CertificateStatus.ACTIVE)
 
 
 def _json(value: object) -> JSONValue:
@@ -245,6 +248,10 @@ class DuplicateEndpoint(EndpointInputError):
     def __init__(self, existing_id: int | None) -> None:
         super().__init__({"host": "An endpoint with this host, port and SNI already exists."})
         self.existing_id = existing_id
+
+
+class ObservedNotInInventory(EndpointInputError):
+    """The served fingerprint matches no inventory row, so importing it is the only remedy."""
 
 
 def _active_certificate(db: Session, certificate_id: int | None, field: str = "certificate_id") -> Certificate:
@@ -325,9 +332,11 @@ def expect_observed(db: Session, endpoint_id: int, actor: Actor) -> Endpoint:
         raise EndpointInputError({"certificate_id": "No certificate has been observed for this endpoint yet; scan it first."})
     certificate = db.scalar(select(Certificate).where(Certificate.sha256_fingerprint == fingerprint.lower()))
     if certificate is None:
-        raise EndpointInputError({"certificate_id": "The observed certificate is not in the inventory; import it first."})
+        raise ObservedNotInInventory({"certificate_id": "The observed certificate is not in the inventory; import it first."})
     if certificate.status != CertificateStatus.ACTIVE:
-        raise EndpointInputError({"certificate_id": "The observed certificate is in the inventory but is not active."})
+        raise EndpointInputError(
+            {"certificate_id": "The observed certificate is in the inventory but is not active (revoked or superseded)."}
+        )
     _change(db, endpoint, "expected_certificate_id", certificate.id, actor)
     return endpoint
 
