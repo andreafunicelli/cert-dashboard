@@ -745,3 +745,104 @@ def expiring(factory, days, **metadata):
         db.add(row)
         db.flush()
         return row
+
+
+_KEEP = object()
+
+
+def add_endpoint(db, host, port=443, *, sni=None, expected_certificate_id=None, is_active=True) -> int:
+    """Flush a manual endpoint on the caller's session and return its id (reused by the digest tests)."""
+    from app.models import Endpoint
+    from app.models.enums import EndpointSource
+
+    endpoint = Endpoint(
+        host=host,
+        port=port,
+        sni=sni,
+        source=EndpointSource.MANUAL,
+        expected_certificate_id=expected_certificate_id,
+        is_active=is_active,
+    )
+    db.add(endpoint)
+    db.flush()
+    return endpoint.id
+
+
+def add_results(db, endpoint_id, results) -> None:
+    """Insert ``scan_result`` rows ``[(checked_at, status), ...]``; ``last_scan_*`` follows the newest."""
+    from app.models import Endpoint, ScanResult
+    from app.models.enums import ScanStatus
+
+    endpoint = db.get(Endpoint, endpoint_id)
+    for checked_at, status in results:
+        db.add(
+            ScanResult(
+                endpoint_id=endpoint_id,
+                status=ScanStatus(status),
+                observed_fingerprint=None if status in ("unreachable", "error") else secrets.token_hex(32),
+                observed_common_name=None if status in ("unreachable", "error") else f"seen-{endpoint_id}.example.test",
+                expected_certificate_id=endpoint.expected_certificate_id,
+                source="scheduled",
+                checked_at=checked_at,
+            )
+        )
+    newest_at, newest_status = max(results, key=lambda item: item[0])
+    endpoint.last_scan_at = newest_at
+    endpoint.last_scan_status = ScanStatus(newest_status)
+    db.flush()
+
+
+def add_server(db, hostname, **columns):
+    from app.models import Server
+
+    server = Server(hostname=hostname, inventory_source="fixture", **columns)
+    db.add(server)
+    db.flush()
+    return server
+
+
+def add_binding(db, server, vhost, *, match_state, fingerprint, at):
+    """Insert an active binding created at ``at`` and audit the insertion like Plan 3 reconciliation."""
+    from app.jobs.queue import SYSTEM_ACTOR
+    from app.models import Binding
+    from app.models.enums import WebserverType
+    from app.services.bindings import audit_binding_state
+
+    binding = Binding(
+        server_id=server.id,
+        webserver=WebserverType.NGINX,
+        vhost_name=vhost,
+        vhost_names=[vhost],
+        config_file=f"/etc/nginx/conf.d/{vhost}.conf",
+        cert_path=f"/etc/ssl/{vhost}.pem",
+        key_path=f"/etc/ssl/{vhost}.key",
+        on_disk_fingerprint=fingerprint,
+        match_state=match_state,
+        is_active=True,
+        created_at=at,
+        last_seen_at=at,
+    )
+    db.add(binding)
+    db.flush()
+    audit_binding_state(db, binding, None, SYSTEM_ACTOR, job_id=None, now=at)
+    db.flush()
+    return binding
+
+
+def reconcile(db, binding, *, at, match_state=_KEEP, fingerprint=_KEEP, is_active=_KEEP):
+    """Change a binding's audited triple the way Plan 3 reconciliation will; returns the audit row or ``None``."""
+    from app.jobs.queue import SYSTEM_ACTOR
+    from app.services.bindings import audit_binding_state, binding_state
+
+    previous = binding_state(binding)
+    if match_state is not _KEEP:
+        binding.match_state = match_state
+    if fingerprint is not _KEEP:
+        binding.on_disk_fingerprint = fingerprint
+    if is_active is not _KEEP:
+        binding.is_active = is_active
+    binding.last_seen_at = at
+    db.flush()
+    row = audit_binding_state(db, binding, previous, SYSTEM_ACTOR, job_id=None, now=at)
+    db.flush()
+    return row
