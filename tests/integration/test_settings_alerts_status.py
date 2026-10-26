@@ -6,10 +6,10 @@ from datetime import timedelta
 
 import pytest
 
-from app.models import AppSetting, Job, NotificationLog
+from app.models import Job, NotificationLog
 from app.models.enums import JobStatus, JobType, NotificationStatus
 from app.services.settings import notification_failures, smtp_health, status_snapshot
-from tests.integration.conftest import expiring
+from tests.integration.conftest import expiring, set_setting
 
 TRANSIENT = "smtp_transient: 451 try again later"
 
@@ -180,8 +180,7 @@ def test_status_warnings_follow_failures_and_tls_verification(signed_in, web_fac
     assert 'data-warning="smtp_failing"' not in clean and 'data-warning="smtp_tls_unverified"' not in clean
     assert "No delivery failures" in flat(clean)
     seed_notifications(web_factory, now, ["failed"])
-    with web_factory.begin() as db:
-        db.add(AppSetting(key="smtp.tls_verify", value=False))
+    set_setting(web_factory, "smtp.tls_verify", False)
     page = signed_in.get("/settings?tab=status").text
     assert 'data-warning="smtp_failing"' in page and 'data-warning="smtp_tls_unverified"' in page
     assert "Recent alert or digest mail could not be delivered." in page
