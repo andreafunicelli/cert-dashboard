@@ -1,12 +1,13 @@
 """Expiry evaluation, recipients and rendered alert mail (§7.4) against real PostgreSQL."""
 
 import itertools
+import uuid
 from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import event, select
 
-from app.models import AppSetting, Binding, Certificate, NotificationLog, Renewal, Server
+from app.models import AppSetting, Binding, Certificate, NotificationLog, PrivateKey, Renewal, Server
 from app.models.enums import CertificateStatus, NotificationStatus, RenewalState, WebserverType
 from app.services.alerts import (
     ExpiryCandidate,
@@ -108,8 +109,7 @@ def test_due_alerts_use_a_bounded_number_of_queries(db, now):
 def test_owner_and_team_resolution_uses_alert_recipients(db, now):
     owned = add_cert(db, now, 20, cn="owned.example.test", owner_email="Ada@Example.test")
     orphan = add_cert(db, now, 20, cn="orphan.example.test", owner_email=None)
-    db.add(AppSetting(key="alert.recipients", value=["team@example.test", "ada@example.test"]))
-    db.flush()
+    put_setting(db, "alert.recipients", ["team@example.test", "ada@example.test"])
 
     found = {c.certificate_id: c.recipients for c in due_expiry_alerts(db, now)}
 
@@ -148,7 +148,35 @@ def add_binding(db, cert, hostname, vhost, port=443, active=True):
     db.flush()
 
 
+def put_setting(db, key, value):
+    row = db.get(AppSetting, key)
+    if row is None:
+        db.add(AppSetting(key=key, value=value))
+    else:
+        row.value = value
+    db.flush()
+
+
+def add_key(db):
+    key = PrivateKey(
+        key_type="rsa",
+        key_size=2048,
+        ciphertext=b"fixture-ciphertext-bytes",
+        nonce=b"123456789012",
+        aad=f"private_key:0:{uuid.uuid4().hex}",
+        master_key_version=1,
+        public_key_sha256=uuid.uuid4().hex + uuid.uuid4().hex,
+        public_key_pem="-----BEGIN PUBLIC KEY-----\nZml4dHVyZQ==\n-----END PUBLIC KEY-----\n",
+        origin="imported_pem",
+    )
+    db.add(key)
+    db.flush()
+    return key
+
+
 def add_renewal(db, cert, state, now, **overrides):
+    if state not in (RenewalState.DRAFT, RenewalState.CANCELLED):
+        overrides.setdefault("key_id", add_key(db).id)
     renewal = Renewal(
         previous_certificate_id=cert.id,
         state=state,
@@ -163,7 +191,7 @@ def add_renewal(db, cert, state, now, **overrides):
 
 
 def test_rendered_expiry_contains_every_required_fact(db, now):
-    db.add(AppSetting(key="ui.timezone", value="Europe/Rome"))
+    put_setting(db, "ui.timezone", "Europe/Rome")
     cert = add_cert(db, now, 29, cn="www.example.test", owner_email="ada@example.test")
     add_binding(db, cert, "web1.example.test", "www")
     add_binding(db, cert, "web2.example.test", "api", port=8443)
