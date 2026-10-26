@@ -165,7 +165,7 @@ def test_two_schedulers_ticking_simultaneously_enqueue_one_cleanup(queue_factory
     assert len(jobs_of(queue_factory)) == 1
     assert len(jobs_of(queue_factory, JobType.SCAN)) == 2  # the daily scan and trust recheck, each deduplicated
     with queue_factory() as db:
-        assert set(db.scalars(select(SchedulerState.key))) == {"cleanup", "scan", "trust_recheck"}  # one row each
+        assert set(db.scalars(select(SchedulerState.key))) == {"cleanup", "scan", "trust_recheck", "expiry_check"}  # one row each
 
 
 def test_a_scheduler_waits_on_the_state_row_lock_and_then_sees_the_winners_run(queue_factory):
@@ -241,14 +241,14 @@ def test_a_run_missed_by_twelve_hours_is_skipped_and_logged(queue_factory, caplo
 
 def test_no_unregistered_schedule_is_enqueued(queue_factory, monkeypatch):
     monkeypatch.setattr(worker, "SCHEDULES", dict(worker.SCHEDULES))
-    worker.register_schedule("expiry_check", JobType.ALERT_EXPIRY)
     worker.register_schedule("discovery", JobType.DISCOVER)
     scheduler_tick(queue_factory, build_registry(), datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
     with queue_factory() as db:
         types = set(db.scalars(select(Job.type)))
         states = set(db.scalars(select(SchedulerState.key)))
-    assert types == {JobType.CLEANUP, JobType.SCAN}  # scan/default is registered; the other two are not
-    assert states == {"cleanup", "scan", "trust_recheck"}
+    # scan/default and alert_expiry/default (Plan 2 Task 8) are registered; discover is not.
+    assert types == {JobType.CLEANUP, JobType.SCAN, JobType.ALERT_EXPIRY}
+    assert states == {"cleanup", "scan", "trust_recheck", "expiry_check"}
 
 
 def test_registered_non_default_action_schedule_uses_its_settings_and_payload(queue_factory, monkeypatch):

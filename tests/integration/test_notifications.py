@@ -234,10 +234,10 @@ def test_a_tick_step_name_can_only_be_registered_once(monkeypatch):
         worker.register_tick_step("once", lambda db, when: 0, requires=(JobType.ALERT_EXPIRY, "default"))
 
 
-def test_the_notification_retry_step_is_registered_but_production_has_no_stub_handler():
+def test_the_notification_retry_step_is_registered_and_live_with_the_expiry_handler():
     from app.jobs.handlers import build_registry
 
     step = worker.TICK_STEPS["notification_retry"]
     assert step.requires == (JobType.ALERT_EXPIRY, "default")
     assert MAX_NOTIFICATION_ATTEMPTS == 3
-    assert not build_registry().supports(JobType.ALERT_EXPIRY, "default")  # inert until Task 8
+    assert build_registry().supports(JobType.ALERT_EXPIRY, "default")  # live since Task 8
