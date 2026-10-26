@@ -12,7 +12,7 @@ from app.jobs.handlers import build_registry
 from app.jobs.handlers.expiry import validate_expiry_payload
 from app.jobs.queue import SYSTEM_ACTOR, enqueue
 from app.jobs.worker import scheduler_tick
-from app.models import AuditLog, Job, NotificationLog
+from app.models import AuditLog, Certificate, Job, NotificationLog
 from app.models.enums import JobStatus, JobType
 from tests.integration.conftest import closed_port, configure_smtp, disable_schedules, expiring, set_setting
 from tests.integration.test_smtp_test_send import logged, quiet_capture_server
@@ -190,6 +190,41 @@ def test_partial_failure_succeeds_the_job_and_the_sweep_retries_the_row(
     assert sweep(queue_factory, worker, clock, 600, 600) == [0, 0]  # never attempted again
     assert only_notification(queue_factory, flaky.id).attempts == 3
     assert len(capture.messages) == 1 and capture.connections == 3  # the first job and the two retries
+
+
+def test_retry_sweep_uses_the_stored_row_not_a_fresh_evaluation(queue_factory, make_worker, smtp_server, clock):
+    capture = smtp_server()
+    configure_smtp(queue_factory, capture)  # no team: a refused owner must not be masked by other recipients
+    flaky = expiring(queue_factory, days=29, owner_email="tempfail@example.test")
+    healthy = expiring(queue_factory, days=29, owner_email="owner@example.test")
+    worker = make_worker(queue_factory)
+    run_expiry(queue_factory, worker, clock())
+    before = only_notification(queue_factory, flaky.id)
+    assert (before.status, before.threshold_days, before.attempts) == ("failed", 30, 1)
+    assert before.recipients == ["tempfail@example.test"]
+    assert len(capture.messages) == 1  # the healthy certificate only
+
+    # Everything a fresh evaluation reads changes: owner, team list and thresholds (29 days now crosses 29).
+    with queue_factory.begin() as db:
+        db.get(Certificate, flaky.id).owner_email = "new-owner@example.test"
+    set_setting(queue_factory, "alert.recipients", ["new-team@example.test"])
+    set_setting(queue_factory, "alert.thresholds_days", [45, 29])
+
+    assert sweep(queue_factory, worker, clock, 31) == [1]
+    [retry] = expiry_jobs(queue_factory)[1:]
+    assert (retry.payload, retry.status) == (RETRY, JobStatus.SUCCEEDED)
+    assert retry.result == {"evaluated": 1, "sent": 0, "failed": 1, "no_recipients": 0, "skipped": 0}
+    # The same row was attempted again with its stored recipients: the tempfail owner still fails the RCPT
+    # step, whereas a freshly resolved recipient list would have been delivered.
+    after = only_notification(queue_factory, flaky.id)
+    assert (after.id, after.dedupe_key, after.threshold_days) == (before.id, before.dedupe_key, 30)
+    assert (after.status, after.attempts, after.recipients) == ("failed", 2, before.recipients)
+    assert after.error == "smtp_transient: 451 at rcpt"
+    # No newly evaluated candidate was created or mailed: not for the new threshold, not for the sent certificate.
+    assert [row.threshold_days for row in notifications(queue_factory, healthy.id)] == [30]
+    assert len(capture.messages) == 1
+    stored = everything(queue_factory)
+    assert "new-owner@example.test" not in stored and "new-team@example.test" not in stored
 
 
 def test_total_transient_failure_fails_the_job_for_queue_retry(queue_factory, make_worker, smtp_server, clock):
