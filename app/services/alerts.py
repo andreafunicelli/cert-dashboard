@@ -1,8 +1,9 @@
 """Expiry alert evaluation and message rendering (§7.4); sending and the ledger live elsewhere.
 
 ``due_expiry_alerts`` is a read-only evaluation: one query for the active certificates inside the
-window ``|not_after − now| ≤ max(thresholds)`` days and one for the thresholds already ``sent``
-(any earlier day), so the cost does not depend on the number of certificates. Rendering is the only
+window ``|not_after − now| ≤ max(thresholds)`` days, anti-joined (``NOT EXISTS``) with the ``sent``
+expiry rows for ``(certificate_id, selected T)`` of any day, so the cost depends neither on the
+number of certificates nor on unrelated ledger history. Rendering is the only
 per-candidate work and runs a handful of small queries for one certificate.
 """
 
@@ -14,7 +15,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 import jinja2
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.models import Binding, Certificate, NotificationLog, Renewal, Server
@@ -92,39 +93,42 @@ def due_expiry_alerts(db: Session, now: datetime) -> list[ExpiryCandidate]:
         return []
     team = _list_of_text(get_setting(db, "alert.recipients"))
     window = timedelta(days=max(thresholds))
-    certificates = db.execute(
-        select(Certificate.id, Certificate.not_after, Certificate.owner_email)
+    # Smallest crossed threshold per certificate, decided in SQL so the sent-row anti-join can
+    # match the selected ``T`` (``not_after − now ≤ T`` days; ascending order = smallest wins).
+    selected = case(
+        *[(Certificate.not_after <= now + timedelta(days=value), value) for value in sorted(set(thresholds))]
+    )
+    already_sent = (
+        select(1)
+        .where(
+            NotificationLog.certificate_id == Certificate.id,
+            NotificationLog.kind == "expiry",
+            NotificationLog.status == NotificationStatus.SENT,
+            NotificationLog.threshold_days == selected,
+        )
+        .exists()
+    )
+    due = db.execute(
+        select(
+            Certificate.id, Certificate.not_after, Certificate.owner_email, selected.label("threshold_days")
+        )
         .where(
             Certificate.status == CertificateStatus.ACTIVE,
             Certificate.not_after >= now - window,
             Certificate.not_after <= now + window,
+            ~already_sent,
         )
         .order_by(Certificate.not_after, Certificate.id)
     ).all()
-    crossed = [(row, crossed_threshold(row.not_after, now, thresholds)) for row in certificates]
-    due = [(row, threshold) for row, threshold in crossed if threshold is not None]
-    if not due:
-        return []
-    already_sent = {
-        (certificate_id, threshold)
-        for certificate_id, threshold in db.execute(
-            select(NotificationLog.certificate_id, NotificationLog.threshold_days).where(
-                NotificationLog.kind == "expiry",
-                NotificationLog.status == NotificationStatus.SENT,
-                NotificationLog.certificate_id.in_([row.id for row, _ in due]),
-            )
-        ).tuples()
-    }
     return [
         ExpiryCandidate(
             certificate_id=row.id,
-            threshold_days=threshold,
+            threshold_days=row.threshold_days,
             days_remaining=_days_remaining(row.not_after, now),
-            dedupe_key=expiry_dedupe_key(row.id, threshold, now),
+            dedupe_key=expiry_dedupe_key(row.id, row.threshold_days, now),
             recipients=resolve_recipients(row.owner_email, team),
         )
-        for row, threshold in due
-        if (row.id, threshold) not in already_sent
+        for row in due
     ]
 
 

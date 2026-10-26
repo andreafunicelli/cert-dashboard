@@ -1,6 +1,7 @@
 """Expiry evaluation, recipients and rendered alert mail (§7.4) against real PostgreSQL."""
 
 import itertools
+import re
 import uuid
 from datetime import timedelta
 from zoneinfo import ZoneInfo
@@ -102,8 +103,25 @@ def test_due_alerts_use_a_bounded_number_of_queries(db, now):
         assert len(due_expiry_alerts(db, now)) == 6
     finally:
         event.remove(db.get_bind(), "before_cursor_execute", count)
-    # two settings reads + certificates + sent rows; never per certificate
-    assert len(statements) <= 4
+    # settings reads + ONE due-candidate query; never per certificate
+    ledger = [s for s in statements if "notification_log" in s]
+    assert len(ledger) == 1
+    assert re.search(r"NOT\s*\(?\s*EXISTS", ledger[0].upper())
+    assert "FROM certificate" in ledger[0]
+    assert len([s for s in statements if "FROM certificate" in s]) == 1
+    assert len(statements) <= 3
+
+
+def test_unrelated_sent_history_does_not_suppress_or_get_loaded(db, now):
+    cert = add_cert(db, now, 29, cn="a.example.test")
+    other = add_cert(db, now, 29, cn="b.example.test")
+    add_log(db, cert, 7, NotificationStatus.SENT, f"expiry:{cert.id}:7:2026-10-01")
+    add_log(db, cert, 90, NotificationStatus.SENT, f"expiry:{cert.id}:90:2026-09-01")
+    add_log(db, other, 30, NotificationStatus.SENT, f"expiry:{other.id}:30:2026-10-18")
+
+    found = {c.certificate_id: c.threshold_days for c in due_expiry_alerts(db, now)}
+
+    assert found == {cert.id: 30}
 
 
 def test_owner_and_team_resolution_uses_alert_recipients(db, now):
