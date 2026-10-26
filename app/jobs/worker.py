@@ -191,6 +191,7 @@ register_schedule("cleanup", JobType.CLEANUP)
 register_schedule("scan", JobType.SCAN)
 register_schedule("trust_recheck", JobType.SCAN, "trust_recheck")  # shares scan.daily_at / scan.enabled
 register_schedule("expiry_check", JobType.ALERT_EXPIRY)
+register_schedule("digest", JobType.DIGEST)  # digest.daily_at / alert.digest_enabled, priority 50
 
 
 def parse_daily_time(value: object) -> tuple[int, int] | None:

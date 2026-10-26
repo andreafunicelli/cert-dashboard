@@ -1,0 +1,15 @@
+<!doctype html>
+<html>
+<body style="font-family: sans-serif; font-size: 14px; color: #222;">
+<h2 style="font-size: 16px;">Cert Dashboard daily digest</h2>
+<p>Period: {{ since }} to {{ generated }}</p>
+{% if not sections %}<p>Nothing to report. This mail is the daily heartbeat of the alerting path.</p>
+{% endif %}{% for section in sections %}<h3 style="font-size: 14px;">{{ section.title }}{% if section.shown %} ({{ section.shown }}){% endif %}</h3>
+{% if section.intro %}<p>{{ section.intro }}</p>
+{% endif %}<ul>
+{% for row in section.rows %}<li>{% if row.url %}<a href="{{ row.url }}">{{ row.text }}</a>{% else %}{{ row.text }}{% endif %}</li>
+{% endfor %}</ul>
+{% endfor %}<p>{{ revision }}</p>
+{% if dashboard_url %}<p><a href="{{ dashboard_url }}">{{ dashboard_url }}</a></p>
+{% endif %}</body>
+</html>

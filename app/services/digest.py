@@ -7,12 +7,14 @@ already existed at the last digest is never reported again (Plan 2 Contract deci
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import Select, and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
-from app.models import Certificate, Endpoint, Job, JobHost, NotificationLog, Server
+from app.models import Certificate, Endpoint, Job, JobHost, JSONValue, NotificationLog, Server
 from app.models.enums import CertificateStatus, JobStatus, JobType, NotificationStatus
+from app.services.alerts import RenderedMail, email_environment
 from app.services.bindings import BINDING_STATE_ACTION
 
 __all__ = [
@@ -26,10 +28,12 @@ __all__ = [
     "DigestNotification",
     "DigestServer",
     "collect_digest",
+    "digest_counts",
     "digest_dedupe_key",
     "digest_since",
     "new_mismatches",
     "new_unknown_bindings",
+    "render_digest",
 ]
 
 DIGEST_LIST_LIMIT = 50
@@ -353,4 +357,130 @@ def collect_digest(db: Session, now: datetime) -> DigestData:
             "rolled_back_hosts": hosts_total,
             "failed_notifications": notifications_total,
         },
+    )
+
+
+def digest_counts(data: DigestData) -> dict[str, JSONValue]:
+    """The job result: counts only, never the dedupe key (``digest:`` trips the redactor, Contract decision 11)."""
+    totals = data.totals
+    return {
+        "expiring": totals["expiring"],
+        "expired": totals["expired"],
+        "new_mismatches": totals["new_mismatches"],
+        "mismatches": data.mismatch_count,
+        "unknown_certificates": totals["unknown_certificates"],
+        "stale_servers": totals["stale_servers"],
+        "failed_jobs": totals["failed_jobs"],
+        "rolled_back_hosts": totals["rolled_back_hosts"],
+        "failed_notifications": totals["failed_notifications"],
+    }
+
+
+def _zone(name: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(name)
+    except (KeyError, ValueError, OSError):
+        return ZoneInfo("UTC")
+
+
+def render_digest(data: DigestData, timezone_name: str, base_url: str | None) -> RenderedMail:
+    """Text and minimal HTML for the daily digest; only non-empty sections get a heading."""
+    zone = _zone(timezone_name)
+    prefix = (base_url or "").rstrip("/")
+
+    def when(value: datetime | None) -> str:
+        if value is None:
+            return "never"
+        local = value.astimezone(zone)
+        text = local.strftime("%Y-%m-%d %H:%M %Z")
+        return text if local.tzname() == "UTC" else f"{text} ({value.astimezone(UTC):%Y-%m-%d %H:%M} UTC)"
+
+    def cert_row(item: DigestCertificate, verb: str) -> dict[str, str | None]:
+        owner = f", owner {item.owner}" if item.owner else ""
+        link = f"{prefix}/certificates/{item.id}" if prefix else None
+        return {"text": f"{item.common_name} - {verb} {when(item.not_after)}{owner}", "url": link}
+
+    def section(title: str, key: str, rows: list, intro: str | None = None) -> dict[str, object]:
+        total = data.totals[key]
+        return {
+            "title": title,
+            "intro": intro,
+            "rows": [row if isinstance(row, dict) else {"text": row, "url": None} for row in rows],
+            "shown": f"showing {len(rows)} of {total}" if total > len(rows) else None,
+        }
+
+    sections = []
+    if data.expiring:
+        rows = [cert_row(item, "expires") for item in data.expiring]
+        sections.append(section("Expiring within 7 days", "expiring", rows))
+    if data.expired:
+        rows = [cert_row(item, "expired") for item in data.expired]
+        sections.append(section("Already expired", "expired", rows))
+    if data.new_mismatches or data.mismatch_count:
+        rows = [
+            f"{item.host}:{item.port}{f' (SNI {item.sni})' if item.sni else ''} - expected "
+            f"{item.expected_common_name or 'any certificate'}, observed {item.observed_common_name or 'none'}; "
+            f"{item.previous_status or 'not scanned'} -> {item.current_status or 'unknown'} at {when(item.checked_at)}"
+            for item in data.new_mismatches
+        ]
+        intro = f"Current mismatches: {data.mismatch_count}"
+        sections.append(section("New TLS mismatches", "new_mismatches", rows, intro))
+    if data.unknown_certificates:
+        rows = [
+            f"{item.server} {item.vhost_name}:{item.port} {item.cert_path} "
+            f"(was {item.previous_state or 'not bound'}) found {when(item.found_at)}"
+            for item in data.unknown_certificates
+        ]
+        sections.append(section("Unknown certificates found by discovery", "unknown_certificates", rows))
+    if data.stale_servers:
+        rows = [
+            f"{item.hostname} - last discovery {item.last_discovery_status or 'never run'}, "
+            f"last attempt {when(item.last_discovery_at)}"
+            for item in data.stale_servers
+        ]
+        sections.append(section("Servers with failed or stale discovery", "stale_servers", rows))
+    if data.failed_jobs:
+        rows = [
+            f"{item.type} job {item.id} failed ({item.error_class or 'unknown error'}) at {when(item.finished_at)}"
+            for item in data.failed_jobs
+        ]
+        sections.append(section("Failed jobs in the last 24 hours", "failed_jobs", rows))
+    if data.rolled_back_hosts:
+        rows = [
+            f"{item.hostname} (job {item.job_id}) - "
+            + ("rollback failed, needs manual attention" if item.rollback_error is not None else "rolled back")
+            for item in data.rolled_back_hosts
+        ]
+        sections.append(section("Rolled-back hosts in the last 24 hours", "rolled_back_hosts", rows))
+    if data.failed_notifications:
+        rows = [
+            f"{item.kind} e-mail{f' for certificate {item.certificate_id}' if item.certificate_id else ''}"
+            f"{f', {item.threshold_days}-day threshold' if item.threshold_days is not None else ''} - "
+            f"{item.attempts} attempt(s): {item.error or 'no error recorded'}"
+            for item in data.failed_notifications
+        ]
+        sections.append(section("Failed notifications in the last 24 hours", "failed_notifications", rows))
+
+    if data.inventory_rev is None:
+        revision = "Inventory revision: none recorded"  # until Plan 3 writes ``inventory_rev``
+    else:
+        age = ""
+        if data.inventory_rev_date is not None:
+            days = (data.generated_at - data.inventory_rev_date) // timedelta(days=1)
+            age = f" ({days} days old)" if days >= 1 else " (less than 1 day old)"
+        revision = f"Inventory revision: {data.inventory_rev}{age}"
+
+    context = {
+        "since": when(data.since),
+        "generated": when(data.generated_at),
+        "sections": sections,
+        "revision": revision,
+        "dashboard_url": prefix or None,
+    }
+    env = email_environment()
+    date = data.generated_at.astimezone(UTC).date().isoformat()
+    return RenderedMail(
+        subject=f"Cert Dashboard daily digest - {date}",
+        text=env.get_template("digest.txt.j2").render(context),
+        html=env.get_template("digest.html.j2").render(context),
     )
