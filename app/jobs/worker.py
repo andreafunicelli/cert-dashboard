@@ -175,8 +175,8 @@ class Schedule:
 
 SCHEDULES: dict[str, Schedule] = {}
 # Settings keys that do not follow the ``<key>.daily_at`` / ``<key>.enabled`` pattern.
-_TIME_SETTING = {"discovery": "discovery.nightly_at"}
-_ENABLED_SETTING = {"digest": "alert.digest_enabled"}
+_TIME_SETTING = {"discovery": "discovery.nightly_at", "trust_recheck": "scan.daily_at"}
+_ENABLED_SETTING = {"digest": "alert.digest_enabled", "trust_recheck": "scan.enabled"}
 _DAILY_TIME = re.compile(r"([01]\d|2[0-3]):([0-5]\d)")
 
 
@@ -188,6 +188,7 @@ def register_schedule(key: str, job_type: JobType, action: str = "default") -> N
 
 register_schedule("cleanup", JobType.CLEANUP)
 register_schedule("scan", JobType.SCAN)
+register_schedule("trust_recheck", JobType.SCAN, "trust_recheck")  # shares scan.daily_at / scan.enabled
 
 
 def parse_daily_time(value: object) -> tuple[int, int] | None:

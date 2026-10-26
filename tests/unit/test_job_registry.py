@@ -13,6 +13,7 @@ from app.crypto.keyring import Keyring, KeyUnwrapError
 from app.jobs import worker
 from app.jobs.handlers import build_registry
 from app.jobs.handlers.cleanup import prune_artifacts, validate_cleanup_payload
+from app.jobs.handlers.trust_recheck import TRUST_RECHECK_ACTION, validate_trust_recheck_payload
 from app.jobs.queue import JobFailure
 from app.jobs.worker import JobContext, JobRegistry
 from app.models import Job
@@ -244,7 +245,7 @@ def test_latest_occurrence_normalizes_to_utc():
 
 
 def test_default_schedule_table_has_cleanup_and_scan():
-    assert set(worker.SCHEDULES) == {"cleanup", "scan"}
+    assert set(worker.SCHEDULES) == {"cleanup", "scan", "trust_recheck"}
     assert (worker.SCHEDULES["scan"].job_type, worker.SCHEDULES["scan"].action) == (JobType.SCAN, "default")
     assert worker.SCHEDULES["cleanup"].job_type == JobType.CLEANUP
     assert worker.SCHEDULES["cleanup"].action == "default"
@@ -396,3 +397,31 @@ def test_prune_does_not_touch_siblings_of_the_root(tmp_path):
 def test_settings_type_is_importable_for_context():
     # JobContext only annotates Settings/Keyring; make sure the real types still line up.
     assert Settings and Keyring
+
+
+# --- trust recheck (Plan 2 Task 3) ------------------------------------------------------------
+
+
+def test_registry_supports_the_trust_recheck_scan_action():
+    registry = build_registry()
+    assert registry.supports(JobType.SCAN, "trust_recheck")
+    assert registry.supports(JobType.SCAN, "import_pull") and registry.supports(JobType.SCAN)
+
+
+def test_trust_recheck_payload_is_exactly_the_action():
+    assert validate_trust_recheck_payload({"action": TRUST_RECHECK_ACTION}) == {"action": "trust_recheck"}
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [{}, {"action": "default"}, {"action": "trust_recheck", "extra": 1}, {"action": "trust_recheck", "endpoint_ids": [1]}],
+)
+def test_trust_recheck_payload_validator_rejects_anything_else(payload):
+    with pytest.raises(ValueError):
+        validate_trust_recheck_payload(payload)
+
+
+def test_trust_recheck_is_scheduled_under_the_scan_settings():
+    assert worker.SCHEDULES["trust_recheck"] == worker.Schedule("trust_recheck", JobType.SCAN, "trust_recheck")
+    assert worker._TIME_SETTING["trust_recheck"] == "scan.daily_at"
+    assert worker._ENABLED_SETTING["trust_recheck"] == "scan.enabled"

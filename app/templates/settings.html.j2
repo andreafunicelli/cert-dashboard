@@ -27,6 +27,13 @@
   </form>
 
   <h3>Uploaded trust anchors</h3>
+  {% if disabled.trust_recheck %}{{ disabled_action("Recheck now", disabled.trust_recheck) }}{% else %}
+  <form method="post" action="/settings/trust-anchors/recheck">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <p class="hint">Also runs daily with the scan. Chain statuses are rechecked against the current time in the background.</p>
+    <button type="submit">Recheck now</button>
+  </form>
+  {% endif %}
   {% if anchors %}
   <table>
     <thead><tr><th>Subject</th><th>SHA-256 fingerprint</th><th>Source</th><th>Notes</th><th>Added</th><th>Added by</th><th>Remove</th></tr></thead>

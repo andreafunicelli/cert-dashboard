@@ -3,6 +3,11 @@
 from app.jobs.handlers.cleanup import cleanup, validate_cleanup_payload
 from app.jobs.handlers.import_pull import import_pull as pull_import
 from app.jobs.handlers.scan import scan_endpoints
+from app.jobs.handlers.trust_recheck import (
+    TRUST_RECHECK_ACTION,
+    trust_recheck,
+    validate_trust_recheck_payload,
+)
 from app.jobs.worker import JobRegistry
 from app.models.enums import JobType
 from app.services.scans import PULL_ACTION, validate_pull_payload, validate_scan_payload
@@ -14,4 +19,7 @@ def build_registry() -> JobRegistry:
     registry.register(JobType.CLEANUP, cleanup, validator=validate_cleanup_payload)
     registry.register(JobType.SCAN, scan_endpoints, validator=validate_scan_payload)
     registry.register(JobType.SCAN, pull_import, action=PULL_ACTION, validator=validate_pull_payload)
+    registry.register(
+        JobType.SCAN, trust_recheck, action=TRUST_RECHECK_ACTION, validator=validate_trust_recheck_payload
+    )
     return registry
