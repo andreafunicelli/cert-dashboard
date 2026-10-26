@@ -243,9 +243,9 @@ def _certificates(db: Session, now: datetime, where: list, order: list, limit: i
     return items, total
 
 
-def _inventory_revision(db: Session) -> tuple[str | None, datetime | None]:
-    """Result keys written by Plan 3 on the newest succeeded discover/deploy job (``None`` until then)."""
-    result = db.scalar(
+def inventory_revision_result() -> Select:
+    """The newest succeeded discover/deploy job ``result`` that carries Plan 3's ``inventory_rev`` key."""
+    return (
         select(Job.result)
         .where(
             Job.status == JobStatus.SUCCEEDED,
@@ -255,6 +255,14 @@ def _inventory_revision(db: Session) -> tuple[str | None, datetime | None]:
         .order_by(Job.finished_at.desc().nulls_last(), Job.created_at.desc())
         .limit(1)
     )
+
+
+def _inventory_revision(db: Session) -> tuple[str | None, datetime | None]:
+    """Result keys written by Plan 3 on the newest succeeded discover/deploy job (``None`` until then)."""
+    return parse_inventory_revision(db.scalar(inventory_revision_result()))
+
+
+def parse_inventory_revision(result: object) -> tuple[str | None, datetime | None]:
     if not isinstance(result, dict):
         return None, None
     revision = result.get("inventory_rev")

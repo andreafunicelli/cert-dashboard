@@ -646,12 +646,6 @@ def test_overview_hides_the_checklist_once_certificates_exist(signed_in, invento
     assert 'data-empty-state="setup"' not in signed_in.get("/").text
 
 
-def test_overview_has_no_tls_or_job_summaries_yet(signed_in, inventory):
-    text = signed_in.get("/").text
-    for absent in ("Recent jobs", "TLS health", "Renewals in flight"):
-        assert absent not in text
-
-
 def test_navigation_enables_implemented_areas_only(signed_in):
     text = signed_in.get("/").text
     assert '<a href="/">Overview</a>' in text and '<a href="/certificates">Certificates</a>' in text
