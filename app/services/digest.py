@@ -397,25 +397,29 @@ def render_digest(data: DigestData, timezone_name: str, base_url: str | None) ->
 
     def cert_row(item: DigestCertificate, verb: str) -> dict[str, str | None]:
         owner = f", owner {item.owner}" if item.owner else ""
-        link = f"{prefix}/certificates/{item.id}" if prefix else None
+        # Contract decision 14: the path is always listed; a validated base URL only prefixes it.
+        link = f"{prefix}/certificates/{item.id}"
         return {"text": f"{item.common_name} - {verb} {when(item.not_after)}{owner}", "url": link}
 
-    def section(title: str, key: str, rows: list, intro: str | None = None) -> dict[str, object]:
+    def section(title: str, key: str, rows: list, intro: str | None = None, counted: bool = False) -> dict[str, object]:
         total = data.totals[key]
+        shown = f"showing {len(rows)} of {total}" if total > len(rows) else None
+        if shown is None and counted:  # spec 7.5: expiring/expired always carry their count
+            shown = f"{total} certificate{'' if total == 1 else 's'}"
         return {
             "title": title,
             "intro": intro,
             "rows": [row if isinstance(row, dict) else {"text": row, "url": None} for row in rows],
-            "shown": f"showing {len(rows)} of {total}" if total > len(rows) else None,
+            "shown": shown,
         }
 
     sections = []
     if data.expiring:
         rows = [cert_row(item, "expires") for item in data.expiring]
-        sections.append(section("Expiring within 7 days", "expiring", rows))
+        sections.append(section("Expiring within 7 days", "expiring", rows, counted=True))
     if data.expired:
         rows = [cert_row(item, "expired") for item in data.expired]
-        sections.append(section("Already expired", "expired", rows))
+        sections.append(section("Already expired", "expired", rows, counted=True))
     if data.new_mismatches or data.mismatch_count:
         rows = [
             f"{item.host}:{item.port}{f' (SNI {item.sni})' if item.sni else ''} - expected "

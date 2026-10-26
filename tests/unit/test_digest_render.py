@@ -150,3 +150,28 @@ def test_result_counts_pass_the_redactor_unchanged(now, make):
         "failed_notifications",
     }
     assert redact(counts) == counts
+
+
+def test_certificate_paths_are_listed_without_a_dashboard_url(now):
+    # Plan 2 Contract decision 14: the path is always present, the base URL only prefixes it.
+    mail = render_digest(build(now), "UTC", None)
+    for part in (mail.text, mail.html):
+        assert "/certificates/1" in part and "/certificates/2" in part
+        assert "https://" not in part
+    assert 'href="/certificates/1"' in mail.html
+
+
+def test_expiring_and_expired_sections_always_carry_their_count(now):
+    mail = render_digest(build(now), "UTC", None)
+    for part in (mail.text, mail.html):
+        assert "Expiring within 7 days (1 certificate)" in part
+        assert "Already expired (1 certificate)" in part
+    plural = build(now, totals={**build(now).totals, "expiring": 2}, expiring=build(now).expiring * 2)
+    assert "Expiring within 7 days (2 certificates)" in render_digest(plural, "UTC", None).html
+
+
+def test_capped_expiring_section_keeps_showing_x_of_n(now):
+    data = build(now, expiring=build(now).expiring * 50, totals={**build(now).totals, "expiring": 55})
+    mail = render_digest(data, "UTC", None)
+    assert "Expiring within 7 days (showing 50 of 55)" in mail.text
+    assert "Expiring within 7 days (showing 50 of 55)" in mail.html
