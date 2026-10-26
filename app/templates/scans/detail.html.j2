@@ -28,6 +28,46 @@
   {% else %}<button type="button" disabled title="{{ scan_reason or 'Inactive endpoints are not scanned' }}">Scan now</button>{% endif %}
 </section>
 
+{% block manage %}
+<section class="panel wide" id="manage-panel" aria-label="Manage endpoint">
+  <h2>Manage</h2>
+  <h3 id="expectation-form">Expected certificate</h3>
+  <p class="hint">Update the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.</p>
+  {% if errors.certificate_id %}<div class="form-error" data-error="certificate_id" role="alert"><p>{{ errors.certificate_id }}{% if offer_import %} <a href="{{ import_url }}">Import the served certificate</a> first.{% endif %}</p></div>{% endif %}
+  <form method="post" action="/scans/{{ row.id }}/expectation" hx-post="/scans/{{ row.id }}/expectation" hx-target="#manage-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="expect_certificate">Active certificate</label>
+    <select id="expect_certificate" name="certificate_id" required>
+      {% set chosen = form_certificate or (row.expected_certificate_id | string) %}
+      <option value="">Choose…</option>
+      {% for id, name, not_after in certificates %}<option value="{{ id }}"{% if chosen == id | string %} selected{% endif %}>{{ name }} (#{{ id }}, expires {{ not_after.date() }})</option>{% endfor %}
+    </select>
+    <button type="submit">Set expectation</button>
+  </form>
+  {% if row.observed_fingerprint %}
+  {% if detail.observed_certificate_active %}
+  <form method="post" action="/scans/{{ row.id }}/expectation" hx-post="/scans/{{ row.id }}/expectation" hx-target="#manage-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="use_observed" value="1">
+    <button type="submit">Use the observed certificate</button>
+  </form>
+  {% elif detail.observed_certificate_id %}
+  <p class="hint">The observed certificate is <a href="/certificates/{{ detail.observed_certificate_id }}">in the inventory but is not active</a> (revoked or superseded), so it cannot be expected. Choose an active certificate above.</p>
+  {% else %}
+  <p class="hint">The observed certificate is not in the inventory: <a href="{{ import_url }}">import the served certificate</a> first.</p>
+  {% endif %}
+  {% endif %}
+  <h3>Scheduled scans</h3>
+  {% if errors.active %}<div class="form-error" data-error="active" role="alert"><p>{{ errors.active }}</p></div>{% endif %}
+  <form method="post" action="/scans/{{ row.id }}/active" hx-post="/scans/{{ row.id }}/active" hx-target="#manage-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="active" value="{{ 'false' if row.is_active else 'true' }}">
+    <button type="submit">{{ "Deactivate" if row.is_active else "Activate" }}</button>
+    <small>Endpoints are never deleted; deactivating keeps the history.</small>
+  </form>
+</section>
+{% endblock %}
+
 {% if row.status == "mismatch" %}
 <section class="panel wide" id="mismatch" aria-label="Mismatch">
   <h2>This endpoint serves a different certificate than expected</h2>
@@ -36,8 +76,13 @@
   <h3>Likely actions</h3>
   <ul>
     {% if row.expected_certificate_id %}<li>The old certificate is still being served: <a href="/renewals/new?from={{ row.expected_certificate_id }}">Renew and deploy</a> the expected certificate.</li>{% endif %}
-    <li><a href="{{ import_url }}">Import the served certificate</a> from this endpoint (host, port and SNI are prefilled){% if detail.observed_certificate_id %}; it is already in the inventory, so this only helps if you need its chain{% endif %}.</li>
-    <li id="expectation">If the virtual host changed on purpose, update the expectation to the certificate it now serves.</li>
+    {% if detail.observed_certificate_active %}
+    <li id="expectation">If the virtual host changed on purpose, update the expectation to the certificate it now serves: <a href="#manage-panel">use the observed certificate</a>.</li>
+    {% elif detail.observed_certificate_id %}
+    <li id="expectation">The served certificate is in the inventory but is not active (revoked or superseded), so it cannot be expected. Choose an active certificate in the endpoint settings, or renew and deploy a new one.</li>
+    {% else %}
+    <li id="expectation"><a href="{{ import_url }}">Import the served certificate</a> from this endpoint (host, port and SNI are prefilled); if the virtual host changed on purpose, you can then use it as the expectation.</li>
+    {% endif %}
   </ul>
 </section>
 {% endif %}
@@ -65,4 +110,12 @@
   {% else %}<p>This endpoint has not been scanned yet.</p>{% endif %}
 {% endblock %}
 </section>
+{% endblock %}
+{% block scripts %}
+<script>
+  // htmx ignores 4xx bodies by default; a refused form answers 422 with the re-rendered panel.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
+  });
+</script>
 {% endblock %}

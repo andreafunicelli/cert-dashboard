@@ -133,11 +133,11 @@
   <h2>Endpoints</h2>
   {% if detail.endpoints %}
   <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Endpoint</th><th scope="col">SNI</th><th scope="col">Expected certificate</th><th scope="col">Observed certificate</th><th scope="col">Last scan</th><th scope="col">Active</th></tr></thead>
+    <thead><tr><th scope="col">Endpoint</th><th scope="col">SNI</th><th scope="col">Expected certificate</th><th scope="col">Observed certificate</th><th scope="col">Last scan</th><th scope="col">Active</th><th scope="col">Actions</th></tr></thead>
     <tbody>
     {% for e in detail.endpoints %}
     <tr{% if e.matches_expected is sameas false %} class="row-attention"{% endif %}>
-      <td>{{ hostport(e.host, e.port) }}</td><td>{{ e.sni or "—" }}</td>
+      <td><a href="/scans/{{ e.id }}">{{ hostport(e.host, e.port) }}</a></td><td>{{ e.sni or "—" }}</td>
       <td><span class="label">Expected</span> {{ c.common_name }}<br><code>{{ c.sha256_fingerprint }}</code></td>
       <td><span class="label">Observed</span>
         {% if e.observed_fingerprint %}
@@ -149,13 +149,21 @@
         No certificate observed
         {% else %}—{% endif %}</td>
       <td>{% if e.last_scan_status %}{{ e.last_scan_status }} {{ time_tag(e.last_scan_at, tz) }}{% else %}not scanned yet{% endif %}</td>
-      <td>{{ "yes" if e.is_active else "no" }}</td></tr>
+      <td>{{ "yes" if e.is_active else "no" }}</td>
+      <td><a href="/scans/{{ e.id }}#history">History</a>
+        {% if scan_supported and e.is_active %}<form class="inline" method="post" action="/scans/run">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="scope" value="endpoint">
+          <input type="hidden" name="endpoint_id" value="{{ e.id }}">
+          <button type="submit">Scan now</button>
+        </form>{% endif %}</td></tr>
     {% endfor %}
     </tbody>
   </table></div>
   {% else %}
-  <p>No endpoints expect this certificate yet. Endpoints are added by a server import or discovery.</p>
+  <p>No endpoints expect this certificate yet. Add one to watch where this certificate is served.</p>
   {% endif %}
+  <p><a class="button" href="/scans?expected_certificate_id={{ c.id }}#add-endpoint">Add endpoint</a></p>
 </section>
 
 <section class="panel wide" id="history-panel">

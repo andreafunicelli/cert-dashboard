@@ -794,7 +794,9 @@ def test_detail_bindings_and_endpoints_panels_are_read_only(signed_in, inventory
     assert "web01.example.test" in bindings and "/etc/ssl/www.infra.example.test.pem" in bindings
     assert "<form" not in bindings and "retired.infra.example.test" in bindings
     endpoints = re.search(r'<section[^>]*id="endpoints-panel".*?</section>', page.text, re.DOTALL).group(0)
-    assert "www.infra.example.test:443" in endpoints and "<form" not in endpoints
+    assert "www.infra.example.test:443" in endpoints
+    # Task 13: the only control is the per-endpoint "Scan now" (a CSRF-protected POST that enqueues a job).
+    assert set(re.findall(r'<form[^>]*action="([^"]+)"', endpoints)) == {"/scans/run"} and "Scan now" in endpoints
 
 
 def _row_for(panel, needle):
@@ -898,7 +900,9 @@ def test_endpoints_panel_without_an_observation_says_so(signed_in, inventory, we
     for fragment in ("SYNTHETIC-SECRET-TOKEN", "BEGIN PRIVATE KEY", "handshake failed", "<b>x</b>"):
         assert fragment not in unreachable
         assert fragment not in signed_in.get(f"/certificates/{inventory.www}").text
-    assert "<form" not in panel and "<button" not in panel
+    # Task 13: each row links the endpoint and can scan it; no other control (and no deploy/edit) lives here.
+    assert set(re.findall(r'<form[^>]*action="([^"]+)"', panel)) == {"/scans/run"}
+    assert "disabled" not in panel
 
 
 def test_detail_empty_panels_have_explanatory_text(signed_in, inventory):

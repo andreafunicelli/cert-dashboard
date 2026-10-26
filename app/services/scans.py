@@ -98,6 +98,45 @@ def canonical_host(value: object) -> str:
         return _dns_host(candidate, _HOST_MESSAGE)
 
 
+class EndpointInputError(ValueError):
+    """Invalid manual endpoint input; ``errors`` maps a form field to a message safe to display."""
+
+    def __init__(self, errors: Mapping[str, str]) -> None:
+        super().__init__("invalid endpoint")
+        self.errors: dict[str, str] = dict(errors)
+
+
+def validate_endpoint_target(host: object, port: object, sni: object) -> tuple[str, int, str | None]:
+    """Canonical ``(host, port, sni)`` of a manually entered endpoint, by the pull-import rules.
+
+    ``sni`` is ``None`` when empty or equal to the host, so the identity matches the coalesced unique index.
+    """
+    errors: dict[str, str] = {}
+    name = number = server_name = None
+    try:
+        name = canonical_host(host.strip() if isinstance(host, str) else host)
+    except ValueError as exc:
+        errors["host"] = str(exc)
+    if isinstance(port, str):
+        text = port.strip()
+        port = int(text) if text.isascii() and text.isdigit() and len(text) <= 5 else None
+    if type(port) is not int or not 1 <= port <= 65535:
+        errors["port"] = _PORT_MESSAGE
+    else:
+        number = port
+    if sni is not None and not isinstance(sni, str):
+        errors["sni"] = _SNI_MESSAGE
+    elif sni and sni.strip():
+        try:
+            server_name = _dns_host(sni.strip(), _SNI_MESSAGE)
+        except ValueError as exc:
+            errors["sni"] = str(exc)
+    if errors:
+        raise EndpointInputError(errors)
+    assert name is not None and number is not None
+    return name, number, None if server_name == name else server_name
+
+
 def _metadata(value: object) -> dict[str, JSONValue]:
     if value is None:
         value = {}
