@@ -5,6 +5,7 @@ import json
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import event
 
 from app.models import Job, NotificationLog
 from app.models.enums import JobStatus, JobType, NotificationStatus
@@ -197,3 +198,39 @@ def test_snapshot_is_json_native_with_the_smtp_block(web_factory, keyring, now):
     assert json.loads(json.dumps(snapshot)) == snapshot
     assert set(snapshot["smtp"]) == {"consecutive_failures", "last_error", "last_success_at", "last_test"}
     assert snapshot["smtp"]["consecutive_failures"] == 1 and "smtp_failing" in snapshot["warnings"]
+
+
+def count_statements(db, call):
+    statements = []
+
+    def capture(conn, cursor, statement, parameters, context, many):
+        statements.append(statement)
+
+    bind = db.get_bind()
+    event.listen(bind, "before_cursor_execute", capture)
+    try:
+        result = call()
+    finally:
+        event.remove(bind, "before_cursor_execute", capture)
+    return result, statements
+
+
+def test_each_panel_reads_with_one_bounded_statement(web_factory, now):
+    seed_notifications(web_factory, now, ["sent", "failed", "failed"])
+    seed_smtp_test(
+        web_factory, now, JobStatus.SUCCEEDED, minutes_ago=10, result={"recipient": "me@example.test"}
+    )
+    with web_factory() as db:
+        state, statements = count_statements(db, lambda: smtp_health(db))
+        assert len(statements) == 1
+        assert state["consecutive_failures"] == 2 and state["last_success_at"] is not None
+        assert state["last_test"]["status"] == "succeeded"
+        rows, statements = count_statements(db, lambda: notification_failures(db))
+        assert len(statements) == 1 and len(rows) == 2
+
+
+def test_smtp_health_on_an_empty_database_is_one_statement_with_empty_values(web_factory):
+    with web_factory() as db:
+        state, statements = count_statements(db, lambda: smtp_health(db))
+    assert len(statements) == 1
+    assert state == {"consecutive_failures": 0, "last_error": None, "last_success_at": None, "last_test": None}
