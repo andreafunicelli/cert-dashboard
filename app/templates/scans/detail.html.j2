@@ -1,0 +1,68 @@
+{% extends "base.html.j2" %}
+{% block title %}{{ row.host }} · Scans · Cert Dashboard{% endblock %}
+{% block content %}
+<p><a href="/scans">← All scans</a></p>
+<h1>{{ hostport(row.host, row.port) }}</h1>
+<section class="panel wide" id="endpoint-panel" aria-label="Endpoint">
+  <p><span class="chip chip-{{ {'expired': 'expired', 'mismatch': 'critical', 'unreachable': 'warning', 'error': 'warning', 'ok': 'ok'}.get(row.status, 'soon') }}">{{ row.status or "not scanned" }}</span>
+    {% if not row.is_active %}<small>Inactive: scheduled scans skip this endpoint.</small>{% endif %}</p>
+  {% if row.error %}<p class="form-error" data-field="scan_error">{{ row.error }}</p>{% endif %}
+  <dl>
+    <dt>SNI</dt><dd>{{ row.sni or "— (the host name is sent)" }}</dd>
+    <dt>Source</dt><dd>{{ row.source }}</dd>
+    <dt>Server</dt><dd>{{ row.server or "—" }}</dd>
+    <dt>Expected certificate</dt><dd>{% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a> <code>{{ row.expected_fingerprint }}</code>{% else %}none{% endif %}</dd>
+    <dt>Last checked</dt><dd>{{ time_tag(row.checked_at, tz) }}</dd>
+    <dt>Observed common name</dt><dd>{{ row.observed_common_name or "—" }}</dd>
+    <dt>Observed issuer</dt><dd>{{ row.observed_issuer_cn or "—" }}</dd>
+    <dt>Observed expiry</dt><dd>{{ time_tag(row.observed_not_after, tz) }}</dd>
+    <dt>Observed fingerprint</dt><dd>{% if row.observed_fingerprint %}<code>{{ row.observed_fingerprint }}</code>{% else %}—{% endif %}</dd>
+    <dt>Chain length / TLS</dt><dd>{{ row.observed_chain_length or "—" }} / {{ row.tls_version or "—" }}</dd>
+  </dl>
+  {% if scan_supported and row.is_active %}<form class="inline" method="post" action="/scans/run">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="scope" value="endpoint">
+    <input type="hidden" name="endpoint_id" value="{{ row.id }}">
+    <button type="submit">Scan now</button>
+  </form>
+  {% else %}<button type="button" disabled title="{{ scan_reason or 'Inactive endpoints are not scanned' }}">Scan now</button>{% endif %}
+</section>
+
+{% if row.status == "mismatch" %}
+<section class="panel wide" id="mismatch" aria-label="Mismatch">
+  <h2>This endpoint serves a different certificate than expected</h2>
+  <p>Expected: {% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a> <code>{{ row.expected_fingerprint }}</code>{% else %}no certificate is expected for this endpoint{% endif %}</p>
+  <p>Served: {% if detail.observed_certificate_id %}<a href="/certificates/{{ detail.observed_certificate_id }}">{{ row.observed_common_name }}</a>{% else %}{{ row.observed_common_name or "an unknown certificate" }} (not in the inventory){% endif %} <code>{{ row.observed_fingerprint }}</code></p>
+  <h3>Likely actions</h3>
+  <ul>
+    {% if row.expected_certificate_id %}<li>The old certificate is still being served: <a href="/renewals/new?from={{ row.expected_certificate_id }}">Renew and deploy</a> the expected certificate.</li>{% endif %}
+    <li><a href="{{ import_url }}">Import the served certificate</a> from this endpoint (host, port and SNI are prefilled){% if detail.observed_certificate_id %}; it is already in the inventory, so this only helps if you need its chain{% endif %}.</li>
+    <li id="expectation">If the virtual host changed on purpose, update the expectation to the certificate it now serves.</li>
+  </ul>
+</section>
+{% endif %}
+
+<section class="panel wide" id="history" aria-label="History">
+{% block history %}
+  <h2>History</h2>
+  <p class="hint">The last {{ detail.history | length }} result{{ "" if detail.history | length == 1 else "s" }} (newest first) for {{ hostport(detail.row.host, detail.row.port) }}.</p>
+  {% if detail.history %}
+  <div class="table-wrap"><table>
+    <thead><tr><th scope="col">Checked</th><th scope="col">Status</th><th scope="col">Observed fingerprint</th><th scope="col">Common name</th><th scope="col">Source</th><th scope="col">Error</th></tr></thead>
+    <tbody>
+    {% for item in detail.history %}
+    <tr class="scan-history-row">
+      <td>{{ time_tag(item.checked_at, tz) }}</td>
+      <td>{{ item.status.value }}</td>
+      <td>{% if item.observed_fingerprint %}<code>{{ item.observed_fingerprint }}</code>{% else %}—{% endif %}</td>
+      <td>{{ item.observed_common_name or "—" }}</td>
+      <td>{{ item.source }}</td>
+      <td>{{ item.error or "" }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p>This endpoint has not been scanned yet.</p>{% endif %}
+{% endblock %}
+</section>
+{% endblock %}

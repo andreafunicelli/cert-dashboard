@@ -939,7 +939,12 @@ def register_certificate_routes(app: FastAPI) -> None:
 
     @app.get("/certificates/import")
     def import_form(request: Request):
-        return _page(request)
+        # The Scans mismatch page links here with the endpoint's host, port and SNI prefilled.
+        target = {name: request.query_params.get(name, "")[:300] for name in ("host", "port", "sni")}
+        if not target["host"]:
+            return _page(request)
+        blank = dict.fromkeys(_METADATA_FIELDS, "")
+        return _page(request, pull_form={**blank, **target, "port": target["port"] or "443"})
 
     @app.post(PULL_ROUTE)
     async def import_pull_submit(request: Request):

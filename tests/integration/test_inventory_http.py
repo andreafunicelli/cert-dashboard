@@ -658,10 +658,10 @@ def test_navigation_enables_implemented_areas_only(signed_in):
     reasons = {
         "Servers": "Available in a later plan",
         "Deploy": "handler deploy/default not registered (Plan 3)",
-        "Scans": "Available in a later plan",  # scan/default is registered; Task 12 enables the screen
     }
     for label, reason in reasons.items():
         assert re.search(rf'<span aria-disabled="true" title="{re.escape(reason)}">{label}</span>', text), label
+    assert '<a href="/scans">Scans</a>' in text  # scan/default is registered (Plan 2 Task 12)
     assert '<a href="/audit">Audit</a>' in text
     assert '<a href="/settings">Settings</a>' in text
 
