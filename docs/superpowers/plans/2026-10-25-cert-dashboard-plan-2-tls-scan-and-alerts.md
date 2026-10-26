@@ -496,7 +496,7 @@ def test_empty_digest_is_still_a_daily_heartbeat(queue_factory, make_worker, smt
 
 **Interfaces:** Consumes: `NotificationLog`, `Job`, Task 5 `latest_smtp_test`, `status_snapshot(db: Session, keyring: Keyring, now: datetime, *, keyring_sha256: str | None = None) -> dict[str, JSONValue]`. Produces in `app/services/settings.py`: `NotificationFailureView(id: int, kind: str, certificate_id: int | None, threshold_days: int | None, recipients: tuple[str, ...], attempts: int, last_attempt_at: datetime | None, next_attempt_at: datetime | None, error: str | None)`; `notification_failures(db: Session, limit: int = 50) -> list[NotificationFailureView]`; `smtp_health(db: Session) -> dict[str, JSONValue]` (`consecutive_failures`, `last_error`, `last_success_at`, `last_test`); `status_snapshot` gains key `smtp` and warnings `smtp_failing` (≥ 1 consecutive failure) and `smtp_tls_unverified` (`smtp.tls_verify=false`).
 
-- [ ] Write failing tests:
+- [x] Write failing tests:
 
 ```python
 def test_status_shows_consecutive_failures_and_the_last_error(signed_in, web_factory, now):
@@ -512,10 +512,10 @@ def test_alerts_tab_lists_recent_failures_with_attempts(signed_in, web_factory, 
 ```
 
   Also assert `consecutive_failures` resets at the newest `sent` row (ordering by `last_attempt_at DESC, id DESC`), `no_recipients` rows count as failures but `smtp_test` jobs do not, the last test result reflects the newest `smtp_test` job only, failure rows link to the certificate, escaped error text, and the JSON-native snapshot (existing Status assertions in `tests/integration/test_settings_http.py` updated for the new `smtp` key and warnings).
-- [ ] Run `uv run pytest tests/integration/test_settings_alerts_status.py tests/integration/test_settings_http.py -q` in CI; expect FAIL, signals absent.
-- [ ] Implement as read-only queries (one per panel, bounded); no settings key or mutation is added. Status warning texts: "Recent alert or digest mail could not be delivered." and "SMTP TLS certificate verification is disabled (unsafe)."
-- [ ] Run the same command; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
-- [ ] Commit: `git add app/services/settings.py app/web/settings.py app/templates/settings.html.j2 tests/integration/test_settings_http.py tests/integration/test_settings_alerts_status.py`; `git commit -m "feat: show alert delivery failures and SMTP health in settings"`.
+- [x] Run `uv run pytest tests/integration/test_settings_alerts_status.py tests/integration/test_settings_http.py -q` in CI; expect FAIL, signals absent.
+- [x] Implement as read-only queries (one per panel, bounded); no settings key or mutation is added. Status warning texts: "Recent alert or digest mail could not be delivered." and "SMTP TLS certificate verification is disabled (unsafe)."
+- [x] Run the same command; expect PASS. Locally `uv run ruff check .` and `uv run pytest -q tests/unit`.
+- [x] Commit: `git add app/services/settings.py app/web/settings.py app/templates/settings.html.j2 tests/integration/test_settings_http.py tests/integration/test_settings_alerts_status.py`; `git commit -m "feat: show alert delivery failures and SMTP health in settings"`.
 
 ### Task 12: Scan results screen (`/scans`)
 

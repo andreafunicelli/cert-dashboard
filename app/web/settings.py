@@ -45,7 +45,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from importlib.metadata import version as package_version
-from typing import get_args
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
@@ -63,15 +62,19 @@ from app.jobs.queue import enqueue
 from app.models import Certificate, Job, JSONValue, TrustAnchor, User
 from app.models.enums import JobType
 from app.services.audit import record
+from app.services.notifications import MAX_NOTIFICATION_ATTEMPTS
 from app.services.scans import ON_DEMAND_PRIORITY
 from app.services.settings import (
     SettingsValidationError,
     get_setting,
     is_valid_setting,
+    latest_smtp_test,
+    notification_failures,
+    smtp_test_jobs,
+    smtp_test_view,
     status_snapshot,
     update_settings,
 )
-from app.services.smtp import SmtpStepName
 from app.services.trust_anchors import (
     AnchorValidationError,
     add_anchor,
@@ -273,6 +276,8 @@ def _capabilities() -> dict[str, str]:
 
 _WARNINGS = {
     "smtp_not_configured": "SMTP is not configured: alert and digest e-mails cannot be sent.",
+    "smtp_failing": "Recent alert or digest mail could not be delivered.",
+    "smtp_tls_unverified": "SMTP TLS certificate verification is disabled (unsafe).",
     "inventory_not_configured": "No inventory repository is configured: discovery cannot run.",
     "no_alert_recipients": "No alert recipients are set and some active certificates have no owner e-mail.",
     "missing_key_versions": "Stored key material refers to master-key versions that are not in the keyring.",
@@ -291,43 +296,6 @@ def _human_bytes(size: int) -> str:
 
 def _when(value: str | None) -> datetime | None:
     return None if value is None else datetime.fromisoformat(value)
-
-
-_STEP_NAMES = frozenset(get_args(SmtpStepName))
-
-
-def _smtp_test_view(job: Job) -> dict[str, JSONValue]:
-    """A test job as plain values; steps are re-filtered to ``{step, code}`` so only fixed text renders."""
-    result = job.result if isinstance(job.result, dict) else {}
-    raw_steps = result.get("steps")
-    steps: list[JSONValue] = [
-        {"step": item["step"], "code": item["code"]}
-        for item in (raw_steps if isinstance(raw_steps, list) else [])
-        if isinstance(item, dict)
-        and item.get("step") in _STEP_NAMES
-        and (item.get("code") is None or type(item.get("code")) is int)
-    ]
-    recipient = result.get("recipient")
-    return {
-        "job_id": str(job.id),
-        "status": getattr(job.status, "value", job.status),
-        "requested_at": job.created_at.isoformat(),
-        "finished_at": job.finished_at.isoformat() if job.finished_at is not None else None,
-        "recipient": recipient if isinstance(recipient, str) else None,
-        "steps": steps,
-        "error_class": job.error_class,
-        "error_message": job.error_message,
-    }
-
-
-def _smtp_test_jobs():
-    return select(Job).where(Job.type == JobType.ALERT_EXPIRY, Job.payload["action"].as_string() == SMTP_TEST_ACTION)
-
-
-def latest_smtp_test(db: Session) -> dict[str, JSONValue] | None:
-    """The newest ``alert_expiry/smtp_test`` job as plain values, or None when none was ever queued."""
-    job = db.scalars(_smtp_test_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1)).first()
-    return None if job is None else _smtp_test_view(job)
 
 
 def _trust_context(db: Session) -> dict:
@@ -401,6 +369,12 @@ def _page(
             context["tls_unsafe"] = tab == "smtp" and get_setting(db, "smtp.tls_verify") is False
             if tab == "smtp":
                 context.update(smtp_test=latest_smtp_test(db), timezone=display_timezone(db), when=_when)
+            if tab == "alerts":
+                context.update(
+                    failures=notification_failures(db),
+                    max_attempts=MAX_NOTIFICATION_ATTEMPTS,
+                    timezone=display_timezone(db),
+                )
         elif tab == "trust":
             context.update(_trust_context(db))
         else:  # status and maintenance both render the snapshot (maintenance shows the keyring state)
@@ -632,10 +606,10 @@ def _handle_smtp_test(request: Request, form: FormData):
 
 def _smtp_test_fragment(request: Request, job_id: UUID):
     with request.app.state.factory() as db:
-        job = db.scalars(_smtp_test_jobs().where(Job.id == job_id)).first()
+        job = db.scalars(smtp_test_jobs().where(Job.id == job_id)).first()
         if job is None:
             raise HTTPException(404)
-        view = _smtp_test_view(job)
+        view = smtp_test_view(job)
         timezone = display_timezone(db)
     return render_block(request, "settings.html.j2", "smtp_test_result", smtp_test=view, timezone=timezone, when=_when)
 
