@@ -90,11 +90,14 @@ def server_block(tls: Tls, *, port: int = 18443, cert: Path | None = None, key: 
     )
 
 
-def local_host(**variables: object) -> dict:
+def local_host(tmp_path: Path, **variables: object) -> dict:
     return {
         "ansible_connection": "local",
         "ansible_python_interpreter": "{{ ansible_playbook_python }}",
         "ansible_become": False,  # the targets use sudo; the unit test host is the current user
+        # Like tests/fixtures/ansible/local.ini: the CI image's user has no passwd home to expand `~` to. The
+        # delegated (implicit localhost) tasks must name theirs in the playbook, which the run directory proves.
+        "ansible_remote_tmp": str(tmp_path / "host-tmp"),
         **variables,
     }
 
@@ -126,7 +129,7 @@ def tls(tmp_path) -> Tls:
 
 def test_nginx_document_facts_dump_and_nothing_secret_in_events(tmp_path, tls):
     nginx = fake_nginx(tmp_path, server_block(tls))
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=nginx)})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=nginx)})
 
     result = found[WEB]
     assert (result.status, result.reason, result.error) == ("ok", None, None), result
@@ -160,12 +163,14 @@ def test_nginx_document_facts_dump_and_nothing_secret_in_events(tmp_path, tls):
     assert events
     assert not any("ssl_certificate" in path.read_text() for path in events)
     assert not any("PRIVATE KEY" in path.read_text() for path in events)
+    # the delegated tasks used the run's HOME (named in the playbook), not the passwd home of the user
+    assert (tmp_path / "run" / "home" / ".ansible" / "tmp").is_dir()
 
 
 def test_a_private_key_in_a_combined_file_is_never_read_out(tmp_path, tls):
     combined = tls.write("combined.pem", tls.cert_pem + tls.key_pem, 0o600)
     nginx = fake_nginx(tmp_path, server_block(tls, cert=combined, key=combined))
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=nginx)})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=nginx)})
 
     [binding] = found[WEB].document["bindings"]
     assert (binding["cert_fingerprint"], binding["key_public_sha256"]) == (tls.fingerprint, tls.spki)
@@ -192,7 +197,7 @@ def test_passphrase_protected_and_missing_files_are_reported_and_the_rest_is_pro
         f" server {{ listen 18445 ssl; server_name ok.example.internal;"
         f" ssl_certificate {tls.crt}; ssl_certificate_key {tls.keyfile}; }} }}"
     )
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=fake_nginx(tmp_path, config))})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=fake_nginx(tmp_path, config))})
 
     assert found[WEB].status == "ok"
     rows = {b["vhost_name"]: b for b in found[WEB].document["bindings"]}
@@ -206,7 +211,7 @@ def test_passphrase_protected_and_missing_files_are_reported_and_the_rest_is_pro
 
 def test_a_failed_capture_is_reported_without_stderr(tmp_path, tls):
     nginx = fake_nginx(tmp_path, "http {", rc=1, stderr_noise="nginx: [emerg] STDERR-CANARY ssl_certificate")
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=nginx)})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=nginx)})
 
     result = found[WEB]
     assert (result.status, result.reason, result.document) == ("failed", "dump_failed", None)
@@ -216,7 +221,7 @@ def test_a_failed_capture_is_reported_without_stderr(tmp_path, tls):
 
 
 def test_a_host_without_a_webserver_is_a_failed_capture(tmp_path):
-    found = discover(tmp_path, {WEB: local_host(nginx_binary="", apachectl_binary="")})  # nothing to detect on a CI runner
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary="", apachectl_binary="")})  # nothing to detect on a CI runner
     assert (found[WEB].status, found[WEB].reason, found[WEB].document) == ("failed", "dump_failed", None)
     assert found[WEB].error == "no supported webserver found on the host"
 
@@ -224,20 +229,20 @@ def test_a_host_without_a_webserver_is_a_failed_capture(tmp_path):
 def test_an_oversized_dump_fails_instead_of_being_truncated(tmp_path, tls, monkeypatch):
     monkeypatch.setattr(discovery, "MAX_DUMP_BYTES", 200)
     nginx = fake_nginx(tmp_path, server_block(tls) + "\n" + "# padding\n" * 100)
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=nginx)})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=nginx)})
 
     assert (found[WEB].status, found[WEB].reason, found[WEB].document) == ("failed", "dump_too_large", None)
     assert not (tmp_path / "artifacts" / "dumps" / f"{WEB}.txt").exists()
 
 
 def test_an_unparseable_dump_is_parse_failed(tmp_path):
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=fake_nginx(tmp_path, "http { server { listen 443 ssl;"))})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=fake_nginx(tmp_path, "http { server { listen 443 ssl;"))})
     assert (found[WEB].status, found[WEB].reason, found[WEB].document) == ("failed", "parse_failed", None)
     assert found[WEB].error == "configuration could not be parsed"
 
 
 def test_a_host_without_tls_has_an_empty_document(tmp_path):
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=fake_nginx(tmp_path, "http { server { listen 80; } }"))})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=fake_nginx(tmp_path, "http { server { listen 80; } }"))})
     assert found[WEB].status == "ok" and found[WEB].document["bindings"] == []
     assert (tmp_path / "artifacts" / "discovery" / f"{WEB}.json").exists()
 
@@ -268,7 +273,7 @@ def fake_apache(tmp_path: Path, tls: Tls) -> str:
 
 
 def test_apache_document_verifies_the_chain_file_and_keeps_the_json_dump(tmp_path, tls):
-    found = discover(tmp_path, {APACHE: local_host(apachectl_binary=fake_apache(tmp_path, tls))}, {APACHE: "apache"})
+    found = discover(tmp_path, {APACHE: local_host(tmp_path, apachectl_binary=fake_apache(tmp_path, tls))}, {APACHE: "apache"})
 
     result = found[APACHE]
     assert (result.status, result.reason) == ("ok", None), result
@@ -287,7 +292,7 @@ def test_apache_document_verifies_the_chain_file_and_keeps_the_json_dump(tmp_pat
 def test_a_chain_file_that_does_not_sign_the_leaf_is_not_a_chain(tmp_path, tls):
     other = FixtureCA(NOW)  # an unrelated CA
     tls.write("www.chain.pem", other.chain_pem, 0o644)
-    found = discover(tmp_path, {APACHE: local_host(apachectl_binary=fake_apache(tmp_path, tls))}, {APACHE: "apache"})
+    found = discover(tmp_path, {APACHE: local_host(tmp_path, apachectl_binary=fake_apache(tmp_path, tls))}, {APACHE: "apache"})
 
     [binding] = found[APACHE].document["bindings"]
     assert binding["chain_path"] is None
@@ -300,7 +305,7 @@ def test_a_chain_file_that_does_not_sign_the_leaf_is_not_a_chain(tmp_path, tls):
 
 def test_a_missing_chain_file_is_reported_and_the_host_is_still_processed(tmp_path, tls):
     tls.chain.unlink()
-    found = discover(tmp_path, {APACHE: local_host(apachectl_binary=fake_apache(tmp_path, tls))}, {APACHE: "apache"})
+    found = discover(tmp_path, {APACHE: local_host(tmp_path, apachectl_binary=fake_apache(tmp_path, tls))}, {APACHE: "apache"})
 
     [binding] = found[APACHE].document["bindings"]
     assert binding["chain_path"] is None and "unreadable" in binding["chain_diagnostic"]
@@ -310,7 +315,7 @@ def test_a_missing_chain_file_is_reported_and_the_host_is_still_processed(tmp_pa
 def test_an_unreachable_host_is_reported_beside_a_healthy_one(tmp_path, tls):
     dead = {"ansible_connection": "ssh", "ansible_host": "127.0.0.1", "ansible_port": 1, "ansible_user": "nobody"}
     nginx = fake_nginx(tmp_path, server_block(tls))
-    found = discover(tmp_path, {WEB: local_host(nginx_binary=nginx), "dead.example.internal": dead})
+    found = discover(tmp_path, {WEB: local_host(tmp_path, nginx_binary=nginx), "dead.example.internal": dead})
 
     assert found[WEB].status == "ok"
     gone = found["dead.example.internal"]
@@ -319,7 +324,7 @@ def test_an_unreachable_host_is_reported_beside_a_healthy_one(tmp_path, tls):
 
 
 def test_a_host_missing_from_the_inventory_fails_with_a_fixed_text(tmp_path, tls):
-    run = context(tmp_path, {WEB: local_host(nginx_binary=fake_nginx(tmp_path, server_block(tls)))})
+    run = context(tmp_path, {WEB: local_host(tmp_path, nginx_binary=fake_nginx(tmp_path, server_block(tls)))})
     found = discover_hosts(run, [WEB, "nowhere.example.internal"], webservers={}, now=NOW, timeout_seconds=300)
     assert found[WEB].status == "ok"
     assert (found["nowhere.example.internal"].status, found["nowhere.example.internal"].reason) == ("failed", "internal")
@@ -327,7 +332,7 @@ def test_a_host_missing_from_the_inventory_fails_with_a_fixed_text(tmp_path, tls
 
 @pytest.mark.parametrize("name", ["", "a b", "x:y", "../up", "..", "web*", "a" * 254, "web;rm"])
 def test_invalid_hostnames_are_refused_before_any_run(tmp_path, name):
-    run = context(tmp_path, {WEB: local_host()})
+    run = context(tmp_path, {WEB: local_host(tmp_path)})
     with pytest.raises(ValueError, match="hostname"):
         discover_hosts(run, [name], webservers={}, now=NOW)
     assert not (tmp_path / "run").exists()

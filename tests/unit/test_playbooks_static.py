@@ -130,6 +130,8 @@ def test_nothing_is_written_on_the_target(discover_tasks):
     for task in writers:
         assert task.get("delegate_to") == "localhost", f"{label(task)} must run on the controller"
         assert task.get("become") is False, f"{label(task)} must not use become"
+        # the worker's user has no passwd home: the controller-side temp directory must be named, not `~`
+        assert task["vars"]["ansible_remote_tmp"] == "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
 
 
 def test_exactly_one_target_side_script_task_runs_the_apache_collector(discover_tasks):

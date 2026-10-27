@@ -4,7 +4,9 @@
 #   inspect  - stat / fingerprint / key-hash / extract the certificates of the paths the worker parsed
 # Nothing is ever written on the target: every `copy`/`file` task is delegated to localhost, `become` is used
 # only to read root-owned files, and every task that handles a key path, certificate extraction or the
-# configuration dump is `no_log: true` so none of it reaches stdout or `job_events`.
+# configuration dump is `no_log: true` so none of it reaches stdout or `job_events`. Delegated tasks name their
+# `ansible_remote_tmp` explicitly: Ansible expands `~` through the passwd entry of the running user, and the
+# worker's `app` user has no home directory (HOME is the per-run directory the runner creates).
 # Extra-vars: discovery_phase, artifact_dir (controller directory), webservers (host -> nginx|apache|null),
 # max_dump_bytes (16 MiB: a larger dump fails as dump_too_large, never truncated), max_cert_bytes (1 MiB of
 # certificates per file), paths_by_host (inspect only: host -> {cert_paths: [...], key_paths: [...]}).
@@ -60,6 +62,8 @@
             state: directory
             mode: "0700"
           delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
           become: false
           no_log: true
 
@@ -70,6 +74,8 @@
             dest: "{{ artifact_dir }}/dumps/{{ inventory_hostname }}.txt"
             mode: "0600"
           delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
           become: false
           no_log: true
 
@@ -80,6 +86,8 @@
             dest: "{{ artifact_dir }}/dumps/{{ inventory_hostname }}.json"
             mode: "0600"
           delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
           become: false
           no_log: true
 
@@ -176,6 +184,8 @@
             state: directory
             mode: "0700"
           delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
           become: false
           no_log: true
 
@@ -187,6 +197,8 @@
           loop: "{{ cert_extract_results.results | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 0) | rejectattr('stdout', 'equalto', '') | list }}"
           when: item.stdout | length <= max_cert_bytes
           delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
           become: false
           no_log: true
 
