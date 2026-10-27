@@ -521,8 +521,11 @@ The schedules are UTC and changed in **Settings → Schedule** and **Settings �
 
 To stop the mail temporarily, clear *Send the daily digest* / *Run the daily expiry check*; to stop
 scheduled scanning (and the trust recheck with it) clear *Run the daily scan*. Manual **Scan now** /
-**Scan all** keep working with the schedule off. Clearing the recipient list does not stop the jobs —
-it makes every attempt a recorded `no_recipients` failure, which is visible in **Settings → Status**.
+**Scan all** keep working with the schedule off. Clearing the recipient list does not stop the jobs and
+does not silence expiry mail: those alerts still go to each certificate's owner e-mail, and only a
+certificate with no owner is recorded as a `no_recipients` row (not sent, not retried). The digest has
+no owner fallback, so with the list empty each digest run is a failed `no_recipients` row — visible in
+**Settings → Alerts** and counted in **Settings → Status** — instead of a delivered mail.
 
 The digest is sent **even when it has nothing to report** ("Nothing to report. This mail is the daily
 heartbeat of the alerting path."), so a missing digest means a delivery or schedule problem, not an
@@ -541,8 +544,9 @@ empty inventory. A second successful run on the same UTC day sends nothing.
 Retries are automatic only for transient failures (connection refused or reset, timeout, 4xx reply).
 An expiry row is retried within the UTC day it was created (after 30 s, then 120 s) and then stays
 `failed`; the next UTC day's evaluation creates a new row. A digest retries the whole job up to three
-attempts. AUTH rejections, TLS verification failures, permanent rejections and an empty recipient list
-are not retried automatically: fix the relay or the recipients (10.1), confirm with **Send test
+attempts. AUTH rejections, TLS verification failures, permanent rejections and `no_recipients` rows (an
+ownerless certificate with an empty team list, or a digest with an empty team list) are not retried
+automatically: fix the relay or the recipients (10.1), confirm with **Send test
 email**, and wait for the next scheduled run — for an expiry row that is the next UTC day's
 evaluation, for the digest the next day's 07:30 job. Failures keep showing in the digest's *Failed
 notifications in the last 24 hours* section and in **Settings → Status** until they age out.

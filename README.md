@@ -129,8 +129,9 @@ confirmation-gated maintenance prune.
 
 **Run jobs.** A PostgreSQL `SKIP LOCKED` queue with per-type retry policy, a timeout
 reaper and stale-owner fencing; a worker with heartbeat, `/healthz` and a stale-worker
-banner; daily UTC schedules for the endpoint scan and trust recheck (02:00), the retention
-cleanup (04:00), the expiry check (07:00) and the digest (07:30), each with its own
+banner; daily UTC schedules for the endpoint scan and the trust recheck (02:00 — separate
+schedule keys that deliberately share `scan.daily_at`/`scan.enabled`), the retention cleanup
+(04:00), the expiry check (07:00) and the digest (07:30), the last three each with their own
 time/enable setting.
 
 ## Security posture
