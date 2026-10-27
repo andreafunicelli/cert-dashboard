@@ -1096,6 +1096,7 @@ class ComposeTargets:
         "tls-nginx": ["nginx", "-s", "reload"],
         "tls-apache": ["httpd", "-k", "graceful"],
     }
+    STABLE_POLLS = 10
     CONTAINER_PORTS: ClassVar[dict[str, int]] = {"tls-nginx": 8443, "tls-apache": 8443, "smtp": 1025}
 
     def __init__(self, directory: Path):
@@ -1180,41 +1181,58 @@ class ComposeTargets:
         return "127.0.0.1", int(output.rpartition(":")[2])
 
     def _served_der(self, service) -> bytes:
-        import socket
-        import ssl
+        """The leaf the target serves on a fresh connection, read with the scanner's own TLS primitive."""
+        from app.services.scans import pull_chain
 
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        # Verification is off on purpose: this only reads which certificate the local test target serves.
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
         host, port = self.address(service)
-        with (
-            socket.create_connection((host, port), timeout=3) as sock,
-            context.wrap_socket(sock, server_hostname="target.example.internal") as tls,
-        ):
-            return tls.getpeercert(binary_form=True) or b""
+        return pull_chain(host, port, "target.example.internal", 3).der_chain[0]
+
+    def _draining(self, service) -> bool:
+        """True while a previous server generation is still alive and may answer a new connection.
+
+        nginx marks old workers ``worker process is shutting down`` in the process title; during that window
+        the old and the new worker share the listening socket, so one new-certificate answer proves nothing.
+        """
+        if service != "tls-nginx":
+            return False
+        listing = self._compose("exec", "-T", service, "ps", "-o", "args").stdout
+        return "shutting down" in listing
 
     def serve(self, service, cert, key, chain) -> None:
-        """Serve ``cert`` + ``chain``: rewrite the files, start the service if stopped, reload, await the swap."""
+        """Serve ``cert`` + ``chain``: rewrite the files, start the service if stopped, reload, await the swap.
+
+        Ready means: no old server generation is draining and ``STABLE_POLLS`` consecutive fresh connections
+        all get the new leaf. A single new-certificate answer is not enough: during a graceful reload the old
+        worker keeps accepting connections until it processes the quit signal.
+        """
         import time
 
         from cryptography.hazmat.primitives.serialization import Encoding
+
+        from app.jobs.queue import JobFailure
 
         self._write(service, cert, key, chain)
         if service in self._stopped:
             self._compose("start", service)
             self._stopped.discard(service)
         self._compose("exec", "-T", service, *self.RELOAD[service])
-        wanted, deadline, last = cert.public_bytes(Encoding.DER), time.monotonic() + 30, None
+        wanted, deadline, last, streak = cert.public_bytes(Encoding.DER), time.monotonic() + 30, "no answer yet", 0
         while time.monotonic() < deadline:
             try:
                 if self._served_der(service) == wanted:
-                    return
-            except OSError as error:  # still (re)starting
-                last = type(error).__name__
-            time.sleep(0.25)
+                    streak += 1
+                    if streak >= self.STABLE_POLLS and not self._draining(service):
+                        return
+                else:
+                    streak, last = 0, "still serving another certificate"
+            except (OSError, JobFailure) as error:  # still (re)starting
+                streak, last = 0, type(error).__name__
+            time.sleep(0.1)
         logs = self._compose("logs", "--no-color", "--tail", "20", service, check=False).stdout
-        raise TimeoutError(f"{service} did not serve the new certificate in 30 s ({last})\n{logs}")
+        raise TimeoutError(
+            f"{service} did not settle on the new certificate within 30 s: expected {self.STABLE_POLLS} "
+            f"consecutive fresh connections serving it and no draining old generation ({last})\n{logs}"
+        )
 
     def stop(self, service) -> None:
         self._compose("stop", "-t", "2", service)

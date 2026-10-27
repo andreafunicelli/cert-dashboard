@@ -3,6 +3,7 @@
 The targets come from ``docker-compose.test.yml`` (profile ``targets``); nothing here reaches the internet.
 """
 
+import hashlib
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -14,7 +15,7 @@ from sqlalchemy import select
 
 from app.crypto.parse import parse_certificates
 from app.jobs.queue import SYSTEM_ACTOR, enqueue
-from app.models import Certificate, Endpoint, Job
+from app.models import Certificate, Endpoint, Job, ScanResult
 from app.models.enums import ChainStatus, JobStatus, JobType
 from tests.integration.conftest import add_endpoint, configure_smtp, disable_schedules, set_setting
 
@@ -40,6 +41,10 @@ def issue_target_pair(ca, now):
         )
         pair.append(TargetCertificate(x509.load_pem_x509_certificate(pem), key, [ca.intermediate]))
     return tuple(pair)
+
+
+def fingerprint_of(target: TargetCertificate) -> str:
+    return hashlib.sha256(target.cert.public_bytes(Encoding.DER)).hexdigest()
 
 
 def endpoint_expecting(factory, host, port, expected: TargetCertificate) -> int:
@@ -77,6 +82,13 @@ def latest_status(factory, endpoint_id) -> str:
         return db.get(Endpoint, endpoint_id).last_scan_status.value
 
 
+def latest_observed_fingerprint(factory, endpoint_id) -> str | None:
+    with factory() as db:
+        return db.scalars(
+            select(ScanResult.observed_fingerprint).where(ScanResult.endpoint_id == endpoint_id).order_by(ScanResult.id.desc())
+        ).first()
+
+
 @pytest.mark.parametrize("service", ["tls-nginx", "tls-apache"])
 def test_real_webserver_scan_reports_ok_then_mismatch_then_unreachable(
     service, compose_targets, queue_factory, make_worker, ca, clock
@@ -87,7 +99,7 @@ def test_real_webserver_scan_reports_ok_then_mismatch_then_unreachable(
     compose_targets.serve(service, first.cert, first.key, first.chain)
     endpoint_id = endpoint_expecting(queue_factory, host, port, first)
     worker = make_worker(queue_factory)
-    statuses = []
+    statuses, observed = [], []
     for change in (
         None,
         lambda: compose_targets.serve(service, second.cert, second.key, second.chain),
@@ -97,6 +109,10 @@ def test_real_webserver_scan_reports_ok_then_mismatch_then_unreachable(
             change()
         run_scan(queue_factory, worker, {"endpoint_ids": [endpoint_id]}, clock())
         statuses.append(latest_status(queue_factory, endpoint_id))
+        observed.append(latest_observed_fingerprint(queue_factory, endpoint_id))
+    # The scanner must have seen exactly the leaf the target was made to serve (a stale server generation
+    # answering the scan shows up here as the wrong fingerprint, not as a bare status difference).
+    assert observed == [fingerprint_of(first), fingerprint_of(second), None], f"{service}: served leaves {observed}"
     assert statuses == ["ok", "mismatch", "unreachable"]
 
 
