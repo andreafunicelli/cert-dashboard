@@ -155,6 +155,18 @@ def test_pull_false_reports_the_current_revision(tmp_path, now):
     assert current.pulled_at == now and (checkout / "inventory/hosts.yml").read_text() == HOSTS_V1
 
 
+def test_pull_false_refuses_a_checkout_older_than_a_day(tmp_path, now):
+    remote = make_bare_repo(tmp_path / "remote.git", {"inventory/hosts.yml": HOSTS_V1})
+    checkout, env = tmp_path / "inventory", environment(tmp_path)
+    first = refresh_checkout(remote.url, "main", checkout, env=env, now=now)
+    edge = refresh_checkout(remote.url, "main", checkout, env=env, now=now + timedelta(hours=24), pull=False)
+    assert (edge.rev, edge.refreshed) == (first.rev, False)
+    with pytest.raises(JobFailure) as failure:
+        refresh_checkout(remote.url, "main", checkout, env=env, now=now + timedelta(hours=24, seconds=1), pull=False)
+    assert failure.value.error_class == "transient_network" and failure.value.retryable
+    assert "older than 24 hours" in failure.value.message and remote.url not in failure.value.message
+
+
 def test_pull_false_without_a_checkout_fails_without_touching_the_remote(tmp_path, now):
     with pytest.raises(JobFailure) as failure:
         refresh_checkout("file:///does/not/exist", "main", tmp_path / "inventory", env=environment(tmp_path), now=now, pull=False)

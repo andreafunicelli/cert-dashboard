@@ -217,12 +217,19 @@ def refresh_checkout(
 
     A pull is skipped when the last one is younger than ``PULL_MIN_INTERVAL`` or ``pull`` is false. A failed
     pull keeps the last good revision while it is at most ``CHECKOUT_MAX_AGE`` old and fails the job otherwise.
+    With ``pull`` false the checkout is returned as is, but only while it is at most ``CHECKOUT_MAX_AGE`` old.
     """
     last = current_revision(checkout)
-    if last is not None and (not pull or timedelta(0) <= now - last.pulled_at < PULL_MIN_INTERVAL):
-        return last
     if last is None and not pull:
         raise JobFailure("transient_network", "inventory checkout is not available yet", retryable=True)
+    if last is not None and not pull:
+        if now - last.pulled_at > CHECKOUT_MAX_AGE:
+            raise JobFailure(
+                "transient_network", "inventory checkout is older than 24 hours and no pull was allowed", retryable=True
+            )
+        return last
+    if last is not None and timedelta(0) <= now - last.pulled_at < PULL_MIN_INTERVAL:
+        return last
     try:
         return _pull(remote, ref, checkout, env, now)
     except (_GitFailed, OSError, ValueError):
