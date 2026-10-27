@@ -1,0 +1,12 @@
+VirtualHost configuration:
+*:443                  is a NameVirtualHost
+         default server shop.example.com (/etc/apache2/sites-enabled/shop.conf:1)
+         port 443 namevhost shop.example.com (/etc/apache2/sites-enabled/shop.conf:1)
+         port 443 namevhost www.example.com (/etc/apache2/sites-enabled/www.conf:1)
+                 alias example.com
+                 alias *.cdn.example.com
+*:80                   www.example.com (/etc/apache2/sites-enabled/www.conf:9)
+ServerRoot: "/etc/apache2"
+Main DocumentRoot: "/var/www/html"
+Main ErrorLog: "/var/log/apache2/error.log"
+Mutex default: dir="/var/run/apache2/" mechanism=default

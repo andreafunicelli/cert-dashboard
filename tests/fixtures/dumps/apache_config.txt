@@ -1,0 +1,29 @@
+# configuration file /etc/apache2/apache2.conf:
+ServerRoot "/etc/apache2"
+Listen 80
+IncludeOptional sites-enabled/*.conf
+
+# configuration file /etc/apache2/sites-enabled/shop.conf:
+<VirtualHost *:443>
+    ServerName shop.example.com
+    SSLEngine on
+    SSLCertificateFile ssl/shop.crt
+    SSLCertificateFile ssl/shop-int.crt
+    SSLCertificateKeyFile ssl/shop.key
+    SSLCertificateKeyFile ssl/shop-int.key
+</VirtualHost>
+
+# configuration file /etc/apache2/sites-enabled/www.conf:
+<VirtualHost *:443>
+    ServerName www.example.com
+    ServerAlias example.com *.cdn.example.com
+    SSLEngine on
+    SSLCertificateFile ssl/www.crt
+    SSLCertificateKeyFile ssl/www.key
+    SSLCertificateChainFile ssl/www.chain.pem
+</VirtualHost>
+<VirtualHost *:80>
+    ServerName www.example.com
+    SSLEngine off
+    Redirect permanent / https://www.example.com/
+</VirtualHost>
