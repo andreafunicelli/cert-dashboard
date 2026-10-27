@@ -19,8 +19,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 
-from app.ansible.parsed import ParsedBinding, ParseError, ParseResult
-from app.models.enums import WebserverType
+from app.ansible.parsed import ParsedBinding, ParseError, ParseResult, WebserverType
 
 MARKER = "# configuration file "
 FALLBACK_WARNING = "apachectl -S unavailable; vhosts derived from the configuration files"
@@ -467,11 +466,12 @@ class _Parser:
             (node.file, node.line)
         )
         if not entries and scope.names:
-            # no (file, line) match: fall back to the ServerName and one of the section's ports
+            # no (file, line) match: fall back, within the same dumped file, to the ServerName and a port
             entries = [
                 e
                 for e in self.entries
-                if e.name == scope.names[0]
+                if e.file == node.file
+                and e.name == scope.names[0]
                 and (e.port in section_ports or all(p is None for p in section_ports))
             ]
         for entry in entries or ():
@@ -521,11 +521,10 @@ class _Parser:
         keys: list[_Node],
         chains: list[_Node],
     ) -> ParsedBinding | None:
-        if len(certs) != len(keys):
+        if len(keys) > len(certs):
             self.warnings.append(
-                f"{where}: {len(certs)} SSLCertificateFile but {len(keys)} SSLCertificateKeyFile; skipped"
+                f"{where}: {len(keys)} SSLCertificateKeyFile but {len(certs)} SSLCertificateFile; keeping all"
             )
-            return None
         chain_nodes = chains[-1:]  # only the last SSLCertificateChainFile takes effect
         for d in (*certs, *keys, *chain_nodes):
             if "$" in d.args[0] or d.args[0].startswith(("data:", "engine:", "pkcs11:")):

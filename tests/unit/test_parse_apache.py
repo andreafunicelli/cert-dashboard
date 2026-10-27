@@ -346,6 +346,22 @@ def test_S_vhost_whose_file_is_missing_is_skipped_with_a_warning():
     )
 
 
+def test_S_entry_of_a_missing_file_is_not_claimed_by_a_same_named_vhost_in_another_file():
+    actual = f"{SITES}/actual.conf"
+    missing = f"{SITES}/missing.conf"
+    S = status(("*:443", "same.example", missing, 1))
+    result = parse_apache(ApacheDump(S, config((actual, vhost(*TLS, name="same.example")))))
+    assert f"{missing}:1: vhost same.example listed by apachectl -S; file not in the dump; skipped" in result.warnings
+    assert only(result).config_file == actual  # the real section is still parsed on its own
+
+
+def test_S_entry_with_a_shifted_line_in_the_same_file_falls_back_to_the_server_name():
+    S = status(("*:8443", "www.example.com", WWW, 99))
+    result = parse_apache(ApacheDump(S, config((WWW, vhost(*TLS, address="*:8443")))))
+    assert only(result).port == 8443
+    assert result.warnings == ()
+
+
 def test_S_vhost_without_a_section_at_that_line_is_skipped_with_a_warning():
     S = status(("*:443", "ghost.example.com", WWW, 1))
     result = parse_apache(ApacheDump(S, config((WWW, "# nothing here\n"))))
@@ -383,10 +399,38 @@ def test_ssl_engine_on_without_a_certificate_warns_and_is_skipped():
     )
 
 
-def test_certificate_and_key_count_mismatch_warns_and_is_skipped():
+def test_certificate_without_a_positional_key_is_kept_as_a_candidate():
     result = parse_apache(one_vhost("    SSLCertificateFile ssl/a.crt"))
-    assert result.bindings == ()
-    assert "1 SSLCertificateFile but 0 SSLCertificateKeyFile" in result.warnings[0]
+    binding = only(result)
+    assert binding.cert_paths == (f"{ROOT}/ssl/a.crt",)
+    assert binding.key_paths == ()
+    assert result.warnings == ()
+
+
+def test_extra_certificate_without_a_positional_key_keeps_every_candidate():
+    result = parse_apache(
+        one_vhost(
+            "    SSLCertificateFile ssl/rsa.crt",
+            "    SSLCertificateFile ssl/ecdsa.crt",
+            "    SSLCertificateKeyFile ssl/rsa.key",
+        )
+    )
+    binding = only(result)
+    assert binding.cert_paths == (f"{ROOT}/ssl/rsa.crt", f"{ROOT}/ssl/ecdsa.crt")
+    assert binding.key_paths == (f"{ROOT}/ssl/rsa.key",)
+    assert binding.config_file == WWW
+
+
+def test_keys_beyond_the_certificates_are_kept_with_a_warning():
+    result = parse_apache(
+        one_vhost(
+            "    SSLCertificateFile ssl/a.crt",
+            "    SSLCertificateKeyFile ssl/a.key",
+            "    SSLCertificateKeyFile ssl/b.key",
+        )
+    )
+    assert only(result).key_paths == (f"{ROOT}/ssl/a.key", f"{ROOT}/ssl/b.key")
+    assert "2 SSLCertificateKeyFile but 1 SSLCertificateFile" in result.warnings[0]
 
 
 def test_non_plain_certificate_path_warns_and_is_skipped():
@@ -421,9 +465,11 @@ def test_a_vhost_own_certificate_replaces_the_inherited_one():
     assert by_name["www.example.com"].chain_path == f"{ROOT}/ssl/g.chain"
 
 
-def test_global_certificate_without_a_key_warns_and_gives_no_default():
+def test_global_certificate_without_a_key_is_a_default_candidate():
     result = parse_apache(ApacheDump("", config((f"{ROOT}/apache2.conf", "SSLCertificateFile ssl/g.crt\n"))))
-    assert result.bindings == () and "default" in result.warnings[0]
+    binding = only(result)
+    assert binding.vhost_name == "default"
+    assert binding.cert_paths == (f"{ROOT}/ssl/g.crt",) and binding.key_paths == ()
 
 
 @pytest.mark.parametrize(
@@ -642,3 +688,16 @@ def test_include_inside_a_section_of_an_included_file_nests_in_the_right_block()
     )
     binding = only(parse_apache(ApacheDump("", files)))
     assert (binding.vhost_name, binding.config_file) == ("x.example.com", f"{ROOT}/tls.conf")
+
+
+def test_parser_imports_application_modules_only_from_app_ansible_parsed():
+    import ast
+
+    source = (Path(__file__).resolve().parents[2] / "app" / "ansible" / "parse_apache.py").read_text()
+    modules: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            modules.add(node.module)
+        elif isinstance(node, ast.Import):
+            modules.update(alias.name for alias in node.names)
+    assert {m for m in modules if m.split(".")[0] == "app"} == {"app.ansible.parsed"}
