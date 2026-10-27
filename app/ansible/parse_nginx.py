@@ -23,6 +23,10 @@ MARKER = "# configuration file "
 MAX_INCLUDE_DEPTH = 16
 MAX_BLOCK_DEPTH = 32
 MAX_INCLUDE_EXPANSIONS = 5000
+# Glob matching examines directory entries; the total is capped at BASE + PER_FILE * dumped files, so
+# parsing stays linear in the dump size and many distinct non-matching globs fail fast with ParseError.
+GLOB_WORK_BASE = 1000
+GLOB_WORK_PER_FILE = 64
 
 _WHITESPACE = " \t\r\n\f\v"
 _PUNCTUATION = ";{}"
@@ -154,14 +158,14 @@ class _PathTrie:
             node = node.children.setdefault(segment, _PathTrie())
         node.path = path
 
-    def match(self, parts: list[str]) -> list[str]:
+    def match(self, parts: list[str], budget: list[int]) -> list[str]:
         if not parts:
             return [self.path] if self.path is not None else []
         head, rest = parts[0], parts[1:]
         wild = [head.index(c) for c in "*?[" if c in head]
         if not wild:
             child = self.children.get(head)
-            return child.match(rest) if child else []
+            return child.match(rest, budget) if child else []
         if self._names is None:
             self._names = sorted(self.children)
         prefix = head[: min(wild)]
@@ -170,8 +174,11 @@ class _PathTrie:
             name = self._names[i]
             if not name.startswith(prefix):
                 break
+            budget[0] -= 1
+            if budget[0] < 0:
+                raise ParseError("too much work in include glob matching (too many distinct globs)")
             if fnmatchcase(name, head):
-                found.extend(self.children[name].match(rest))
+                found.extend(self.children[name].match(rest, budget))
         return found
 
 
@@ -184,6 +191,7 @@ class _Parser:
         self._stack: list[str] = []
         self._reached: set[str] = set()
         self._expansions = 0
+        self._glob_budget = [GLOB_WORK_BASE + GLOB_WORK_PER_FILE * len(files)]
         self._trie = _PathTrie()
         for path in files:
             self._trie.add(path)
@@ -282,7 +290,7 @@ class _Parser:
 
     def _glob(self, pattern: str) -> list[str]:
         """Dumped files matching *pattern* segment by segment (``*`` never crosses ``/``), sorted."""
-        return sorted(self._trie.match(pattern.split("/")))
+        return sorted(self._trie.match(pattern.split("/"), self._glob_budget))
 
     # -- semantics -------------------------------------------------------------------------------
 

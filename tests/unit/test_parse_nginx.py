@@ -421,3 +421,23 @@ def test_glob_expansion_stays_sorted_and_scoped_to_the_matching_prefix(monkeypat
     result = parse_nginx(dump(*files))
     assert [b.vhost_name for b in result.bindings] == ["one.example.com", "two.example.com"]
     assert sorted(calls) == ["b1.conf", "b2.conf"]
+
+
+def test_unmatched_globs_sharing_a_basename_prefix_hit_the_glob_work_budget(monkeypatch):
+    n = 1200
+    includes = "\n".join(f"include conf.d/f*-missing-{i}.conf;" for i in range(n))
+    files = [("/etc/nginx/nginx.conf", "events {}\nhttp {\n" + includes + "\n}")]
+    files += [(f"/etc/nginx/conf.d/f{i}.conf", "") for i in range(n)]
+    calls = _count_fnmatch(monkeypatch)
+    with pytest.raises(ParseError, match="glob matching"):
+        parse_nginx(dump(*files))
+    # n * n = 1.44M comparisons without a budget; the budget is linear in the number of dumped files
+    assert len(calls) <= parse_nginx_module.GLOB_WORK_PER_FILE * (n + 1) + parse_nginx_module.GLOB_WORK_BASE + n
+
+
+def test_ordinary_shared_prefix_globs_stay_within_the_glob_work_budget():
+    n = 300
+    includes = "\n".join(f"include conf.d/f*-{i % 3}.conf;" for i in range(30))
+    files = [("/etc/nginx/nginx.conf", "events {}\nhttp {\n" + includes + "\n}")]
+    files += [(f"/etc/nginx/conf.d/f{i}-{i % 3}.conf", "") for i in range(n)]
+    assert parse_nginx(dump(*files)).bindings == ()
