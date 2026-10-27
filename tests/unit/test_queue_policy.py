@@ -52,6 +52,9 @@ def test_policy_attempt_caps():
         (JobType.DEPLOY, "transient_network", False),
         (JobType.DEPLOY, "operational", False),
         (JobType.DEPLOY, "smtp_transient", False),
+        (JobType.DISCOVER, "inventory_inconsistent", True),
+        (JobType.DEPLOY, "inventory_inconsistent", False),
+        (JobType.SCAN, "inventory_inconsistent", False),
     ],
 )
 def test_retryable_classes_per_type(job_type, error_class, expected):

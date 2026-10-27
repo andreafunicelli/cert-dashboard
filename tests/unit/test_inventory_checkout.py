@@ -187,7 +187,9 @@ def test_marker_is_atomic_json_and_survives_clean(tmp_path, now):
     assert not list(marker.parent.glob("last_pull.json.*"))
     assert current_revision(checkout) == InventoryRevision(revision.rev, revision.rev_date, now, False, None)
     marker.write_text("{not json")
-    assert current_revision(checkout) is None
+    with pytest.raises(JobFailure) as failure:
+        current_revision(checkout)
+    assert failure.value.error_class == "inventory_inconsistent"
 
 
 def test_revision_result_carries_the_documented_keys(tmp_path, now):
@@ -260,6 +262,7 @@ def test_a_failure_after_the_reset_that_cannot_be_undone_fails_closed(tmp_path, 
     with pytest.raises(JobFailure) as failure:
         refresh_checkout(remote.url, "main", checkout, env=env, now=now + timedelta(hours=1))
     assert failure.value.error_class == "transient_network" and failure.value.retryable
-    assert current_revision(checkout) is None
-    with pytest.raises(JobFailure):
+    assert not (checkout / ".git/last_pull.json").exists()
+    with pytest.raises(JobFailure) as unknown:
         refresh_checkout(remote.url, "main", checkout, env=env, now=now + timedelta(hours=1), pull=False)
+    assert unknown.value.error_class == "inventory_inconsistent"

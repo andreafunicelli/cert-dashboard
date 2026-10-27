@@ -9,26 +9,30 @@ through ``GIT_ASKPASS`` / an SSH key *path* (nothing lands in ``.git/config`` or
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import shlex
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from app.ansible.runner import GIT_ASKPASS
-from app.jobs.queue import JobFailure
+from app.jobs.queue import SYSTEM_ACTOR, JobFailure
 from app.models.enums import WebserverType
+from app.services.audit import record
 from app.services.settings import get_setting
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Session, sessionmaker
 
     from app.models import JSONValue
+
+_LOG = logging.getLogger(__name__)
 
 PULL_MIN_INTERVAL = timedelta(seconds=60)
 CHECKOUT_MAX_AGE = timedelta(hours=24)
@@ -41,6 +45,7 @@ _ALLOWED_PROTOCOLS = "https:ssh:file"
 _PSEUDO_GROUPS = frozenset({"all", "ungrouped"})
 _SHA = re.compile(r"[0-9a-f]{40}")
 _UNREADABLE = "inventory could not be read"
+INCONSISTENT_MESSAGE = "inventory checkout does not match its recorded revision"
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,22 @@ class InventoryRevision:
     pulled_at: datetime
     refreshed: bool
     warning: str | None
+
+
+@dataclass(frozen=True)
+class InventoryInconsistency:
+    """``git rev-parse HEAD`` and the pull marker disagree (or the marker is unusable).
+
+    ``expected`` is the revision the marker records, ``actual`` the one the checkout contains; both are
+    commit SHAs of the configuration repository, never secrets.
+    """
+
+    reason: Literal["mismatch", "marker_missing", "marker_corrupt"]
+    expected: str | None
+    actual: str | None
+
+
+InconsistencyHook = Callable[[InventoryInconsistency], None]
 
 
 @dataclass(frozen=True)
@@ -149,22 +170,98 @@ def _git(checkout: Path, env: Mapping[str, str], *args: str) -> str:
     return done.stdout.decode("utf-8", "replace").strip()
 
 
-def _read_marker(checkout: Path) -> InventoryRevision | None:
+def _read_marker(checkout: Path) -> tuple[InventoryRevision | None, Literal["marker_missing", "marker_corrupt"] | None]:
+    """The marker as a cache entry: the revision it records, or why there is none."""
     try:
-        data = json.loads((checkout / MARKER).read_text())
+        text = (checkout / MARKER).read_text()
+    except FileNotFoundError:
+        return None, "marker_missing"
+    except OSError:
+        return None, "marker_corrupt"
+    try:
+        data = json.loads(text)
         rev = data["rev"]
         rev_date = datetime.fromisoformat(data["rev_date"])
         pulled_at = datetime.fromisoformat(data["pulled_at"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
+    except (ValueError, KeyError, TypeError):
+        return None, "marker_corrupt"
     if not isinstance(rev, str) or not _SHA.fullmatch(rev) or rev_date.tzinfo is None or pulled_at.tzinfo is None:
+        return None, "marker_corrupt"
+    return InventoryRevision(rev, rev_date, pulled_at, False, None), None
+
+
+def _read_environment() -> dict[str, str]:
+    """Environment for the local, read-only ``rev-parse`` of a caller that has no git environment."""
+    return {
+        "PATH": os.pathsep.join([str(Path(sys.executable).parent), "/usr/local/bin", "/usr/bin", "/bin"]),
+        "HOME": os.devnull,
+        "GIT_CONFIG_GLOBAL": os.devnull,
+    }
+
+
+def _head(checkout: Path, env: Mapping[str, str]) -> str | None:
+    """The commit the checkout really contains (the truth), or None when it has none.
+
+    ``--git-dir`` is explicit so a broken ``.git`` never makes git walk up into an enclosing repository.
+    """
+    try:
+        rev = _git(checkout, env, f"--git-dir={checkout / '.git'}", "rev-parse", "--verify", "HEAD^{commit}")
+    except _GitFailed:
         return None
-    return InventoryRevision(rev, rev_date, pulled_at, False, None)
+    return rev if _SHA.fullmatch(rev) else None
 
 
-def current_revision(checkout: Path) -> InventoryRevision | None:
-    """The revision recorded by the last successful pull, or None when there has been none."""
-    return _read_marker(checkout)
+def _inspect(checkout: Path, env: Mapping[str, str]) -> tuple[InventoryRevision | None, InventoryInconsistency | None]:
+    """Compare the marker with HEAD. ``(None, None)`` means the checkout was never pulled.
+
+    The marker is only ever a cache: a revision is trusted solely when it equals HEAD.
+    """
+    head = _head(checkout, env)
+    marker, problem = _read_marker(checkout)
+    if marker is not None and marker.rev == head:
+        return marker, None
+    if marker is None and problem == "marker_missing" and head is None:
+        return None, None
+    reason: Literal["mismatch", "marker_missing", "marker_corrupt"] = problem or "mismatch"
+    return None, InventoryInconsistency(reason, marker.rev if marker is not None else None, head)
+
+
+def _report(finding: InventoryInconsistency, hook: InconsistencyHook | None) -> JobFailure:
+    """Announce one detection (audit hook) and build the sanitized, retryable failure to raise."""
+    if hook is not None:
+        try:
+            hook(finding)
+        except Exception as error:  # noqa: BLE001 - an audit outage must not replace the typed failure
+            _LOG.warning("inventory inconsistency could not be audited: %s", type(error).__name__)
+    return JobFailure("inventory_inconsistent", INCONSISTENT_MESSAGE, retryable=True)
+
+
+def current_revision(checkout: Path, *, on_inconsistent: InconsistencyHook | None = None) -> InventoryRevision | None:
+    """The revision of the last successful pull, or None when there has been none.
+
+    Fails closed (``inventory_inconsistent``) unless the marker equals ``git rev-parse HEAD``.
+    """
+    revision, finding = _inspect(checkout, _read_environment())
+    if finding is not None:
+        raise _report(finding, on_inconsistent)
+    return revision
+
+
+def audit_inconsistency(factory: sessionmaker[Session], *, job_id: str | None = None) -> InconsistencyHook:
+    """A hook that writes one ``inventory.inconsistent`` audit row (own transaction) per detection."""
+
+    def write(finding: InventoryInconsistency) -> None:
+        details: dict[str, JSONValue] = {
+            "reason": finding.reason,
+            "expected_rev": finding.expected,
+            "actual_rev": finding.actual,
+        }
+        if job_id is not None:
+            details["job_id"] = job_id
+        with factory.begin() as db:
+            record(db, SYSTEM_ACTOR, "inventory.inconsistent", "inventory", None, details)
+
+    return write
 
 
 def _write_marker(checkout: Path, revision: InventoryRevision) -> None:
@@ -231,6 +328,10 @@ def _pull(
     revision = InventoryRevision(rev, datetime.fromtimestamp(committed, UTC), now, True, None)
     try:
         _apply(checkout, env, rev)
+        # The marker is the very last write, and only once HEAD really is the new revision: an interruption
+        # anywhere before it leaves marker != HEAD, which every later read refuses to serve.
+        if _head(checkout, env) != rev:
+            raise _GitFailed
         _write_marker(checkout, revision)
     except (_GitFailed, OSError, ValueError):
         # The working tree may already be at the new revision: never answer with the old SHA unless it is back.
@@ -244,15 +345,31 @@ def _pull(
 
 
 def refresh_checkout(
-    remote: str, ref: str, checkout: Path, *, env: Mapping[str, str], now: datetime, pull: bool = True
+    remote: str,
+    ref: str,
+    checkout: Path,
+    *,
+    env: Mapping[str, str],
+    now: datetime,
+    pull: bool = True,
+    on_inconsistent: InconsistencyHook | None = None,
 ) -> InventoryRevision:
     """Bring the checkout to the remote's ``ref`` (default branch when empty), or keep the last good one.
 
     A pull is skipped when the last one is younger than ``PULL_MIN_INTERVAL`` or ``pull`` is false. A failed
     pull keeps the last good revision while it is at most ``CHECKOUT_MAX_AGE`` old and fails the job otherwise.
     With ``pull`` false the checkout is returned as is, but only while it is at most ``CHECKOUT_MAX_AGE`` old.
+
+    Integrity: the marker is a cache and ``git rev-parse HEAD`` the truth. A marker that is absent, corrupt or
+    different from HEAD is never served; ``on_inconsistent`` is called once for the detection and the call
+    fails with the retryable ``inventory_inconsistent`` when ``pull`` is false, or when the repair pull fails.
+    With ``pull`` true the full fetch, reset, clean, marker sequence runs regardless of the 60 s interval.
     """
-    last = current_revision(checkout)
+    last, finding = _inspect(checkout, env)
+    if finding is not None:
+        failure = _report(finding, on_inconsistent)
+        if not pull:
+            raise failure
     if last is None and not pull:
         raise JobFailure("transient_network", "inventory checkout is not available yet", retryable=True)
     if last is not None and not pull:
@@ -266,6 +383,8 @@ def refresh_checkout(
     pulled = _pull(remote, ref, checkout, env, now, last)
     if pulled is not None:
         return pulled
+    if finding is not None:
+        raise failure
     if last is None:
         raise JobFailure("transient_network", "inventory pull failed and no checkout is available", retryable=True)
     if now - last.pulled_at > CHECKOUT_MAX_AGE:
