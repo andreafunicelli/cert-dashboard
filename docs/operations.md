@@ -437,8 +437,12 @@ a mismatch with the file on disk means a restart is still pending.
 
 ## 10. Alerts, digest and scanning
 
-This release observes what the registered endpoints actually serve and mails about it. Everything here
-runs on the worker; the web interface only queues the work and shows the result.
+This release observes what the registered endpoints actually serve and mails about it. Mail delivery,
+the expiry check, the digest, the scan and the trust recheck run on the worker; the web interface only
+queues that work and shows the result. Endpoint administration is the exception: adding an endpoint,
+setting its expectation and activating or deactivating it are committed synchronously by the web
+request together with their audit rows (section 10.4), so the change is visible as soon as the form
+returns.
 
 ### 10.1 SMTP relay and the test e-mail
 
@@ -570,8 +574,10 @@ certificate the dashboard observes.
   An endpoint that stays unreachable is retried alone, up to three attempts, and never blocks the rest.
 - **Add endpoint** takes host, port, SNI (empty = the host), and optionally an expected certificate.
   The host must be a DNS name or IP literal and the port 1–65535; entering an existing endpoint
-  identity tells you which row already holds it. Endpoints are deactivated, never deleted, so their
-  history stays.
+  identity tells you which row already holds it. The endpoint is written and audited immediately;
+  no job is queued. Setting an expectation or activating/deactivating works the same way, so the
+  management forms are synchronous — only **Scan now** and **Scan all** queue worker jobs.
+  Endpoints are deactivated, never deleted, so their history stays.
 - **History** opens the last 20 results of one endpoint. The detail page explains a mismatch with the
   expected and observed certificate and the three usual actions: renew and deploy the certificate,
   import the served certificate from this endpoint (prefilled `/certificates/import`), or update the

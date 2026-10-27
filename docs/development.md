@@ -246,7 +246,9 @@ procedures for these signals are in [`docs/operations.md`](operations.md#8-opera
 
 `app/services/scans.py` owns observation, classification, payload validation and on-demand requests;
 `app/jobs/handlers/scan.py` (`scan/default`) and `app/jobs/handlers/trust_recheck.py`
-(`scan/trust_recheck`) are the worker side. The web process only enqueues.
+(`scan/trust_recheck`) are the worker side. The web process only enqueues scan and recheck work and
+never opens a target connection; endpoint administration (create, expectation, activation) is
+synchronous in the web request, as described under *Web entry points* below.
 
 **Observation.** `observe_endpoint(host, port, sni, timeout_seconds)` opens one TCP connection and one
 TLS handshake with SNI = `sni or host` and accepts any chain — it inspects, it never validates trust —
@@ -296,12 +298,16 @@ transaction so partial work survives a crash. Scan-type jobs (including the trus
 only when the new `checked_at` is not older than the stored one, so two concurrent jobs cannot regress
 an endpoint.
 
-**Web entry points** (all CSRF-protected, audited, and enqueue-only): `POST /certificates/{id}/scan`
-(payload `{"certificate_id": id}`, priority 200 — the certificate detail page's *Scan now*),
-`POST /scans/run` with `scope=all` or `scope=endpoint` + `endpoint_id` (priority 200),
-`POST /scans/endpoints` (create, `endpoint.create`), `POST /scans/{id}/expectation` (`certificate_id`,
-or `use_observed=1` when the served fingerprint is already in inventory, `endpoint.update`) and
-`POST /scans/{id}/active` (`active=true|false`). Endpoints are never deleted.
+**Web entry points** (all CSRF-protected and audited, `app/web/scans.py`). Two of them only enqueue
+work: `POST /certificates/{id}/scan` (payload `{"certificate_id": id}`, priority 200 — the certificate
+detail page's *Scan now*) and `POST /scans/run` with `scope=all` or `scope=endpoint` + `endpoint_id`
+(priority 200). The three management forms are **not** enqueue-only: `POST /scans/endpoints` (create,
+`endpoint.create`), `POST /scans/{id}/expectation` (`certificate_id`, or `use_observed=1` when the
+served fingerprint is already in inventory, `endpoint.update`) and `POST /scans/{id}/active`
+(`active=true|false`) call `create_endpoint` / `set_expectation` / `expect_observed` /
+`set_endpoint_active` in `app/services/endpoints.py`, which stage the row change and its audit row on
+the web session; `_transact` commits both before the response, so a successful form redirects to the
+already-updated page and a 422 changes and audits nothing. Endpoints are never deleted.
 
 **Background trust recheck.** `scan/trust_recheck` runs `recheck_chain_statuses(db, now)` at the job's
 UTC clock so an expiring intermediate is noticed without an operator; changed statuses get Plan 1's
@@ -375,7 +381,9 @@ notifications in the last 24 hours. Every list is capped at `DIGEST_LIST_LIMIT` 
 "showing 50 of 55"; totals are never capped. The mail always states the inventory revision — "none
 recorded" until Plan 3 writes one. **A digest is sent even when there is nothing to report** ("Nothing
 to report. This mail is the daily heartbeat of the alerting path."), `dedupe_key = digest:<UTC date>`
-makes a second successful run of the same day a no-op, and an empty `alert.recipients` records a failed
+makes a second successful run of the same day a no-op. The digest is addressed to the team list only
+(`resolve_recipients(None, addresses)` in `app/jobs/handlers/digest.py`; unlike expiry alerts there is
+no `certificate.owner_email` fallback), so an empty `alert.recipients` records a failed
 `no_recipients` row instead of sending. The job result carries counts only, never the dedupe key.
 
 **`binding.match_state` audit producer.** `app/services/bindings.py` provides

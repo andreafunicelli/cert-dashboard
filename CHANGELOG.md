@@ -203,6 +203,8 @@ with the pull request that delivered each group of changes.
   STARTTLS server cannot make the client downgrade to plaintext, and SMTP outcomes keep only fixed
   step names and numeric reply codes — no reply text, exception text, TLS reason or AUTH challenge is
   stored, logged or rendered, so a relay that echoes a credential cannot leak it.
-- Alert and digest mail is addressed from resolved recipients only (`certificate.owner_email` then
-  `alert.recipients`), and the ledger's unique dedupe key plus row lock keeps a threshold from being
-  announced twice; delivery is at-least-once by design and documented as such.
+- Mail goes only to resolved recipients: expiry alerts are addressed to `certificate.owner_email`
+  first and then `alert.recipients` (deduplicated), while the daily digest is addressed to
+  `alert.recipients` only and has no owner fallback. The ledger's unique dedupe key plus row lock
+  keeps a threshold from being announced twice; delivery is at-least-once by design and documented
+  as such.
