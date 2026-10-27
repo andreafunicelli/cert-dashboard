@@ -1259,3 +1259,47 @@ def compose_targets(tmp_path_factory):
     targets.up()
     yield targets
     targets.down()
+
+
+# --- job control helpers (Plan 3 Task 1) -------------------------------------------------------
+
+
+def fetch(factory, model, row_id):
+    """Reload one committed row in a fresh session."""
+    with factory() as db:
+        return db.get(model, row_id)
+
+
+def enqueue_one(factory, job_type, payload, *, priority, max_attempts=3, run_after=None):
+    """Commit one job through ``enqueue`` (with its audit row); due immediately unless ``run_after``."""
+    from datetime import UTC, datetime
+
+    from app.jobs.queue import SYSTEM_ACTOR, enqueue
+
+    with factory.begin() as db:
+        job = enqueue(
+            db,
+            job_type,
+            payload,
+            SYSTEM_ACTOR,
+            priority=priority,
+            run_after=run_after or datetime(2020, 1, 1, tzinfo=UTC),
+            max_attempts=max_attempts,
+        )
+        return job.id
+
+
+def audit_actions(factory, target_id):
+    """Audit actions recorded for one target, oldest first."""
+    from sqlalchemy import select
+
+    from app.models import AuditLog
+
+    with factory() as db:
+        return list(
+            db.scalars(
+                select(AuditLog.action)
+                .where(AuditLog.target_id == target_id)
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
+        )

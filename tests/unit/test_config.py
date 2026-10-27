@@ -284,3 +284,34 @@ def test_dashboard_url_rejections_name_the_variable_and_never_echo_the_value(sec
     with pytest.raises(ConfigurationError, match="DASHBOARD_URL") as exc:
         load_settings("worker", {"DASHBOARD_URL": value}, secret_files)
     assert "hunter2-fixture" not in str(exc.value)
+
+
+# --- SSH_KNOWN_HOSTS (Plan 3 Task 1) -----------------------------------------------------------
+
+
+def test_known_hosts_file_defaults_to_the_mounted_system_path(secret_files):
+    from pathlib import Path
+
+    from app.config import load_settings
+
+    default = Path("/etc/ssh/ssh_known_hosts")
+    assert load_settings("worker", {}, secret_files).known_hosts_file == default
+    assert load_settings("worker", {"SSH_KNOWN_HOSTS": "  "}, secret_files).known_hosts_file == default
+
+
+def test_ssh_known_hosts_loads_into_settings(secret_files):
+    from pathlib import Path
+
+    from app.config import load_settings
+
+    settings = load_settings("worker", {"SSH_KNOWN_HOSTS": "/srv/ssh/known_hosts"}, secret_files)
+    assert settings.known_hosts_file == Path("/srv/ssh/known_hosts")
+
+
+@pytest.mark.parametrize("value", ["known_hosts", "./known_hosts", "~/known_hosts", "../etc/known_hosts"])
+def test_relative_known_hosts_path_names_the_variable_and_never_echoes_the_value(secret_files, value):
+    from app.config import ConfigurationError, load_settings
+
+    with pytest.raises(ConfigurationError, match="SSH_KNOWN_HOSTS") as exc:
+        load_settings("worker", {"SSH_KNOWN_HOSTS": value}, secret_files)
+    assert value not in str(exc.value)
