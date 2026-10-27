@@ -1,5 +1,5 @@
 import json
-import shutil
+import os
 import subprocess
 import sys
 from datetime import UTC, datetime
@@ -86,14 +86,22 @@ def test_inventory_hosts_follow_the_harness_table(stack):
     assert all(v["ansible_user"] == "root" and "webserver_type" not in v for v in overridden.values())
 
 
+def ansible_cli(tool, tmp_path, *args):
+    """Run an Ansible CLI with a writable HOME and a UTF-8 locale (the unit container's user has neither)."""
+    env = {
+        "PATH": str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""),
+        "HOME": str(tmp_path), "ANSIBLE_HOME": str(tmp_path / ".ansible"), "ANSIBLE_LOCAL_TEMP": str(tmp_path / "tmp"),
+        "LC_ALL": "C.UTF-8",
+    }
+    result = subprocess.run([str(Path(sys.executable).parent / tool), *args], capture_output=True, text=True,
+                            check=False, env=env, cwd=tmp_path)
+    assert result.returncode == 0, result.stdout + result.stderr
+    return result.stdout
+
+
 def test_inventory_file_is_parsed_by_ansible_with_groups_and_no_groups_variable(stack, tmp_path):
     inventory = stack.inventory_file(tmp_path)
-    tool = Path(sys.executable).parent / "ansible-inventory"
-    if not tool.exists() and shutil.which("ansible-inventory") is None:
-        pytest.skip("ansible-inventory not installed")
-    result = subprocess.run([str(tool) if tool.exists() else "ansible-inventory", "-i", str(inventory), "--list"],
-                            capture_output=True, text=True, check=True)
-    document = json.loads(result.stdout)
+    document = json.loads(ansible_cli("ansible-inventory", tmp_path, "-i", str(inventory), "--list"))
     assert document["canary_ring"]["hosts"] == ["web01.example.internal"]
     assert document["ring_a"]["hosts"] == ["web02.example.internal", "web03.example.internal"]
     host_vars = document["_meta"]["hostvars"]
@@ -103,13 +111,9 @@ def test_inventory_file_is_parsed_by_ansible_with_groups_and_no_groups_variable(
     assert "groups" not in yaml.safe_load(inventory.read_text())["all"]["hosts"]["web01.example.internal"]
 
 
-def test_ping_playbook_is_valid_and_becomes_root():
-    tool = Path(sys.executable).parent / "ansible-playbook"
-    if not tool.exists():
-        pytest.skip("ansible-playbook not installed")
+def test_ping_playbook_is_valid_and_becomes_root(tmp_path):
     playbook = ROOT / "tests/fixtures/ansible/ping.yml"
-    subprocess.run([str(tool), "--syntax-check", "-i", "localhost,", str(playbook)], capture_output=True,
-                   text=True, check=True)
+    ansible_cli("ansible-playbook", tmp_path, "--syntax-check", "-i", "localhost,", str(playbook))
     (play,) = yaml.safe_load(playbook.read_text())
     assert play["become"] is True and play["hosts"] == "all" and play["gather_facts"] is False
 

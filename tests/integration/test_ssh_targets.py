@@ -16,28 +16,10 @@ def context(runner_secrets, ssh_targets, tmp_path, secrets=None):
     )
 
 
-def diagnostics(ssh_targets, runner_secrets, tmp_path, ident):  # TEMPORARY
-    import subprocess
-
-    parts = []
-    for path in (tmp_path / "run" / "artifacts" / ident).glob("stdout"):
-        parts.append(path.read_text()[-6000:])
-    host = ssh_targets.hosts["ssh-nginx-2"]
-    result = subprocess.run(
-        ["ssh", "-vv", "-i", str(runner_secrets.ssh_key), "-o", f"UserKnownHostsFile={ssh_targets.known_hosts}",
-         "-o", "StrictHostKeyChecking=yes", "-o", "BatchMode=yes", "-p", str(host.ssh_port), "cdeploy@127.0.0.1", "id"],
-        check=False, capture_output=True, text=True, timeout=30,
-    )
-    parts.append(f"SSH rc={result.returncode}\n{result.stdout[-500:]}\n{result.stderr[-3000:]}")
-    parts.append(ssh_targets._compose("logs", "--no-color", "--tail", "30", check=False).stdout[-5000:])
-    return "\n".join(parts)
-
-
 def test_every_target_answers_over_pinned_ssh_with_become(ssh_targets, runner_secrets, tmp_path):
     run = context(runner_secrets, ssh_targets, tmp_path)
     outcome = run_playbook(run, AnsibleRun(PING, None, {}, timeout_seconds=120, forks=3), ident="ping")
-    assert outcome.status == "successful", outcome.log_excerpt + str(outcome.hosts) + diagnostics(
-        ssh_targets, runner_secrets, tmp_path, "ping")
+    assert outcome.status == "successful", f"{outcome.hosts}\n{outcome.log_excerpt}"
     assert {name: (host.outcome, host.data["become_user"]) for name, host in outcome.hosts.items()} == {
         WEB01: ("ok", "root"), WEB02: ("ok", "root"), WEB03: ("ok", "root")}
 
@@ -79,7 +61,7 @@ def test_stopped_target_is_transient_network(ssh_targets, runner_secrets, tmp_pa
         ssh_targets.start("ssh-nginx-2")
     again = context(runner_secrets, ssh_targets, tmp_path)  # the SSH port may change on restart
     outcome = run_playbook(again, AnsibleRun(PING, WEB02, {}, 60), ident="restarted")
-    assert outcome.hosts[WEB02].outcome == "ok", diagnostics(ssh_targets, runner_secrets, tmp_path, "restarted")
+    assert outcome.hosts[WEB02].outcome == "ok", outcome.hosts[WEB02]
 
 
 @pytest.mark.parametrize("service", SERVICES)
