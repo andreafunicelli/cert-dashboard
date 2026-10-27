@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from app.ansible.parse_apache import ApacheDump, parse_apache
+
 SCRIPT = Path(__file__).resolve().parents[2] / "app" / "ansible" / "playbooks" / "files" / "apache_dump.py"
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "dumps"
 
@@ -135,6 +137,25 @@ def test_globally_included_tls_config_missing_from_S_is_collected_read_only(tmp_
         "config",
     }
     assert tree_snapshot(tmp_path) == before  # nothing created, changed or removed
+    result = parse_apache(ApacheDump.from_collector(document))
+    [default] = [b for b in result.bindings if b.vhost_name == "default"]
+    assert (default.port, default.config_file) == (443, f"{root}/conf-enabled/zz-global-tls.conf")
+    assert default.cert_paths == (f"{root}/ssl/global.crt",)
+    # the same tree parsed from the -S file list alone has no global binding: the walk is what finds it
+    only_s = ApacheDump(
+        document["s_output"], section_of(document["config"], f"{root}/sites-enabled/www.conf")
+    )
+    only_s_result = parse_apache(only_s)
+    assert [(b.vhost_name, b.port) for b in only_s_result.bindings] == [("www.example.com", 443)]
+    assert all(b.vhost_name != "default" for b in only_s_result.bindings)
+
+
+def section_of(config: str, path: str) -> str:
+    """The marker and body of one file of a collector ``config``."""
+    marker = f"# configuration file {path}:\n"
+    start = config.index(marker)
+    end = config.find("# configuration file ", start + len(marker))
+    return config[start : end if end >= 0 else len(config)]
 
 
 FALLBACK_WARNING = "apachectl -S unavailable; vhosts derived from the configuration files"

@@ -1,0 +1,19 @@
+# configuration file /etc/apache2/httpd.conf:
+ServerRoot "/etc/apache2"
+Listen 80
+Listen 8443 https
+Include conf.d/*.conf
+
+# configuration file /etc/apache2/conf.d/00-tls-default.conf:
+<IfModule mod_ssl.c>
+    SSLCertificateFile ssl/default.crt
+    SSLCertificateKeyFile ssl/default.key
+    SSLCertificateChainFile ssl/default.chain.pem
+</IfModule>
+
+# configuration file /etc/apache2/conf.d/10-www.conf:
+<VirtualHost *:8443>
+    ServerName www.example.com
+    SSLEngine on
+</VirtualHost>
+
