@@ -1,0 +1,21 @@
+---
+# Local-connection probe for the runner wrapper tests: no SSH, no network.
+- name: probe
+  hosts: all
+  gather_facts: false
+  vars_files:
+    - "{{ vars_file }}"
+  tasks:
+    - name: visible output
+      ansible.builtin.debug:
+        msg: probe visible line
+
+    - name: hidden output
+      ansible.builtin.debug:
+        msg: "{{ probe_secret }}"
+      no_log: true
+
+    - name: publish result
+      ansible.builtin.set_stats:
+        data: >-
+          {{ {'cert_dashboard': {inventory_hostname: {'probe': 'decrypted' if (probe_secret | length) > 0 else 'empty'}}} }}
