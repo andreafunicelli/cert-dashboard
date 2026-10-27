@@ -1,0 +1,225 @@
+---
+# Read-only discovery (spec 6.2, Plan 3 Task 8). Two phases selected by the extra-var `discovery_phase`:
+#   collect  - detect the webserver, capture its configuration and store it on the CONTROLLER
+#   inspect  - stat / fingerprint / key-hash / extract the certificates of the paths the worker parsed
+# Nothing is ever written on the target: every `copy`/`file` task is delegated to localhost, `become` is used
+# only to read root-owned files, and every task that handles a key path, certificate extraction or the
+# configuration dump is `no_log: true` so none of it reaches stdout or `job_events`. Delegated tasks name their
+# `ansible_remote_tmp` explicitly: Ansible expands `~` through the passwd entry of the running user, and the
+# worker's `app` user has no home directory (HOME is the per-run directory the runner creates).
+# Extra-vars: discovery_phase, artifact_dir (controller directory), webservers (host -> nginx|apache|null),
+# max_dump_bytes (16 MiB: a larger dump fails as dump_too_large, never truncated), max_cert_bytes (1 MiB of
+# certificates per file), paths_by_host (inspect only: host -> {cert_paths: [...], key_paths: [...]}).
+- name: Discover TLS bindings
+  hosts: all
+  gather_facts: false
+
+  tasks:
+    - name: Collect the webserver configuration
+      when: discovery_phase == 'collect'
+      block:
+        - name: Detect the webserver
+          ansible.builtin.include_tasks: tasks/detect_webserver.yml
+
+        - name: Capture the nginx configuration
+          when: webserver == 'nginx' and nginx_bin != ''
+          ansible.builtin.shell: "{{ nginx_bin | quote }} -T 2>&1"
+          become: true
+          no_log: true
+          timeout: 60
+          changed_when: false
+          failed_when: false
+          register: nginx_dump
+
+        - name: Capture the Apache configuration with the read-only collector
+          when: webserver == 'apache' and apachectl_bin != ''
+          ansible.builtin.script: files/apache_dump.py --ctl {{ apachectl_bin | quote }}
+          args:
+            executable: python3
+          become: true
+          no_log: true
+          timeout: 60
+          changed_when: false
+          failed_when: false
+          register: apache_dump
+
+        - name: Classify the capture
+          ansible.builtin.set_fact:
+            capture_rc: "{{ (nginx_dump.rc if webserver == 'nginx' else apache_dump.rc) | default(-1) }}"
+            capture_len: "{{ (nginx_dump.stdout if webserver == 'nginx' else apache_dump.stdout) | default('') | length }}"
+          no_log: true
+
+        - name: Decide the capture status
+          ansible.builtin.set_fact:
+            capture_status: >-
+              {{ 'no_webserver' if webserver == '' else
+                 ('dump_too_large' if ((webserver == 'apache' and capture_rc | int == 3) or capture_len | int > max_dump_bytes) else
+                  ('dump_failed' if capture_rc | int != 0 else 'ok')) }}
+
+        - name: Create the dump directory on the controller
+          ansible.builtin.file:
+            path: "{{ artifact_dir }}/dumps"
+            state: directory
+            mode: "0700"
+          delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
+          become: false
+          no_log: true
+
+        - name: Store the nginx configuration on the controller
+          when: webserver == 'nginx' and capture_status == 'ok'
+          ansible.builtin.copy:
+            content: "{{ nginx_dump.stdout }}"
+            dest: "{{ artifact_dir }}/dumps/{{ inventory_hostname }}.txt"
+            mode: "0600"
+          delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
+          become: false
+          no_log: true
+
+        - name: Store the Apache configuration document on the controller
+          when: webserver == 'apache' and capture_status == 'ok'
+          ansible.builtin.copy:
+            content: "{{ apache_dump.stdout }}"
+            dest: "{{ artifact_dir }}/dumps/{{ inventory_hostname }}.json"
+            mode: "0600"
+          delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
+          become: false
+          no_log: true
+
+        - name: Report a failed capture
+          when: capture_status in ['dump_failed', 'dump_too_large']
+          ansible.builtin.debug:
+            msg: "configuration capture failed ({{ capture_status }}, exit code {{ capture_rc }})"
+
+        - name: Publish the capture result
+          ansible.builtin.set_stats:
+            data: >-
+              {{ {'cert_dashboard': {inventory_hostname: {
+                   'phase': 'collect',
+                   'webserver': webserver,
+                   'capture_status': capture_status,
+                   'capture_rc': capture_rc | int,
+                   'binaries': {'nginx': nginx_bin, 'apachectl': apachectl_bin}}}} }}
+
+    - name: Inspect the certificate and key files
+      when: discovery_phase == 'inspect'
+      block:
+        - name: Read the paths of this host
+          ansible.builtin.set_fact:
+            cert_paths: "{{ paths_by_host[inventory_hostname].cert_paths | default([]) }}"
+            key_paths: "{{ paths_by_host[inventory_hostname].key_paths | default([]) }}"
+          no_log: true
+
+        - name: Join certificate and key paths
+          ansible.builtin.set_fact:
+            stat_paths: "{{ (cert_paths + key_paths) | unique | list }}"
+          no_log: true
+
+        - name: Stat every path
+          ansible.builtin.stat:
+            path: "{{ item }}"
+            follow: true
+            get_checksum: false
+            get_mime: false
+            get_attributes: false
+          loop: "{{ stat_paths }}"
+          become: true
+          no_log: true
+          failed_when: false
+          register: stat_results
+
+        - name: Fingerprint every certificate path
+          ansible.builtin.command:
+            argv:
+              - openssl
+              - x509
+              - -nameopt
+              - RFC2253
+              - -noout
+              - -fingerprint
+              - -sha256
+              - -subject
+              - -issuer
+              - -in
+              - "{{ item }}"
+          loop: "{{ cert_paths }}"
+          become: true
+          timeout: 60
+          changed_when: false
+          failed_when: false
+          register: fingerprint_results
+
+        - name: Hash the public key of every key path
+          ansible.builtin.shell: "set -o pipefail; openssl pkey -in {{ item | quote }} -passin pass: -pubout -outform DER | sha256sum"
+          args:
+            executable: /bin/bash
+          loop: "{{ key_paths }}"
+          become: true
+          no_log: true
+          timeout: 60
+          changed_when: false
+          failed_when: false
+          register: key_hash_results
+
+        - name: Extract only the certificates of every certificate path
+          ansible.builtin.shell: "set -o pipefail; openssl crl2pkcs7 -nocrl -certfile {{ item | quote }} | openssl pkcs7 -print_certs"
+          args:
+            executable: /bin/bash
+          loop: "{{ cert_paths }}"
+          become: true
+          no_log: true
+          timeout: 60
+          changed_when: false
+          failed_when: false
+          register: cert_extract_results
+
+        - name: Create the certificate directory on the controller
+          ansible.builtin.file:
+            path: "{{ artifact_dir }}/certs/{{ inventory_hostname }}"
+            state: directory
+            mode: "0700"
+          delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
+          become: false
+          no_log: true
+
+        - name: Store the extracted certificates on the controller
+          ansible.builtin.copy:
+            content: "{{ item.stdout }}"
+            dest: "{{ artifact_dir }}/certs/{{ inventory_hostname }}/{{ item.item | hash('sha256') }}.pem"
+            mode: "0600"
+          loop: "{{ cert_extract_results.results | selectattr('rc', 'defined') | selectattr('rc', 'equalto', 0) | rejectattr('stdout', 'equalto', '') | list }}"
+          when: item.stdout | length <= max_cert_bytes
+          delegate_to: localhost
+          vars:
+            ansible_remote_tmp: "{{ lookup('ansible.builtin.env', 'HOME') }}/.ansible/tmp"
+          become: false
+          no_log: true
+
+        - name: Publish the facts of this host
+          ansible.builtin.set_stats:
+            data: >-
+              {{ {'cert_dashboard': {inventory_hostname: {
+                   'phase': 'inspect',
+                   'stat': {
+                     'paths': stat_results.results | map(attribute='item') | list,
+                     'results': stat_results.results | map(attribute='stat', default={}) | list},
+                   'fingerprint': {
+                     'paths': fingerprint_results.results | map(attribute='item') | list,
+                     'rc': fingerprint_results.results | map(attribute='rc', default=-1) | list,
+                     'stdout': fingerprint_results.results | map(attribute='stdout', default='') | list},
+                   'key_hash': {
+                     'paths': key_hash_results.results | map(attribute='item') | list,
+                     'rc': key_hash_results.results | map(attribute='rc', default=-1) | list,
+                     'stdout': key_hash_results.results | map(attribute='stdout', default='') | list},
+                   'certificates': {
+                     'paths': cert_extract_results.results | map(attribute='item') | list,
+                     'rc': cert_extract_results.results | map(attribute='rc', default=-1) | list,
+                     'size': cert_extract_results.results | map(attribute='stdout', default='') | map('length') | list}}}} }}
+          no_log: true

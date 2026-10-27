@@ -1,0 +1,36 @@
+---
+# Detect the webserver of this host and the binaries used to read its configuration (read-only).
+# Optional inventory variables win over detection: `nginx_binary`, `apachectl_binary`. The webserver kind comes
+# from the `webservers` extra-var (the inventory's `webserver_type`; null = auto-detect).
+- name: Locate the webserver binaries
+  ansible.builtin.shell: |
+    probe() {
+      for name in "$@"; do
+        found=$(command -v "$name" 2>/dev/null) || found=
+        if [ -n "$found" ] && [ -x "$found" ]; then echo "$found"; return; fi
+        for dir in /usr/sbin /usr/local/sbin /usr/local/nginx/sbin /usr/local/apache2/bin; do
+          if [ -x "$dir/$name" ]; then echo "$dir/$name"; return; fi
+        done
+      done
+    }
+    echo "nginx=$(probe nginx)"
+    echo "apachectl=$(probe apachectl apache2ctl)"
+  args:
+    executable: /bin/sh
+  register: webserver_binaries
+  changed_when: false
+  failed_when: false
+  timeout: 60
+
+- name: Resolve the binary paths
+  ansible.builtin.set_fact:
+    nginx_bin: "{{ nginx_binary | default(((webserver_binaries.stdout | regex_search('^nginx=(.*)$', '\\1', multiline=True)) or [''])[0]) }}"
+    apachectl_bin: "{{ apachectl_binary | default(((webserver_binaries.stdout | regex_search('^apachectl=(.*)$', '\\1', multiline=True)) or [''])[0]) }}"
+
+- name: Decide the webserver
+  ansible.builtin.set_fact:
+    webserver: >-
+      {{ hinted if hinted in ['nginx', 'apache'] else
+         ('nginx' if nginx_bin != '' else ('apache' if apachectl_bin != '' else '')) }}
+  vars:
+    hinted: "{{ (webservers | default({})).get(inventory_hostname) | default('', true) }}"
