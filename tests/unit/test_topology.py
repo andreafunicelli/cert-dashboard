@@ -1,5 +1,6 @@
 import json
 import posixpath
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -109,6 +110,40 @@ def test_test_stack_contains_real_postgres_and_application_image():
     assert cfg["services"]["app"]["environment"]["DB_HOST"] == "db"
 
 
+TARGET_SERVICES = {"tls-nginx", "tls-apache", "smtp"}
+
+
+def test_test_targets_are_pinned_profiled_and_loopback_only():
+    for name in ("docker-compose.yml", "docker-compose.credentials.yml", "docker-compose.migrate.yml"):
+        cfg = compose(name)
+        assert not TARGET_SERVICES & set(cfg["services"]), f"test targets leaked into {name}"
+        assert "targets" not in yaml.safe_dump(cfg)
+    services = compose("docker-compose.test.yml")["services"]
+    targets = {name: services[name] for name in TARGET_SERVICES}
+    for name, svc in targets.items():
+        assert svc["profiles"] == ["targets"], name
+        assert "network_mode" not in svc and "secrets" not in svc, name
+        assert "build" not in svc, name  # no build of external content: images are pulled by digest or prebuilt
+        assert svc["ports"] and all(re.fullmatch(r"127\.0\.0\.1::\d+", port) for port in svc["ports"]), name
+        assert not any(
+            key.upper().endswith(("PASSWORD", "SECRET", "TOKEN", "KEY")) for key in svc.get("environment", {})
+        ), name
+    assert re.fullmatch(r"nginx:[\w.-]+@sha256:[0-9a-f]{64}", targets["tls-nginx"]["image"])
+    assert re.fullmatch(r"httpd:[\w.-]+@sha256:[0-9a-f]{64}", targets["tls-apache"]["image"])
+    for name in ("tls-nginx", "tls-apache"):
+        volumes = targets[name]["volumes"]
+        assert targets[name]["ports"] == ["127.0.0.1::8443"]
+        assert all(volume.endswith(":ro") for volume in volumes), name
+        assert f"${{TLS_TARGET_DIR:-./secrets/test/tls-targets}}/{name}:/etc/certs:ro" in volumes
+        configs = [v for v in volumes if v.startswith("./tests/fixtures/targets/")]
+        assert len(configs) == 1 and (ROOT / configs[0].split(":")[0]).is_file(), name
+    smtp = targets["smtp"]
+    assert smtp["image"] == "cert-dashboard:test" and smtp["user"] == "10001:10001"
+    assert smtp["read_only"] is True and smtp["cap_drop"] == ["ALL"]
+    assert smtp["command"] == ["python", "-m", "tests.fixtures.smtp_capture", "--listen", "0.0.0.0:1025", "--spool", "/spool"]
+    assert smtp["tmpfs"] == ["/spool"] and smtp["ports"] == ["127.0.0.1::1025"]
+
+
 def test_htmx_is_packaged_for_offline_runtime():
     import hashlib
 
@@ -151,8 +186,9 @@ def secret_path(target):
     ["docker-compose.yml", "docker-compose.credentials.yml", "docker-compose.migrate.yml"],
     ["docker-compose.test.yml"],
 ])
-def test_rendered_services_never_mount_two_secrets_at_the_same_path(files):
-    command = ["docker", "compose", "--profile", "*"]
+@pytest.mark.parametrize("profile", ["*", "targets"])
+def test_rendered_services_never_mount_two_secrets_at_the_same_path(files, profile):
+    command = ["docker", "compose", "--profile", profile]
     for name in files:
         command.extend(["-f", name])
     result = subprocess.run(command + ["config", "--format", "json"], cwd=ROOT,
