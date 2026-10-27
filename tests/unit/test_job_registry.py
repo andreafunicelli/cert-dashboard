@@ -13,6 +13,7 @@ from app.crypto.keyring import Keyring, KeyUnwrapError
 from app.jobs import worker
 from app.jobs.handlers import build_registry
 from app.jobs.handlers.cleanup import prune_artifacts, validate_cleanup_payload
+from app.jobs.handlers.test_pull import TEST_PULL_ACTION, validate_test_pull_payload
 from app.jobs.handlers.trust_recheck import TRUST_RECHECK_ACTION, validate_trust_recheck_payload
 from app.jobs.queue import InvalidJobState, JobCancelled, JobControl, JobFailure, JobPaused, JobRequeued
 from app.jobs.worker import JobContext, JobRegistry
@@ -60,6 +61,20 @@ def test_build_registry_supports_cleanup_pull_import_and_the_default_scan():
     assert registry.supports(JobType.SCAN, "import_pull")  # Task 16
     assert registry.supports(JobType.SCAN)  # scan/default (Plan 2 Task 2)
     assert build_registry() is not build_registry()
+
+
+def test_registry_supports_the_test_pull_but_not_yet_the_default_discovery():
+    registry = build_registry()
+    assert TEST_PULL_ACTION == "test_pull"
+    assert registry.supports(JobType.DISCOVER, "test_pull")
+    assert not registry.supports(JobType.DISCOVER)  # discover/default arrives with Plan 3 Task 10
+
+
+def test_test_pull_payload_is_exactly_its_action():
+    assert validate_test_pull_payload({"action": "test_pull"}) == {"action": "test_pull"}
+    for payload in ({}, {"action": "smtp_test"}, {"action": "test_pull", "hosts": ["a"]}, {"hosts": ["a"]}):
+        with pytest.raises(ValueError):
+            validate_test_pull_payload(payload)
 
 
 def test_duplicate_registration_is_rejected():

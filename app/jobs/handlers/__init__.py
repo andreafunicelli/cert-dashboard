@@ -6,6 +6,8 @@ from app.jobs.handlers.expiry import expiry_check, validate_expiry_payload
 from app.jobs.handlers.import_pull import import_pull as pull_import
 from app.jobs.handlers.scan import scan_endpoints
 from app.jobs.handlers.smtp_test import SMTP_TEST_ACTION, smtp_test, validate_smtp_test_payload
+from app.jobs.handlers.test_pull import TEST_PULL_ACTION, validate_test_pull_payload
+from app.jobs.handlers.test_pull import test_pull as pull_test
 from app.jobs.handlers.trust_recheck import (
     TRUST_RECHECK_ACTION,
     trust_recheck,
@@ -30,4 +32,5 @@ def build_registry() -> JobRegistry:
     registry.register(
         JobType.ALERT_EXPIRY, smtp_test, action=SMTP_TEST_ACTION, validator=validate_smtp_test_payload
     )
+    registry.register(JobType.DISCOVER, pull_test, action=TEST_PULL_ACTION, validator=validate_test_pull_payload)
     return registry

@@ -234,8 +234,32 @@ docker compose up -d --force-recreate web worker</code></pre></li>
   </table>
   {% else %}<p>No delivery failures.</p>{% endif %}
   {% elif tab == "inventory" %}
+  <p id="inventory-revision" data-rev="{{ inventory.current_rev or '' }}">
+    {% if inventory.current_rev %}Current revision: <code>{{ inventory.current_rev[:12] }}</code>{% if inventory.current_rev_date %}, committed {{ time_tag(when(inventory.current_rev_date), timezone) }}{% if timezone != "UTC" %} / {{ time_tag(when(inventory.current_rev_date), "UTC") }}{% endif %}{% endif %}{% if inventory.current_at %} (newest successful discovery, deploy or test pull, finished {{ time_tag(when(inventory.current_at), timezone) }}{% if timezone != "UTC" %} / {{ time_tag(when(inventory.current_at), "UTC") }}{% endif %}){% endif %}
+    {% else %}Current revision: unknown (no discovery, deploy or test pull has succeeded yet).{% endif %}
+  </p>
   {% if disabled.get("test_pull") %}{{ disabled_action("Test pull", disabled["test_pull"]) }}
-  {% else %}<form method="post" action="/settings/inventory/test-pull"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Test pull</button></form>{% endif %}
+  {% else %}<form method="post" action="/settings/inventory/test-pull"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Test pull</button></form>
+  {% if not inventory.worker.reporting %}<p class="hint">No worker has reported its capabilities recently; a test pull waits in the queue until one picks it up.</p>{% endif %}{% endif %}
+  <p class="hint">Test pull fetches the repository and lists the hosts and groups on the worker; it does not connect to any server.</p>
+  {% block test_pull_result %}
+  {% macro both(value, tz) %}{{ time_tag(value, tz) }}{% if tz != "UTC" %} / {{ time_tag(value, "UTC") }}{% endif %}{% endmacro %}
+  {% if test_pull %}{% set tp = test_pull %}
+  <div id="test-pull-result" data-test-status="{{ tp.status }}"{% if tp.status in ("queued", "running") %} hx-get="/settings/inventory/test-pull/{{ tp.job_id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+    <h3>Last test pull</h3>
+    {% if tp.status == "succeeded" %}<p><strong>Succeeded</strong>, finished {{ both(when(tp.finished_at), timezone) }}</p>
+    {% elif tp.status == "failed" %}<p><strong>Failed</strong>, {{ both(when(tp.finished_at), timezone) }}</p>
+    {% elif tp.status in ("queued", "running") %}<p><strong>{{ tp.status | capitalize }}</strong> since {{ both(when(tp.requested_at), timezone) }}; the worker has not finished it yet.</p>
+    {% else %}<p><strong>{{ tp.status | capitalize }}</strong></p>{% endif %}
+    {% if tp.result %}{% set r = tp.result %}
+    <p>Revision <code>{{ r.rev[:12] }}</code>{% if r.rev_date %}, committed {{ both(when(r.rev_date), timezone) }}{% endif %}; {{ "the checkout was updated by this run" if r.refreshed else "the existing checkout was used (no pull)" }}.</p>
+    {% if r.hosts is not none %}<p>{{ r.hosts }} host{{ "" if r.hosts == 1 else "s" }}{% if r.groups is not none %}, {{ r.groups }} group{{ "" if r.groups == 1 else "s" }}{% endif %} in the inventory.</p>{% endif %}
+    {% if r.warning %}<p class="form-error" role="alert" data-field="test-pull-warning">Warning: {{ r.warning }}</p>{% endif %}
+    {% endif %}
+    {% if tp.status == "failed" %}<p class="form-error" role="alert" data-field="test-pull">{{ tp.error_class }}: {{ tp.error_message }}</p>{% endif %}
+  </div>
+  {% else %}<p id="test-pull-result">No test pull has run yet.</p>{% endif %}
+  {% endblock %}
   {% endif %}
   {% endif %}
 </section>
