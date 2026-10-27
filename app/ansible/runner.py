@@ -171,18 +171,56 @@ def _excerpt(lines: list[str]) -> str:
     return encoded.decode(errors="ignore")
 
 
-def _scrub_command_file(artifact_dir: Path) -> None:
-    """ansible-runner records the child environment in `command`; drop it (it holds secrets)."""
-    path = artifact_dir / "command"
-    try:
-        document = json.loads(path.read_text())
-        env = document.get("env")
-        if isinstance(env, dict):
-            document["env"] = {k: "[removed]" if k in _SECRET_ENV_KEYS else v for k, v in env.items()}
-        path.write_text(json.dumps(document))
-    except (OSError, ValueError):
-        with contextlib.suppress(OSError):
-            path.unlink()
+class _CommandSink:
+    """Keeps ansible-runner's `command` record (it holds the full child environment) off disk.
+
+    ansible-runner opens ``<artifact_dir>/command`` for writing and dumps the environment into
+    it before the child starts. Planting a FIFO there makes that write land in a pipe drained
+    by an in-process thread; after the run the masked record replaces the FIFO as a regular
+    0600 file. The secret therefore never exists in a file of the artifact tree.
+    """
+
+    def __init__(self, directory: Path) -> None:
+        self.path = directory / "command"
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with contextlib.suppress(FileNotFoundError):
+            self.path.unlink()
+        os.mkfifo(self.path, 0o600)
+        self._chunks: list[bytes] = []
+        # Reader first (a non-blocking open succeeds without a writer), then a holding writer
+        # so the reader sees EOF only when we close it, whenever ansible-runner opens the FIFO.
+        self._read_fd = os.open(self.path, os.O_RDONLY | os.O_NONBLOCK)
+        os.set_blocking(self._read_fd, True)
+        self._hold_fd: int | None = os.open(self.path, os.O_WRONLY)
+        self._thread = threading.Thread(target=self._drain, daemon=True)
+        self._thread.start()
+
+    def _drain(self) -> None:
+        try:
+            while chunk := os.read(self._read_fd, 65536):
+                self._chunks.append(chunk)
+        finally:
+            os.close(self._read_fd)
+
+    def finish(self) -> None:
+        """Replace the FIFO with the record minus the secret environment values."""
+        if self._hold_fd is not None:
+            os.close(self._hold_fd)
+            self._hold_fd = None
+        self._thread.join()
+        self.path.unlink()
+        try:
+            document = json.loads(b"".join(self._chunks).decode())
+            env = document.get("env")
+            if isinstance(env, dict):
+                document["env"] = {k: "[removed]" if k in _SECRET_ENV_KEYS else v for k, v in env.items()}
+            text = json.dumps(document)
+        except ValueError:
+            text = "{}"
+        self._chunks.clear()
+        fd = os.open(self.path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as handle:
+            handle.write(text)
 
 
 class _Collector:
@@ -226,10 +264,6 @@ def run_playbook(context: RunnerContext, run: AnsibleRun, *, ident: str) -> RunO
     artifact_root = run_dir / "artifacts"
     command_dir = artifact_root / ident
 
-    def on_status(status: Mapping[str, Any], runner_config: object) -> None:
-        if status.get("status") == "running":
-            _scrub_command_file(command_dir)
-
     runner = init_runner(
         private_data_dir=str(run_dir),
         playbook=str(playbook),
@@ -244,16 +278,18 @@ def run_playbook(context: RunnerContext, run: AnsibleRun, *, ident: str) -> RunO
         forks=run.forks,
         artifact_dir=str(artifact_root),
         event_handler=collector,
-        status_handler=on_status,
         # Never let ansible-runner install its own SIGTERM/SIGINT handlers in the worker.
         cancel_callback=lambda: False,
     )
     # ansible-runner seeds the child environment with a copy of os.environ; replace it outright.
     runner.config.env = {**{k: runner.config.env[k] for k in _RUNNER_KEYS if k in runner.config.env}, **env}
+    # ansible-runner writes the child environment (secrets included) to `command` right
+    # before it starts the child; the sink makes that write go to a pipe, not to the disk.
+    sink = _CommandSink(command_dir)
     try:
         runner.run()
     finally:
-        _scrub_command_file(command_dir)
+        sink.finish()
 
     status: Literal["successful", "failed", "timeout"]
     if runner.status == "timeout":

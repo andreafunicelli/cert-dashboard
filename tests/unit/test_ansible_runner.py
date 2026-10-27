@@ -463,3 +463,54 @@ def test_local_probe_hosts_keep_their_remote_tmp_inside_the_run(tmp_path):
     )
     assert outcome.status == "successful", outcome.log_excerpt
     assert outcome.hosts["localhost"].data == {"tmp": str(tmp_path / "run" / "home" / ".ansible" / "tmp")}
+
+
+def _secret_hits(run_dir: Path, needle: bytes) -> list[str]:
+    """Scan regular files only (no symlink/FIFO following) so a scan can never consume data."""
+    hits = []
+    for path in run_dir.rglob("*"):
+        try:
+            info = path.lstat()
+            if stat.S_ISREG(info.st_mode) and needle in path.read_bytes():
+                hits.append(str(path.relative_to(run_dir)))
+        except OSError:
+            continue
+    return hits
+
+
+def test_vault_password_is_never_on_disk_while_the_run_is_in_progress(tmp_path, monkeypatch):
+    from ansible_runner.runner import Runner
+
+    password = "startup-canary-4e7a"
+    write_vaulted_vars(tmp_path / "vars.yml", {"probe_secret": "x"}, password)
+    run_dir = tmp_path / "run"
+    snapshots: list[tuple[str, list[str]]] = []
+    original = Runner.status_callback
+
+    def spying(self, status):
+        # Scan *before* anything in the wrapper can react to this status.
+        snapshots.append((status, _secret_hits(run_dir, password.encode())))
+        return original(self, status)
+
+    monkeypatch.setattr(Runner, "status_callback", spying)
+
+    context = RunnerContext(
+        RunnerSecrets(tmp_path / "key", tmp_path / "known_hosts", password.encode()),
+        LOCAL_INVENTORY,
+        run_dir,
+        tmp_path / "artifacts",
+    )
+    outcome = run_playbook(
+        context, AnsibleRun(PROBE, None, {"vars_file": str(tmp_path / "vars.yml")}, 120), ident="early"
+    )
+    assert outcome.status == "successful"
+    assert {status for status, _ in snapshots} >= {"starting", "running", "successful"}
+    assert all(hits == [] for _, hits in snapshots), snapshots
+    # The record that stays behind is a regular file, with the secret masked and the rest kept.
+    command = run_dir / "artifacts" / "early" / "command"
+    assert stat.S_ISREG(command.lstat().st_mode)
+    assert stat.S_IMODE(command.lstat().st_mode) == 0o600
+    document = json.loads(command.read_text())
+    assert document["env"]["CERT_DASHBOARD_VAULT_PASSWORD"] == "[removed]"
+    assert document["env"]["HOME"] == str(run_dir / "home")
+    assert password not in command.read_text()
