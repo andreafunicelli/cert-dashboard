@@ -174,17 +174,26 @@ def _apache_roles(candidate: ParsedBinding, facts: Mapping[str, PathFacts]) -> l
 
 def _chain_for(
     candidate: ParsedBinding, leaf: x509.Certificate, facts: Mapping[str, PathFacts], extras: Sequence[str]
-) -> str | None:
-    """First file that holds the certificate that signed ``leaf``: the explicit chain file, then the extras."""
+) -> tuple[str | None, bool]:
+    """First file that holds the signer of ``leaf`` *and* is itself a verified chain, plus a malformed flag.
+
+    The explicit chain file may hold the signer anywhere, an extra certificate file must start with it.
+    A file whose certificates do not each sign the previous one is never a chain (flag ``True``).
+    """
+    malformed = False
     if candidate.chain_path:
         certs = _certificates(facts, candidate.chain_path)
         if certs and any(_signs(cert, leaf) for cert in certs):
-            return candidate.chain_path
+            if _bundle_is_chain(certs):
+                return candidate.chain_path, False
+            malformed = True
     for path in extras:
         certs = _certificates(facts, path)
         if certs and _signs(certs[0], leaf):
-            return path
-    return None
+            if _bundle_is_chain(certs):
+                return path, False
+            malformed = True
+    return None, malformed
 
 
 def _assemble_one(
@@ -202,18 +211,19 @@ def _assemble_one(
 
     certs = _certificates(facts, cert_path)
     chain_path: str | None = None
+    malformed = False
     problems: list[str] = []
     explicit = candidate.chain_path if apache else None
     if certs:
         leaf = certs[0]
         if apache:
-            chain_path = _chain_for(candidate, leaf, facts, chain_like)
+            chain_path, malformed = _chain_for(candidate, leaf, facts, chain_like)
         bundle_link = len(certs) > 1 and _signs(certs[1], leaf)
-        if not (_self_signed(leaf) or bundle_link or chain_path):
+        if not (_self_signed(leaf) or bundle_link or chain_path or malformed):
             problems.append(INCOMPLETE_CHAIN)
-        if len(certs) > 1 and not _bundle_is_chain(certs):
+        if malformed or (len(certs) > 1 and not _bundle_is_chain(certs)):
             problems.append(BUNDLE_NOT_CHAINED)
-    if explicit and chain_path != explicit:
+    if explicit and chain_path != explicit and not malformed:
         problems.append(CHAIN_NOT_VERIFYING if _certificates(facts, explicit) else CHAIN_UNREADABLE)
     return _binding(candidate, config_file, cert_path, key_path, chain_path, "; ".join(problems) or None, facts)
 

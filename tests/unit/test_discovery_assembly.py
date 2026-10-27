@@ -427,6 +427,60 @@ def test_apache_extra_certificate_file_that_signs_the_leaf_becomes_chain_path_no
     assert binding["chain_diagnostic"] is None
 
 
+def test_apache_explicit_chain_file_with_an_unrelated_later_certificate_is_not_a_verified_chain():
+    root = issue("Root", ca=True)
+    inter = issue("Intermediate", root, ca=True)
+    leaf = issue("www", inter)
+    stranger = issue("Stranger", ca=True)
+    parsed = [apache(["/c/www.crt"], ["/k/www.key"], chain="/c/chain.pem")]
+    facts = by_path(
+        cert_facts("/c/www.crt", leaf),
+        cert_facts("/c/chain.pem", inter, stranger),
+        key_facts("/k/www.key", leaf.key),
+    )
+
+    (binding,) = assemble_bindings(parsed, facts)
+
+    assert binding["chain_path"] is None
+    assert binding["chain_diagnostic"] == BUNDLE_BROKEN
+
+
+def test_apache_extra_certificate_file_with_an_unrelated_later_certificate_is_not_a_verified_chain():
+    root = issue("Root", ca=True)
+    inter = issue("Intermediate", root, ca=True)
+    leaf = issue("www", inter)
+    stranger = issue("Stranger", ca=True)
+    parsed = [apache(["/c/www.crt", "/c/inter.crt"], ["/k/www.key"])]
+    facts = by_path(
+        cert_facts("/c/www.crt", leaf),
+        cert_facts("/c/inter.crt", inter, stranger),
+        key_facts("/k/www.key", leaf.key),
+    )
+
+    bindings = assemble_bindings(parsed, facts)
+
+    assert [b["cert_path"] for b in bindings] == ["/c/www.crt"]
+    assert bindings[0]["chain_path"] is None
+    assert bindings[0]["chain_diagnostic"] == BUNDLE_BROKEN
+
+
+def test_apache_extra_certificate_file_with_intermediate_and_root_is_still_the_chain():
+    root = issue("Root", ca=True)
+    inter = issue("Intermediate", root, ca=True)
+    leaf = issue("www", inter)
+    parsed = [apache(["/c/www.crt", "/c/inter.crt"], ["/k/www.key"])]
+    facts = by_path(
+        cert_facts("/c/www.crt", leaf),
+        cert_facts("/c/inter.crt", inter, root),
+        key_facts("/k/www.key", leaf.key),
+    )
+
+    (binding,) = assemble_bindings(parsed, facts)
+
+    assert binding["chain_path"] == "/c/inter.crt"
+    assert binding["chain_diagnostic"] is None
+
+
 def test_apache_chain_candidate_signing_both_leaves_is_the_chain_of_both_bindings():
     ca = issue("Shared CA", ca=True)
     rsa_leaf = issue("www", ca, key=rsa.generate_private_key(public_exponent=65537, key_size=2048))
