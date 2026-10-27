@@ -11,9 +11,10 @@ from sqlalchemy import Text, any_, case, func, literal, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Certificate, Endpoint, JSONValue, ScanResult, Server
+from app.models import Binding, Certificate, Endpoint, JSONValue, ScanResult, Server
 from app.models.enums import CertificateStatus, EndpointSource, ScanStatus
 from app.services.audit import Actor, record
+from app.services.bindings import verify_sni
 from app.services.scans import EndpointInputError, validate_endpoint_target
 
 EXPORT_LIMIT = 5000
@@ -346,3 +347,159 @@ def set_endpoint_active(db: Session, endpoint_id: int, active: bool, actor: Acto
     endpoint = _locked(db, endpoint_id)
     _change(db, endpoint, "is_active", active, actor)
     return endpoint
+
+
+# --- binding-derived endpoints (spec 4.9, Plan 3 Contract decision 11) -----------------------------
+# Called by discovery reconciliation inside its per-server transaction: stage and audit, never commit.
+
+
+def _derived_identity(server: Server, binding: Binding) -> tuple[str, int, str | None]:
+    """Canonical ``(host, port, sni)`` of the endpoint a binding derives: the address the worker reaches."""
+    host = server.connection_address or server.hostname
+    sni = verify_sni(binding.vhost_name, binding.vhost_names)
+    try:
+        return validate_endpoint_target(host, binding.port, sni)
+    except EndpointInputError as error:
+        if sni is not None and set(error.errors) == {"sni"}:
+            return validate_endpoint_target(host, binding.port, None)  # a name the SNI rules refuse: probe by host
+        raise
+
+
+def _by_identity(db: Session, host: str, port: int, sni: str | None) -> Endpoint | None:
+    return db.scalar(
+        select(Endpoint)
+        .where(Endpoint.host == host, Endpoint.port == port, func.coalesce(Endpoint.sni, Endpoint.host) == (sni or host))
+        .with_for_update()
+    )
+
+
+def _discovery_change(
+    db: Session, endpoint: Endpoint, field: str, previous: int | bool | None, value: int | bool, actor: Actor
+) -> None:
+    details: dict[str, JSONValue] = {"field": field, "from": previous, "to": value, "source": "discovery"}
+    record(db, actor, "endpoint.update", "endpoint", str(endpoint.id), details)
+
+
+def _link(db: Session, endpoint: Endpoint, binding: Binding, actor: Actor) -> None:
+    previous = endpoint.binding_id
+    endpoint.binding_id = binding.id
+    endpoint.server_id = binding.server_id
+    _discovery_change(db, endpoint, "binding_id", previous, binding.id, actor)
+
+
+def ensure_binding_endpoint(db: Session, binding: Binding, server: Server, actor: Actor) -> tuple[Endpoint, bool]:
+    """The endpoint of a binding's ``vhost_name:port`` and whether this call created it.
+
+    Bindings resolving to one identity share one endpoint, linked to the lowest active binding id. An existing
+    unlinked (manual) endpoint is adopted with its source kept; a link to an inactive or higher-id binding moves.
+    A new endpoint expects the binding's certificate when it is ``matched``. Raises ``EndpointInputError`` when
+    the host or port cannot be an endpoint.
+    """
+    host, port, sni = _derived_identity(server, binding)
+    existing = _by_identity(db, host, port, sni)
+    if existing is not None:
+        owner = db.get(Binding, existing.binding_id) if existing.binding_id is not None else None
+        if owner is None or (owner.id != binding.id and (not owner.is_active or owner.id > binding.id)):
+            _link(db, existing, binding, actor)
+        return existing, False
+    endpoint = Endpoint(
+        host=host,
+        port=port,
+        sni=sni,
+        source=EndpointSource.DISCOVERY,
+        server_id=server.id,
+        binding_id=binding.id,
+        expected_certificate_id=binding.certificate_id if binding.match_state == "matched" else None,
+        is_active=True,
+    )
+    try:
+        with db.begin_nested():
+            db.add(endpoint)
+            db.flush()
+    except IntegrityError:
+        racer = _by_identity(db, host, port, sni)
+        if racer is None:
+            raise
+        return racer, False
+    created: dict[str, JSONValue] = {
+        "host": host,
+        "port": port,
+        "sni": sni,
+        "expected_certificate_id": endpoint.expected_certificate_id,
+    }
+    details: dict[str, JSONValue] = {
+        "field": "endpoint",
+        "from": None,
+        "to": created,
+        "source": "discovery",
+        "binding_id": binding.id,
+    }
+    record(db, actor, "endpoint.create", "endpoint", str(endpoint.id), details)
+    return endpoint, True
+
+
+def expect_for_binding(db: Session, binding_id: int, certificate_id: int, actor: Actor) -> int:
+    """Make the endpoints owned by a binding expect its certificate; the number of endpoints changed."""
+    owned = db.scalars(
+        select(Endpoint)
+        .where(Endpoint.binding_id == binding_id, Endpoint.expected_certificate_id.is_distinct_from(certificate_id))
+        .order_by(Endpoint.id)
+        .with_for_update()
+    ).all()
+    for endpoint in owned:
+        _discovery_change(db, endpoint, "expected_certificate_id", endpoint.expected_certificate_id, certificate_id, actor)
+        endpoint.expected_certificate_id = certificate_id
+    return len(owned)
+
+
+def reactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor) -> int:
+    """Scan again the endpoints a re-appearing binding owns (an operator's pause on a live binding is kept)."""
+    stopped = db.scalars(
+        select(Endpoint).where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(False)).order_by(Endpoint.id).with_for_update()
+    ).all()
+    for endpoint in stopped:
+        endpoint.is_active = True
+        _discovery_change(db, endpoint, "is_active", False, True, actor)
+    return len(stopped)
+
+
+def _derives(server: Server, binding: Binding, endpoint: Endpoint) -> bool:
+    try:
+        host, port, sni = _derived_identity(server, binding)
+    except EndpointInputError:
+        return False
+    return (host, port, sni or host) == (endpoint.host, endpoint.port, endpoint.sni or endpoint.host)
+
+
+def deactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor) -> int:
+    """Deactivate the active endpoints a binding owns, except those another active binding still derives.
+
+    A shared endpoint moves to the lowest such binding instead. Returns the number deactivated; nothing is deleted.
+    """
+    binding = db.get(Binding, binding_id)
+    if binding is None:
+        return 0
+    owned = db.scalars(
+        select(Endpoint)
+        .where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(True))
+        .order_by(Endpoint.id)
+        .with_for_update()
+    ).all()
+    if not owned:
+        return 0
+    server = db.get(Server, binding.server_id)
+    siblings = db.scalars(
+        select(Binding)
+        .where(Binding.server_id == binding.server_id, Binding.is_active.is_(True), Binding.id != binding_id)
+        .order_by(Binding.id)
+    ).all()
+    deactivated = 0
+    for endpoint in owned:
+        heir = next((item for item in siblings if server is not None and _derives(server, item, endpoint)), None)
+        if heir is not None:
+            _link(db, endpoint, heir, actor)
+            continue
+        endpoint.is_active = False
+        _discovery_change(db, endpoint, "is_active", True, False, actor)
+        deactivated += 1
+    return deactivated

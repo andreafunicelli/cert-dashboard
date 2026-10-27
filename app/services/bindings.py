@@ -7,8 +7,11 @@ same per-server transaction as the change, and no other code path changes ``matc
 ``on_disk_fingerprint`` or ``is_active`` without calling it.
 """
 
+import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from ipaddress import ip_address
 
 from sqlalchemy.orm import Session
 
@@ -16,6 +19,28 @@ from app.models import AuditLog, Binding
 from app.services.audit import Actor, record
 
 BINDING_STATE_ACTION = "binding.match_state"
+
+_LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+_PLAIN_NAME = re.compile(rf"{_LABEL}(?:\.{_LABEL})*")
+_PLACEHOLDERS = frozenset({"default", "_"})
+
+
+def _is_plain_name(name: str) -> bool:
+    if len(name) > 253 or name.lower() in _PLACEHOLDERS or _PLAIN_NAME.fullmatch(name) is None:
+        return False
+    try:
+        ip_address(name)
+    except ValueError:
+        return True
+    return False  # an IPv4 literal is not a server name
+
+
+def verify_sni(vhost_name: str, vhost_names: Sequence[str]) -> str | None:
+    """The first plain DNS name of a vhost (its own name first), usable as SNI; ``None`` when there is none.
+
+    Wildcards, the ``default``/``_`` placeholders and IP literals are not server names a client can ask for.
+    """
+    return next((name for name in (vhost_name, *vhost_names) if _is_plain_name(name)), None)
 
 
 @dataclass(frozen=True)

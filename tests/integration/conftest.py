@@ -2,6 +2,7 @@ import contextlib
 import functools
 import itertools
 import secrets
+import uuid
 from pathlib import Path
 from typing import ClassVar
 
@@ -1412,3 +1413,106 @@ def inventory_repo(tmp_path_factory):
         return repo
 
     return build
+
+
+# --- discovery reconciliation helpers (Plan 3 Task 9) --------------------------------------------
+
+JOB_ID = uuid.UUID("5d0c6f0e-6f0a-4a0e-9d58-3c1f0b7a2e11")
+
+
+def binding_doc(
+    vhost,
+    *,
+    fp=None,
+    key=None,
+    exists=True,
+    key_unreadable=False,
+    port=443,
+    cert_path=None,
+    key_path=None,
+    chain_path=None,
+    chain_diagnostic=None,
+    config_file=None,
+    vhost_names=None,
+    webserver="nginx",
+):
+    """One §6.2 binding as Task 8A emits it; ``exists=False`` is a certificate and key missing on the host."""
+    return {
+        "webserver": webserver,
+        "vhost_name": vhost,
+        "vhost_names": list(vhost_names) if vhost_names is not None else [vhost],
+        "port": port,
+        "config_file": config_file or f"/etc/nginx/conf.d/{vhost}.conf",
+        "cert_path": cert_path or f"/etc/ssl/{vhost}.pem",
+        "chain_path": chain_path,
+        "key_path": key_path or f"/etc/ssl/{vhost}.key",
+        "cert_owner": "root" if exists else None,
+        "cert_group": "root" if exists else None,
+        "cert_mode": "0644" if exists else None,
+        "key_owner": "root" if exists else None,
+        "key_group": "root" if exists else None,
+        "key_mode": "0600" if exists else None,
+        "cert_exists": exists,
+        "cert_fingerprint": (fp or "c" * 64) if exists else None,
+        "key_exists": exists,
+        "key_public_sha256": (key or "b" * 64) if exists and not key_unreadable else None,
+        "key_unreadable": key_unreadable,
+        "chain_diagnostic": chain_diagnostic,
+    }
+
+
+def host_document(hostname, at, bindings, *, webserver="nginx"):
+    return {
+        "hostname": hostname,
+        "webserver": webserver,
+        "collected_at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "bindings": list(bindings),
+        "errors": [],
+    }
+
+
+def issue_leaf(ca, now, common_name="www.example.internal"):
+    """A fresh EC key and the leaf the session ``ca`` issues for it, parsed, not yet imported."""
+    from types import SimpleNamespace
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app.crypto.chain import order_chain
+    from app.crypto.parse import parse_certificates
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = ca.issue(
+        public_key=key.public_key(),
+        common_name=common_name,
+        sans=[common_name],
+        not_before=now.replace(year=2025),
+        not_after=now.replace(year=2027),
+    )
+    leaf = parse_certificates(pem)[0]
+    chain = order_chain(leaf.cert, [x509.load_pem_x509_certificate(ca.chain_pem)])
+    return SimpleNamespace(
+        key=key, leaf=leaf, chain=chain, fingerprint=leaf.sha256_fingerprint, spki=leaf.public_key_sha256
+    )
+
+
+def import_leaf(db, issued, keyring, actor, now):
+    """Store the key and import the leaf; returns ``(id, sha256_fingerprint, spki)`` as an object."""
+    from types import SimpleNamespace
+
+    from app.services.certificates import CertificateMetadata, save_certificate, store_key
+
+    row = store_key(db, keyring, issued.key, "generated", actor)
+    metadata = CertificateMetadata(owner_name="Ada", owner_email="ada@example.test", team="web")
+    saved = save_certificate(
+        db, issued.leaf, issued.chain, metadata, actor, source="upload_pem", key_id=row.id, validation_time=now
+    ).certificate
+    return SimpleNamespace(
+        id=saved.id, sha256_fingerprint=saved.sha256_fingerprint, spki=issued.spki, certificate=saved
+    )
+
+
+@pytest.fixture
+def keyed_certificate(db, ca, keyring, actor, now):
+    """An active certificate with a stored key issued by the session ``ca``; ``.spki`` = its SPKI SHA-256."""
+    return import_leaf(db, issue_leaf(ca, now), keyring, actor, now)
