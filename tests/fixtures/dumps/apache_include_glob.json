@@ -1,0 +1,15 @@
+{
+  "s_rc": 0,
+  "s_output": "VirtualHost configuration:\n*:443                  vhost1.example.com (/etc/apache2/sites-enabled/www.conf:1)\nServerRoot: \"/etc/apache2\"\nMain DocumentRoot: \"/var/www/html\"\n\n",
+  "server_root": "/etc/apache2",
+  "config_file": "/etc/apache2/apache2.conf",
+  "files_from_s": [
+    "/etc/apache2/sites-enabled/www.conf"
+  ],
+  "files_from_includes": [
+    "/etc/apache2/tls.d/10-cert.conf",
+    "/etc/apache2/tls.d/20-key.conf"
+  ],
+  "warnings": [],
+  "config": "# configuration file /etc/apache2/apache2.conf:\nServerRoot /etc/apache2\n\n# configuration file /etc/apache2/sites-enabled/www.conf:\n<VirtualHost *:443>\n    ServerName www.example.com\n    SSLEngine on\n    IncludeOptional tls.d/*.conf\n</VirtualHost>\n\n# configuration file /etc/apache2/tls.d/10-cert.conf:\nSSLCertificateFile ssl/www.crt\n\n# configuration file /etc/apache2/tls.d/20-key.conf:\nSSLCertificateKeyFile ssl/www.key\n\n"
+}
