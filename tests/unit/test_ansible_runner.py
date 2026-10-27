@@ -195,7 +195,8 @@ def test_run_timeout_is_reported(tmp_path):
         AnsibleRun(str(playbook), None, {}, timeout_seconds=3),
         ident="slow",
     )
-    assert outcome.status == "timeout", outcome
+    stdout = tmp_path / "run" / "artifacts" / "slow" / "stdout"
+    assert outcome.status == "timeout", stdout.read_text() if stdout.exists() else outcome
     assert time.monotonic() - started < 15
 
 
