@@ -6,18 +6,22 @@ Installation, upgrade, backup and rotation procedures for a deployed host live i
 [`operations.md`](operations.md); this page covers the checkout, the test suite and the
 internals a developer touches. The normative design is
 `docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task-by-task history is
-`docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`.
+`docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md` and
+`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md`.
 
 ```sh
 uv sync --frozen
 uv run ruff check .
+uv run pytest -q tests/unit -k 'not test_topology'   # the full local gate on a Docker-less machine
 docker compose -f docker-compose.test.yml pull db
+docker compose -f docker-compose.test.yml --profile targets pull tls-nginx tls-apache
 docker build --target test -t cert-dashboard:test .
 docker build -t cert-dashboard:local .
 uv run pytest -q --cov=app --cov-report=term-missing --cov-report=json
 uv run coverage report --fail-under=85 --include='app/crypto/*'
 uv run pip-audit
 docker compose -f docker-compose.test.yml config --quiet
+docker compose -f docker-compose.test.yml --profile targets config --quiet
 docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider
 ```
 
@@ -33,23 +37,32 @@ Host tests exercise Docker Compose rendering and isolated container permissions;
 they require both images built above. Integration tests start one PostgreSQL 16
 Testcontainers instance, apply the single v1 migration as db_owner, and roll back
 app_role transactions per test. A separate isolated Compose project verifies the
-real migrate command and `alembic check`, then removes only its own DB volume.
+real migrate command and `alembic check`, then removes only its own DB volume. The
+`targets` profile of `docker-compose.test.yml` adds real nginx and Apache TLS
+servers plus an SMTP capture container for the end-to-end scan and mail tests (see
+*Test targets and the SMTP capture server* below).
 Docker-CLI checks skip inside the application test image, which has no host Docker socket or CLI. Its CI smoke
 command runs only tests/unit; the full suite runs on the Docker-enabled host.
-Unit tests do not contact network services. Prepare images/dependencies before running tests.
+No test reaches the internet: unit tests use in-process loopback listeners
+(`smtp_server`, Plan 1's `tls_servers`), and CI pulls the pinned target images
+before pytest. Prepare images/dependencies before running tests.
 
 The v1 database schema, owner migration path, runtime readiness checker, web
 foundation, sign-in/MFA flow, account-security forms, certificate inventory,
-renewal workflow, audit browser, user administration and typed settings are
-implemented, together with the transactional job queue and the worker runtime.
+renewal workflow, audit browser, user administration, typed settings, the
+transactional job queue and the worker runtime are implemented. Plan 2 adds TLS
+observation and scanning, the background trust recheck, worker-only SMTP delivery,
+expiry alerts with a delivery ledger, the daily digest, and the Scans, Servers and
+Bindings screens with the Overview slots that read them.
 The test Compose app runs unit smoke checks after its owner-only migrate service
 completes; the full integration suite runs on the Docker-enabled host.
 
-The Docker-dependent topology tests (rendered Compose files, the pinned `pg_dump`
-client, the isolated secrets installer and the database bootstrap) need a
-reachable Docker daemon; without one they fail while the remaining `tests/unit`
-modules still pass. GitHub CI is authoritative for them and for every integration
-test.
+The Docker-dependent topology tests (rendered Compose files with and without
+`--profile targets`, the pinned `pg_dump` client, the isolated secrets installer and
+the database bootstrap) need a reachable Docker daemon; the `test_topology` cases
+(27 today) fail or skip without one while the remaining `tests/unit` modules still
+pass, so `uv run pytest -q tests/unit -k 'not test_topology'` is the local gate.
+GitHub CI is authoritative for them and for every integration test.
 
 ## Web modules and routes
 
@@ -62,13 +75,15 @@ rules and transactions live in `app/services/`.
 
 | Module | Owns | Integration tests |
 | --- | --- | --- |
-| `app/web/overview.py` | `GET /` — expiry buckets and the setup empty state | `test_inventory_http.py` |
-| `app/web/certificates.py` | `/certificates`, `/certificates/export.json`, detail, edit, status and chain forms, `leaf.pem`/`chain.pem`/`fullchain.pem`, `export.pfx`, upload import, pull-import route and `/imports/{job_id}` progress | `test_inventory_http.py`, `test_upload_import.py`, `test_pull_import.py`, `test_downloads.py` |
+| `app/web/overview.py` | `GET /` — expiry buckets, TLS health, recent jobs, renewals in flight, status strip and the setup empty state | `test_inventory_http.py`, `test_overview_slots.py` |
+| `app/web/certificates.py` | `/certificates`, `/certificates/export.json`, detail, edit, status and chain forms, `leaf.pem`/`chain.pem`/`fullchain.pem`, `export.pfx`, upload import, pull-import route, `/imports/{job_id}` progress, `POST /certificates/{id}/scan` and the detail page's endpoints panel | `test_inventory_http.py`, `test_upload_import.py`, `test_pull_import.py`, `test_downloads.py`, `test_endpoints_http.py` |
 | `app/web/renewals.py` | `/renewals/{id}` wizard: edit, generate CSR, `csr.pem`, submit, issued, finalize (only from `deployed`, so unreachable until Plan 3), cancel | `test_renewal_wizard.py` |
+| `app/web/scans.py` | `/scans`, `/scans/export.json`, `/scans/{id}`, `/scans/{id}/history`, `POST /scans/run` (`scope=all\|endpoint`), `POST /scans/endpoints`, `POST /scans/{id}/expectation`, `POST /scans/{id}/active` | `test_scans_http.py`, `test_endpoints_http.py`, `test_scan_targets.py` |
+| `app/web/servers.py` | `/servers`, `/servers/export.json`, `/servers/{id}`, `/bindings`, `/bindings/export.json`, `/bindings/help` — read-only; discovery controls render disabled | `test_servers_http.py`, `test_bindings_http.py` |
 | `app/web/audit.py` | `/audit` browser and `/audit/export.json` | `test_audit_http.py` |
 | `app/web/users.py` | `/users` administration, password and TOTP resets, deactivation | `test_users_http.py` |
-| `app/web/settings.py` | `/settings` — seven configuration tabs plus trust anchors, status and maintenance | `test_settings_http.py` |
-| `app/web/common.py` | `require_user`/`require_admin`, error rendering, login rate limit — no routes | every module above |
+| `app/web/settings.py` | `/settings` — seven configuration tabs plus trust anchors, status and maintenance; `POST /settings/smtp/test` and `GET /settings/smtp/test/{job_id}` (test-send outcome fragment); `POST /settings/trust-anchors/recheck`; the Alerts tab's failure list and the Status tab's SMTP panel | `test_settings_http.py`, `test_smtp_test_send.py`, `test_settings_alerts_status.py`, `test_trust_recheck_job.py` |
+| `app/web/common.py` | `require_user`/`require_admin`, error rendering, login rate limit, `unsupported_reason` — no routes | every module above |
 
 `_register_auth_routes(app)` in `app/main.py` owns `/login`, `/login/2fa`, `/logout`
 and `/account` (tests: `test_login_account.py`, `test_sessions_http.py`).
@@ -107,9 +122,11 @@ every failure to a closed class: malformed or unknown `(type, action)` and valid
 `validation`, a `KeyUnwrapError` is `key_unwrap`, and any other exception is logged by class name only
 and reported as `internal`.
 
-Today the registry holds `cleanup/default` and `scan/import_pull`; `scan/default` arrives with Plan 2
-and `deploy/*` with Plan 3. The web application calls `build_registry()` too, but only to gate
-navigation and controls on registered capabilities — the worker is the only dispatcher.
+Today the registry holds `cleanup/default`, `scan/default`, `scan/import_pull`, `scan/trust_recheck`,
+`alert_expiry/default`, `alert_expiry/smtp_test` and `digest/default`; only `discover/*` and
+`deploy/*` are still missing (Plan 3), and the disabled controls say so through
+`unsupported_reason(registry, ...)`. The web application calls `build_registry()` too, but only to
+gate navigation and controls on registered capabilities — the worker is the only dispatcher.
 
 ### Scheduler
 
@@ -127,12 +144,37 @@ registered:
    still advancing `last_run_at`, so a long outage produces no burst of catch-up jobs;
 4. enqueues the job, then runs `reap` and `retry_due` in their own transactions.
 
-`cleanup` is the only schedule registered today: `cleanup.daily_at` defaults to `04:00` UTC and
-`cleanup.enabled` to `true`. It deletes finished jobs and their `job_host` rows older than
-`retention.days` (default 90), scan results older than 90 days, expired/idle (> 8 h)/revoked sessions,
+Five schedules are registered, all UTC and all deduplicated by the `scheduler_state` row lock:
+
+| Key | Job | Time setting (default) | Enabled by | Priority |
+| --- | --- | --- | --- | --- |
+| `cleanup` | `cleanup/default` (`reason=scheduled`) | `cleanup.daily_at` (04:00) | `cleanup.enabled` | 10 |
+| `scan` | `scan/default` (`{}`) | `scan.daily_at` (02:00) | `scan.enabled` | 100 |
+| `trust_recheck` | `scan/trust_recheck` (`{"action": "trust_recheck"}`) | `scan.daily_at` (02:00) | `scan.enabled` | 100 |
+| `expiry_check` | `alert_expiry/default` (`{}`) | `expiry_check.daily_at` (07:00) | `expiry_check.enabled` | 100 |
+| `digest` | `digest/default` (`{}`) | `digest.daily_at` (07:30) | `alert.digest_enabled` | 50 |
+
+`trust_recheck` deliberately reuses `scan.daily_at`/`scan.enabled`, so disabling the daily scan
+disables both scan jobs. The `cleanup` handler deletes finished jobs and their `job_host` rows older
+than `retention.days` (default 90), scan results older than 90 days
+(`SCAN_RESULT_RETENTION`, independent of `retention.days`), expired/idle (> 8 h)/revoked sessions,
 login counters older than one day, and artifacts older than 30 days under `artifacts_root`. It never
 touches `audit_log`, queued or running jobs, key material or key staging. The same handler runs for
 the **Settings → Maintenance** prune (`reason = "manual_prune"`).
+
+### Tick steps
+
+`scheduler_tick()` runs every registered tick step after the schedules, `reap` and `retry_due`, each
+in its own transaction. `register_tick_step(name, step, *, requires=(JobType, action))` in
+`app/jobs/worker.py` stores a `TickStep(name, step(session, now) -> int, requires)`; a step is skipped
+while its handler is not registered, and a failing step is logged by exception class name only and
+never stops the others. Plan 2 registers exactly one:
+
+| Step | Requires | What it does |
+| --- | --- | --- |
+| `notification_retry` | `alert_expiry/default` | Enqueues one `alert_expiry/default` job with payload `{"mode": "retry_failed"}` (priority 100, `max_attempts=1`, `scheduled_reason="retry"`) when failed expiry rows created on the current UTC day are due and no `alert_expiry` job is queued or running |
+
+The hook is deliberately generic: Plan 3 registers its paused-deploy sweep the same way.
 
 ### Worker process
 
@@ -145,6 +187,11 @@ hard-codes that secret directory. Relevant knobs:
 | `WORKER_CONCURRENCY` | 4 | slots, i.e. maximum concurrently running jobs |
 | `MAX_PARALLEL_JOBS` | 2 | cap on `discover`/`scan` jobs among those slots; the rest stay queued |
 | `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed |
+| `smtp_password` (secret) | absent | the SMTP password; worker-only, read from `/run/secrets` (the web profile never loads it). Absent means no AUTH is attempted |
+| `DASHBOARD_URL` (environment) | empty | optional absolute `http(s)` base URL that alert and digest e-mails put in front of dashboard paths; without it the mails carry relative paths such as `/certificates/42`. A URL with credentials, a query or a fragment refuses startup |
+
+Job timeouts are fixed per type: `scan` 1800 s, `alert_expiry` 300 s, `digest` 300 s, `cleanup` 600 s
+(the deploy timeout is the Plan 3 callback).
 
 The process wipes `key_staging_dir` (`/run/cert-keys`, a tmpfs) before anything else; a symlinked or
 non-removable directory refuses startup rather than keeping leftover key material. Worker ID is
@@ -165,8 +212,10 @@ path, while only the CLI honours `SECRETS_DIR` — plus reachable `DB_*` setting
 `make_worker`/`worker_harness` build a `Worker` over the integration database with an injected clock
 and drive `tick()`, `poll()` and `run_queued()` directly.
 
-Because discovery and deploy handlers are not registered yet, the default worker runs cleanup jobs
-and at most `MAX_PARALLEL_JOBS` (2) concurrent pull imports inside its four slots.
+Because discovery and deploy handlers are not registered yet, the default worker runs cleanup, scan,
+trust-recheck, expiry, digest, SMTP-test and pull-import jobs: the scan-type jobs (including the
+background trust recheck) are capped at `MAX_PARALLEL_JOBS` (2) of its four slots, and the rest stay
+queued until a slot frees up.
 
 ### Shutdown and in-flight writes
 
@@ -192,6 +241,198 @@ no heartbeat exists (`worker_liveness`, `LIVENESS_WINDOW`). The page banner call
 caches the answer for 30 seconds; the compose `worker` healthcheck applies the same five-minute rule
 with its own query. All three probes are public paths and skip the per-request worker probe. Operator
 procedures for these signals are in [`docs/operations.md`](operations.md#8-operational-signals).
+
+## TLS scanning and the background trust recheck
+
+`app/services/scans.py` owns observation, classification, payload validation and on-demand requests;
+`app/jobs/handlers/scan.py` (`scan/default`) and `app/jobs/handlers/trust_recheck.py`
+(`scan/trust_recheck`) are the worker side. The web process only enqueues.
+
+**Observation.** `observe_endpoint(host, port, sni, timeout_seconds)` opens one TCP connection and one
+TLS handshake with SNI = `sni or host` and accepts any chain — it inspects, it never validates trust —
+then hashes the leaf DER with SHA-256. `scan.timeout_seconds` (default 10, range 1–60) is the
+connect/read deadline. The observation keeps the TLS version, CN, issuer CN, `not_after`, chain length
+and elapsed milliseconds.
+
+**Classification** (`classify_observation`, in this order): `unreachable` when no leaf was served (DNS
+failure, refused, reset, any timeout including a silent peer during the handshake); `error` when the
+handshake/protocol failed or a served leaf did not parse (its SHA-256 over the raw DER is still
+recorded); `expired` when the served `not_after` is in the past; `ok` when the served fingerprint
+equals the endpoint's expected certificate; `mismatch` otherwise — an endpoint with no expectation
+reports `mismatch` until one is set.
+
+**Nothing observed is imported or trusted.** A scan writes only `scan_result` rows and
+`endpoint.last_scan_at`/`last_scan_status`; `certificate`, `private_key`, `trust_anchor` and every
+`chain_status` are untouched. `chain_status` changes only through Plan 1's `recheck_chain_statuses`.
+`scan_result` rows are deleted after 90 days by the existing cleanup handler
+(`SCAN_RESULT_RETENTION`), independent of `retention.days`.
+
+**`scan/default` payloads** (`validate_scan_payload`; anything else is a `validation` failure):
+
+| Payload | Meaning |
+| --- | --- |
+| `{}` (also `{"action": "default"}`) | every active endpoint; what the daily schedule and *Scan all* send |
+| `{"endpoint_ids": [1, 2, …]}` | 1–1000 unique positive ids, sorted by the validator |
+| `{"certificate_id": N}` | active endpoints whose expectation is certificate `N`, resolved at run time |
+
+The two selector keys are mutually exclusive. Inactive endpoints are never scanned and are counted as
+`skipped_inactive`; the target's expectation is snapshotted into each result, so changing the
+expectation later never rewrites history.
+
+**Retries touch only unreachable endpoints.** The result of an attempt is
+`{scanned, ok, mismatch, expired, unreachable, error, skipped_inactive}` plus one `scan.run` audit row
+(`target_type='job'`, details `source`, `attempt`, counts). If at least one endpoint is `unreachable`
+and `attempt < max_attempts`, the handler commits every result and then fails the job with retryable
+`transient_network`; the queue's 30 s and then 120 s retries re-run it, and an attempt after the first
+scans **only** the endpoints whose `last_scan_status` is still `unreachable`. The third attempt succeeds
+with counts even when endpoints remain unreachable, so a flapping endpoint leaves up to three history
+rows and never blocks the job. `source` is `scheduled` when `job.requested_by` is NULL and `manual`
+otherwise, so a retry keeps the original source.
+
+**Concurrency and slots.** Observations run in a `ThreadPoolExecutor` capped at `SCAN_CONCURRENCY` (20)
+connections, after the resolving transaction is closed; each result is committed in its own short
+transaction so partial work survives a crash. Scan-type jobs (including the trust recheck) are capped at
+`MAX_PARALLEL_JOBS` (2) of the worker's four slots. `endpoint.last_scan_at`/`last_scan_status` advance
+only when the new `checked_at` is not older than the stored one, so two concurrent jobs cannot regress
+an endpoint.
+
+**Web entry points** (all CSRF-protected, audited, and enqueue-only): `POST /certificates/{id}/scan`
+(payload `{"certificate_id": id}`, priority 200 — the certificate detail page's *Scan now*),
+`POST /scans/run` with `scope=all` or `scope=endpoint` + `endpoint_id` (priority 200),
+`POST /scans/endpoints` (create, `endpoint.create`), `POST /scans/{id}/expectation` (`certificate_id`,
+or `use_observed=1` when the served fingerprint is already in inventory, `endpoint.update`) and
+`POST /scans/{id}/active` (`active=true|false`). Endpoints are never deleted.
+
+**Background trust recheck.** `scan/trust_recheck` runs `recheck_chain_statuses(db, now)` at the job's
+UTC clock so an expiring intermediate is noticed without an operator; changed statuses get Plan 1's
+`certificate.chain_check` audits. It is scheduled under key `trust_recheck`, which reuses
+`scan.daily_at`/`scan.enabled` (no new setting), and Settings → Trust anchors adds *Recheck now*
+(`POST /settings/trust-anchors/recheck`, priority 200). Anchor upload/delete/toggle keep their
+synchronous recheck. As a `scan`-type job it counts against the two-job cap.
+
+**§7.7 inventory refresh is not a Plan 2 job.** Plan 2 Contract decision 15 places it in Plan 3 as the
+preflight of every `discover`/`deploy` job, together with *Test pull*; nothing in this release refreshes
+the Ansible inventory. `scan/import_pull` is unchanged (it still writes no `scan_result`); the manual
+endpoint expectation it upserts is scanned by `scan/default` like any other endpoint.
+
+## Expiry alerts, the notification ledger and the digest
+
+`app/services/alerts.py` evaluates and renders expiry mail, `app/services/notifications.py` owns the
+`notification_log` ledger, `app/jobs/handlers/expiry.py` is `alert_expiry/default`, and
+`app/services/digest.py` + `app/jobs/handlers/digest.py` produce the daily digest.
+
+**Which certificates get a mail.** `due_expiry_alerts` looks at active certificates whose `not_after`
+is within `max(alert.thresholds_days)` days (default `[60, 30, 14, 7, 1, 0]`; at most 10 distinct
+values, 0–365). The smallest crossed threshold `T` wins, and the mail is skipped when a `sent` expiry
+row already exists for that certificate and `T` on **any** day — so the 30-day alert fires once even
+across reruns, queue retries or the next day's run, and larger thresholds are implicitly consumed.
+`dedupe_key = expiry:<certificate_id>:<threshold>:<UTC run date>`.
+
+**Recipients.** `certificate.owner_email` first, then `alert.recipients`, deduplicated; an empty owner
+falls back to the team list only, and no recipient at all records a `no_recipients` row instead of
+silently dropping the alert. The message lists CN, SAN count, issuer, serial, `not_after` in
+`ui.timezone` **and** UTC, the days remaining (or "has expired"), the active bindings (capped at 50
+with "+N more"), the newest non-cancelled renewal state, and links to the certificate and renewal.
+
+**The ledger** (`notification_log`) is the delivery record and the idempotency key:
+
+| Field | Semantics |
+| --- | --- |
+| `dedupe_key` (unique) | `expiry:<certificate>:<threshold>:<UTC date>` or `digest:<UTC date>` |
+| `status`, `attempts` | `failed` + `0` on insert; at most `MAX_NOTIFICATION_ATTEMPTS` (3) attempts |
+| `sent_at` | set only on a successful send, NULL otherwise |
+| `last_attempt_at` | set on every attempt, including failures |
+| `next_attempt_at` | backoff after a retryable failure: 30 s after attempt 1, 120 s after attempt 2, then NULL |
+| `error` | `"<code>: <message>"` from the fixed SMTP text table, redacted and bounded to 500 characters |
+
+`open_notification` inserts `ON CONFLICT (dedupe_key) DO NOTHING` and then locks the row
+`FOR UPDATE SKIP LOCKED`; it returns the row only while it is still attemptable (not `sent`, fewer than
+three attempts, `next_attempt_at` NULL or due), so concurrent schedulers and workers cannot send twice.
+The send happens **while the row lock is held** and is committed together with the attempt:
+**delivery is at-least-once** — a worker crash between SMTP acceptance and that commit can resend the
+same mail once on the retry. A failed row is retried only on the UTC day it was created; the next day's
+evaluation creates the next day's key.
+
+**Retry sweep.** The `notification_retry` tick step (see *Tick steps*) queues one
+`alert_expiry/default` job with payload `{"mode": "retry_failed"}`, priority 100, `max_attempts=1`; that
+mode re-attempts due rows for the current day and never fails the job for SMTP reasons. Digest rows
+rely on the job-level retry instead (one row per job).
+
+**Job outcome.** The expiry job succeeds when at least one message was delivered or nothing needed
+sending. It fails only when it attempted at least one send and delivered none: retryable
+`smtp_transient` if any failure was transient, otherwise the mapped non-retryable class. `no_recipients`
+and `smtp_not_configured` rows are recorded for Settings and the digest but are not send attempts.
+
+**Digest** (`digest/default`, schedule key `digest`, 07:30 UTC, `alert.digest_enabled`, priority 50).
+"Since the last digest" is the `sent_at` of the newest sent digest row, or 24 hours before now when no
+digest has ever been sent; *new* is decided against the state at that cutoff, not by looking only at
+rows inside the window. Sections, each rendered only when non-empty: expiring within 7 days; already
+expired; new TLS mismatches (with the current mismatch count); unknown certificates found by discovery;
+servers whose last discovery failed, never ran or is older than 48 h; jobs failed in the last 24 hours;
+rolled-back hosts in the last 24 hours (a failed rollback says "needs manual attention"); failed
+notifications in the last 24 hours. Every list is capped at `DIGEST_LIST_LIMIT` (50) and says
+"showing 50 of 55"; totals are never capped. The mail always states the inventory revision — "none
+recorded" until Plan 3 writes one. **A digest is sent even when there is nothing to report** ("Nothing
+to report. This mail is the daily heartbeat of the alerting path."), `dedupe_key = digest:<UTC date>`
+makes a second successful run of the same day a no-op, and an empty `alert.recipients` records a failed
+`no_recipients` row instead of sending. The job result carries counts only, never the dedupe key.
+
+**`binding.match_state` audit producer.** `app/services/bindings.py` provides
+`binding_state(binding)` and `audit_binding_state(db, binding, previous, actor, *, job_id, now)`, which
+writes one metadata-only `binding.match_state` audit row (`from_state`, `from_fingerprint`, `was_active`,
+`to_state`, `on_disk_fingerprint`, `is_active`, `server_id`, `job_id` — never `notes` or paths) when a
+binding is inserted or its `(match_state, on_disk_fingerprint, is_active)` triple changes, and nothing
+when the same triple is seen again. Plan 2 ships the producer and the digest section that reads it; the
+only caller is Plan 3's discovery reconciliation, so *Unknown certificates found by discovery* stays
+empty until then.
+
+## SMTP delivery and the test send
+
+Mail is worker-only. `app/services/smtp.py` is the single transport; the web process never loads
+`smtp_password` and never opens an SMTP or TLS-inspection connection — it only enqueues the job.
+
+**Settings** (all in the 32-key allowlist; no new key): `smtp.host`, `smtp.port` (empty means the
+default port for the security mode: 587 for `starttls`, 465 for `ssl`, 25 for `none`), `smtp.security`
+(`starttls`/`ssl`/`none`), `smtp.from`, `smtp.username` and `smtp.tls_verify`. The password is the
+worker file secret `smtp_password`; it is absent by default, and absent means no AUTH is attempted.
+AUTH runs only when `smtp.username` is non-empty **and** the secret exists, and only over `starttls` or
+`ssl` — a username with plaintext `none` fails with `smtp_not_configured` before anything is sent, and
+a `starttls` server that does not offer the extension fails with `smtp_tls` ("STARTTLS not offered by
+the server") rather than downgrading. `smtp.tls_verify=true` (the default) verifies against the system
+store; `false` disables verification, which Settings marks "unsafe: TLS certificate verification
+disabled — mail credentials and content can be intercepted." and which raises the
+`smtp_tls_unverified` warning.
+
+**Session and outcomes.** One session per job, connected lazily, with a 30-second per-command timeout
+(`SMTP_TIMEOUT_SECONDS`) and at most one reconnect after a server disconnect. `From` is `smtp.from`,
+`Reply-To` is `alert.recipients` when non-empty, and every message carries its own `Message-ID` and
+`Date`. Failures are **code-only by design**: `SmtpStep` is `(step, code)` where `step` is one of
+`connect`, `ehlo`, `starttls`, `auth`, `mail`, `rcpt`, `data`, `quit` and `code` is the integer reply
+code (200–599) or NULL, and `SendOutcome.message` comes from a closed table such as `451 at rcpt`,
+`connection failed (ECONNREFUSED)`, `timed out at data`, `TLS handshake or certificate verification
+failed`, `STARTTLS not offered by the server` or `no recipients`. No SMTP reply text, exception text,
+SSL reason or AUTH challenge is kept, logged or re-raised — a relay that echoes a credential in a reply
+line cannot leak it, and `redact()` plus truncation run afterwards only as a second barrier. Outcome
+codes are `sent`, `smtp_not_configured`, `no_recipients`, `smtp_transient` (connect/DNS/timeout/
+disconnect or any 4xx), `smtp_rejected` (other 5xx), `smtp_auth` (530/534/535 or AUTH unsupported) and
+`smtp_tls`; only `smtp_transient` is retryable, and the job class mapping is
+`smtp_transient → smtp_transient`, `smtp_auth → auth`, everything else → `config_invalid`.
+
+**Test send.** `POST /settings/smtp/test` enqueues `alert_expiry/smtp_test` with payload
+`{"action": "smtp_test"}`, priority 200 and `max_attempts=1` (it is never retried). The recipient is the
+requesting user's e-mail, read from `job.requested_by` at run time; the message is fixed and no
+`notification_log` row is written. The SMTP tab renders the newest test job — status, finished time,
+and either an ordered list of steps with reply codes or the fixed failure text plus the steps reached,
+such as `535 at auth; connect 220, ehlo 250, starttls 220, auth 535` — and
+`GET /settings/smtp/test/{job_id}` returns the same block for htmx polling every 2 s while the job is
+queued or running.
+
+**Signals.** `smtp_health` (one query) reports `consecutive_failures` (failed ledger rows since the
+newest `sent` row), `last_error`, `last_success_at` and `last_test`; test sends are jobs, never ledger
+rows, so they never count as failures. Settings → Status renders that panel and the warnings
+`smtp_failing` (at least one consecutive failure) and `smtp_tls_unverified`; Settings → Alerts lists the
+50 newest failed notifications with attempts and the next attempt. See
+[`operations.md`](operations.md#10-alerts-digest-and-scanning) for the operator view.
 
 ## Isolated key and PFX parsing
 
@@ -226,10 +467,54 @@ keys). `tests/integration/conftest.py` builds everything else:
 | `make_worker`, `worker_harness` | `Worker` instances on any session factory with an injected clock; `worker_harness` shares the web database and clears heartbeats |
 | `tls_servers`, `tls_server`, `pull_certs` | loopback TLS listeners (`tls`, `silent`, `garbage`) serving a leaf plus intermediates, recording the SNI they receive |
 | `ca`, `keyring`, `previous_certificate`, `submitted_renewal` | the fixture CA that issues from a generated CSR, plus renewal starting points |
+| `closed_port`, `set_setting`, `disable_schedules` | a port nothing listens on, a settings patch, and the helper that turns named schedules off for a test that ticks the worker |
+| `smtp_server` (in `tests/conftest.py`), `configure_smtp` | in-process `CaptureServer` instances (see below) and the settings/SMTP setup that points the worker at one |
+| `expiring` | a certificate issued by the session CA with a chosen number of days to expiry and unique CN |
+| `scan_world`, `server_map`, `count_statements` | seeded endpoints/servers/bindings for the Scans, Servers and Bindings tests, and the SQL-statement counter that proves the query count does not grow with rows |
 
 `tests/fixtures/` holds the shared generators: `ca.py` (`FixtureCA.issue`), `certificates.py`
-(`generate_certificates`) and the PFX child stubs above. Fixtures stay in memory; nothing is written
-to the repository.
+(`generate_certificates`), `smtp_capture.py` (below) and the PFX child stubs above. Fixtures stay in
+memory; nothing is written to the repository.
+
+### Test targets and the SMTP capture server
+
+`tests/fixtures/smtp_capture.py` is an `aiosmtpd`-based **dev-only** capture server. In-process it backs
+the `smtp_server` fixture: it binds a free loopback port, scripts replies by recipient local part
+(`tempfail…` → `451 4.3.0`, `reject…` → `550 5.1.1`), accepts per-verb `replies=` overrides that can echo
+the AUTH password the client sent (the hostile-relay case), supports STARTTLS and implicit TLS, and
+counts connections. From the shell it runs the same module as a service:
+
+```sh
+uv run python -m tests.fixtures.smtp_capture --listen 127.0.0.1:1025 --spool /tmp/mail
+uv run python -m tests.fixtures.smtp_capture --dump /tmp/mail   # JSON array of the .eml files
+```
+
+`docker-compose.test.yml` defines three services under the profile `targets`:
+
+| Service | Image | Shape |
+| --- | --- | --- |
+| `tls-nginx` | `nginx:1.28-alpine`, pinned by `@sha256:` digest | committed config mounted read-only, `${TLS_TARGET_DIR:-./secrets/test/tls-targets}/tls-nginx:/etc/certs:ro`, `127.0.0.1::8443` |
+| `tls-apache` | `httpd:2.4-alpine`, pinned by `@sha256:` digest | committed config, `${TLS_TARGET_DIR…}/tls-apache:/etc/certs:ro`, `127.0.0.1::8443` |
+| `smtp` | the `cert-dashboard:test` image already built | UID 10001, `read_only`, `cap_drop: [ALL]`, `no-new-privileges`, `tmpfs: [/spool]`, `python -m tests.fixtures.smtp_capture --listen 0.0.0.0:1025 --spool /spool`, `127.0.0.1::1025` |
+
+The session-scoped `compose_targets` fixture writes a throwaway fixture CA, its leaves (key files `0600`)
+and a dummy file for every declared secret into a temporary directory, then runs
+`docker compose -p certdash-targets-<uuid> -f docker-compose.test.yml --profile targets up -d --wait
+--pull never tls-nginx tls-apache smtp` with `TLS_TARGET_DIR`/`TEST_SECRETS_DIR` pointing there. It
+exposes `.address(service)`, `.serve(service, cert, key, chain)` (rewrite the files, reload
+`nginx -s reload` / `httpd -k graceful`, restart first if the service was stopped), `.stop(service)` and
+`.messages()` (reads the spool through `docker compose exec`), and always tears the project down with
+`down -v`.
+
+CI pulls the pinned images before pytest —
+`docker compose -f docker-compose.test.yml --profile targets pull tls-nginx tls-apache` next to the
+existing `db` pull — and the tests then start the profile with `--pull never`, so nothing is fetched
+during a test run. Two things follow for developers: the integration suite needs Docker (it runs in CI,
+not on a Docker-less laptop), and `docker compose -f docker-compose.test.yml --profile targets config
+--quiet` must stay green when the profile is rendered.
+
+`tests/integration/test_scan_targets.py` is the end-to-end case: it scans a real nginx and a real Apache
+target through `ok → mismatch → unreachable` and sends one test e-mail to the `smtp` service.
 
 ## Linux deployment secrets
 
@@ -238,6 +523,11 @@ operator's normal secure process: `master_key`, `session_secret`, `db_password`,
 and a distinct `db_owner_password`. Never commit them. Worker credentials
 `ansible_ssh_key`, `ansible_vault_password`, `inventory_git_token`, `smtp_password`
 are optional; mount only the ones provisioned using the credentials override.
+`smtp_password` is what lets the worker authenticate to the relay for expiry alerts and the digest:
+without it no AUTH is attempted at all, and a relay that requires authentication rejects the mail with
+`smtp_auth`. `DASHBOARD_URL` is not a secret: it is a plain worker environment value (absolute
+`http(s)`, no credentials, query or fragment) that alert and digest mails put in front of dashboard
+paths, and an invalid value refuses worker startup.
 
 An administrator runs the following as root on the deployment host (the agent does
 not elevate or touch production secrets):

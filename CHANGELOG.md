@@ -108,6 +108,54 @@ with the pull request that delivered each group of changes.
   audited chain recheck), a read-only status snapshot (warnings, worker, queue, keyring,
   database) and the confirmation-gated maintenance prune.
 
+**TLS observation, scanning and alerts (Plan 2 Tasks 1–17, PRs #21–#38)**
+
+- Endpoint observation and classification (`app/services/scans.py`): a TLS handshake with SNI, the
+  SHA-256 of the served leaf, TLS version, CN, issuer, `not_after`, chain length and elapsed time,
+  classified as `ok`, `mismatch`, `expired`, `unreachable` or `error`. The served certificate is never
+  imported, matched into inventory or trusted, and the expected certificate is snapshotted per result
+  (Task 1, PR #21).
+- `scan/default` job: 20 connections in flight, `scan.timeout_seconds`, active endpoints only,
+  unreachable-only retries (three attempts, 30/120 s backoff), one `scan.run` audit per attempt,
+  count-only results, a daily 02:00 schedule behind `scan.enabled`, and priority-200 on-demand scans
+  from the certificate page and `/scans/run` (Task 2, PR #22).
+- Background trust recheck `scan/trust_recheck`, sharing `scan.daily_at`/`scan.enabled`, with
+  **Settings → Trust anchors → Recheck now** (Task 3, PR #23).
+- Worker-only SMTP transport (`app/services/smtp.py`): STARTTLS, SSL/TLS or none, AUTH only over TLS,
+  no plaintext downgrade, `smtp.tls_verify`, and code-only outcomes — fixed step names plus numeric
+  reply codes instead of any peer reply text (Task 4, PR #24), with a dev-only `aiosmtpd` capture
+  server.
+- **Send test email** as the never-retried `alert_expiry/smtp_test` worker job, with its step/reply
+  transcript on the SMTP tab (Task 5, PR #25).
+- `notification_log` delivery ledger: unique dedupe key, row-locked sends, three bounded attempts with
+  30/120 s backoff, and the `notification_retry` scheduler tick step (Task 6, PR #26).
+- Expiry evaluation and rendering: configured thresholds, smallest crossed threshold, owner-first
+  recipients, text and minimal HTML mail, optional `DASHBOARD_URL` links (Task 7, PR #27).
+- `alert_expiry/default` with the 07:00 `expiry_check` schedule, idempotent per threshold and
+  partial-failure semantics (Task 8, PR #28).
+- Digest collection against the state at the last digest — new TLS mismatches, unknown certificates,
+  stale servers, failed jobs, rolled-back hosts, failed notifications — plus the `binding.match_state`
+  audit producer (Task 9, PR #29).
+- `digest/default` with the 07:30 schedule behind `alert.digest_enabled`, sent even when there is
+  nothing to report (Task 10, PR #30).
+- Settings: the Alerts tab lists recent delivery failures with attempts and the next attempt; Status
+  adds an SMTP panel and the `smtp_failing`/`smtp_tls_unverified` warnings (Task 11, PR #31).
+- `/scans` screen with filters, sorting, JSON export, a history drawer and **Scan now**/**Scan all**
+  (Task 12, PR #32), plus endpoint management — add endpoint, set expectation (explicit certificate or
+  the observed one), activate/deactivate — and the certificate detail endpoints panel (Task 13,
+  PR #33).
+- `/servers`, `/servers/{id}`, `/bindings` and `/bindings/help`: read-only views of servers, their
+  bindings (paths, owners, octal modes, on-disk fingerprints, match state) and discovery history, with
+  discovery controls disabled until Plan 3 (Tasks 14–15, PRs #34, #35).
+- Overview slots: TLS health counters with links into the Scans/Bindings filters, the newest ten jobs,
+  renewals in flight and a status strip with the worker state, inventory revision and last digest
+  (Task 16, PR #36).
+- Test stack: `docker-compose.test.yml` profile `targets` with digest-pinned `nginx` and `httpd` TLS
+  targets and an SMTP capture service on loopback ports, pulled by CI and started with `--pull never`
+  (Task 17, PR #37).
+- Documentation: Plan 2 developer notes in `docs/development.md`, the operator chapter
+  `docs/operations.md` §10, and the README status.
+
 **Documentation**
 
 - `README.md`, this changelog, and the Task 12–23 operational and developer notes in
@@ -145,3 +193,15 @@ with the pull request that delivered each group of changes.
 - Session security: CSRF on every non-GET request, session-ID and CSRF rotation on sign-in
   and privilege changes, 10-minute pending-MFA sessions with no admin authority, and the
   last active administrator cannot be deactivated.
+- Scanning observes and never trusts: what an endpoint serves is recorded in `scan_result` only, is
+  never imported or matched into inventory, and `chain_status` changes only through an explicit trust
+  recheck. Concurrency (20 connections), the per-endpoint timeout and per-endpoint retries keep a
+  hostile or broken target from affecting the rest of the scan.
+- The SMTP password exists only as the worker file secret `smtp_password`; the web process never
+  loads it and never opens an SMTP connection. AUTH is attempted only over STARTTLS or SSL/TLS, a
+  STARTTLS server cannot make the client downgrade to plaintext, and SMTP outcomes keep only fixed
+  step names and numeric reply codes — no reply text, exception text, TLS reason or AUTH challenge is
+  stored, logged or rendered, so a relay that echoes a credential cannot leak it.
+- Alert and digest mail is addressed from resolved recipients only (`certificate.owner_email` then
+  `alert.recipients`), and the ledger's unique dedupe key plus row lock keeps a threshold from being
+  announced twice; delivery is at-least-once by design and documented as such.
