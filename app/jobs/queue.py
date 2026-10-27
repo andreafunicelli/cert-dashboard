@@ -41,7 +41,8 @@ class RetryPolicy:
 
 # Single source of truth for attempts and automatic retries (spec 7.2, 9.4); reused by the worker.
 RETRY_POLICY: dict[JobType, RetryPolicy] = {
-    JobType.DISCOVER: RetryPolicy(3, frozenset({"transient_network"})),
+    # ``inventory_inconsistent``: the Git inventory checkout disagreed with its marker; the retry repairs it.
+    JobType.DISCOVER: RetryPolicy(3, frozenset({"transient_network", "inventory_inconsistent"})),
     JobType.SCAN: RetryPolicy(3, frozenset({"transient_network"})),
     JobType.ALERT_EXPIRY: RetryPolicy(3, frozenset({"smtp_transient"})),
     JobType.DIGEST: RetryPolicy(3, frozenset({"smtp_transient"})),
