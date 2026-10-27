@@ -1,0 +1,63 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+user www-data;
+worker_processes auto;
+pid /run/nginx.pid;
+
+events {
+    worker_connections 768;
+}
+
+http {
+    sendfile on;
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    include /etc/nginx/conf.d/*.conf;
+}
+
+# configuration file /etc/nginx/mime.types:
+
+types {
+    text/html                             html htm shtml;
+    text/css                              css;
+    application/javascript                js;
+}
+
+# configuration file /etc/nginx/conf.d/api.conf:
+# API: RSA + ECDSA dual certificates on a non-default port
+server {
+    listen 8443 ssl;
+    server_name api.example.com;
+    ssl_certificate     ssl/api-rsa.crt;
+    ssl_certificate_key ssl/api-rsa.key;
+    ssl_certificate     ssl/api-ecdsa.crt;
+    ssl_certificate_key ssl/api-ecdsa.key;
+}
+
+# configuration file /etc/nginx/conf.d/plain.conf:
+server {
+    listen 80;
+    server_name plain.example.com;
+    root /var/www/plain;
+}
+
+# configuration file /etc/nginx/conf.d/www.conf:
+server {
+    listen 80;
+    server_name www.example.com example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name www.example.com example.com;
+
+    ssl_certificate     ssl/www.crt;   # relative to the prefix
+    ssl_certificate_key ssl/www.key;
+
+    location / {
+        root /var/www/html;
+    }
+}

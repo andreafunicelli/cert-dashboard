@@ -1,0 +1,29 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events {
+}
+
+http {
+    include /etc/nginx/conf.d/*.conf;
+}
+# configuration file /etc/nginx/conf.d/legacy.conf:
+server {
+    listen 443;
+    listen 127.0.0.1:8443 ssl http2;
+    listen unix:/run/nginx-tls.sock ssl;
+    server_name legacy.example.com;
+    ssl on;
+    ssl_certificate     ssl/legacy-a.crt;
+    ssl_certificate_key ssl/legacy-a.key;
+    ssl_certificate     ssl/legacy-b.crt;
+    ssl_certificate_key ssl/legacy-b.key;
+}
+
+server {
+    listen 80;
+    server_name cleartext.example.com;
+    ssl off;
+    ssl_certificate ssl/unused.crt;
+    ssl_certificate_key ssl/unused.key;
+}

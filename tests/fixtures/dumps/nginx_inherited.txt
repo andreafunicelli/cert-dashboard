@@ -1,0 +1,31 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events {
+}
+
+http {
+    ssl_certificate     /etc/nginx/ssl/default.crt;
+    ssl_certificate_key /etc/nginx/ssl/default.key;
+    include /etc/nginx/conf.d/*.conf;
+}
+
+stream {
+    server {
+        listen 993 ssl;
+        ssl_certificate /etc/nginx/ssl/mail.crt;
+        ssl_certificate_key /etc/nginx/ssl/mail.key;
+    }
+}
+# configuration file /etc/nginx/conf.d/inherits.conf:
+server {
+    listen 443 ssl;
+    server_name inherits.example.com;
+}
+# configuration file /etc/nginx/conf.d/own.conf:
+server {
+    listen 443 ssl;
+    server_name own.example.com;
+    ssl_certificate     /etc/nginx/ssl/own.crt;
+    ssl_certificate_key /etc/nginx/ssl/own.key;
+}
