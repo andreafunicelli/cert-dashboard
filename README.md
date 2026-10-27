@@ -1,7 +1,8 @@
 # cert-dashboard
 
 An internal dashboard for keeping track of the TLS certificates an organisation owns: import
-them, see what expires next, run a manual-CA renewal from CSR to an issued, deployment-ready
+them, see what expires next, watch what the registered endpoints actually serve, mail the
+people who need to know, run a manual-CA renewal from CSR to an issued, deployment-ready
 certificate, and download audited copies of the material when a server needs it. It runs as
 one Compose stack on a single internal Docker host, talks to no external service, and stores
 private keys and TOTP seeds encrypted under a keyring the operators hold.
@@ -11,26 +12,31 @@ private keys and TOTP seeds encrypted under a keyring the operators hold.
 | Plan | State |
 | --- | --- |
 | Plan 1 — core (Tasks 1–23) | Merged on `main` (PRs #1–#17) |
-| Plan 2 — endpoint scans, expiry alerts, e-mail digest | Not started |
+| Plan 2 — TLS observation, scanning and alerts (Tasks 1–17) | Merged on `main` (PRs #21–#38) |
 | Plan 3 — server discovery and automated deploy | Not started |
 
-Working today: certificate inventory, upload and pull import, expiry overview, renewal
-wizard up to issued, audited downloads, audit browser, users/MFA, typed settings, the job
-queue, the worker and its scheduler. The Overview, the navigation and the detail page render
-every control owned by a later plan as disabled together with the reason.
+Working today: certificate inventory, upload and pull import, TLS scanning of registered
+endpoints with classified results and history, the daily background trust recheck, expiry
+alerts and a daily digest over SMTP, the renewal wizard up to issued, audited downloads,
+audit browser, users/MFA, typed settings, the job queue, the worker and its scheduler, and the
+Scans, Servers, Bindings and Overview screens. Every control owned by Plan 3 — discovery,
+deployment and *Test pull* — renders disabled together with the reason.
 
 ## Architecture
 
 - `web` — FastAPI/Uvicorn on `127.0.0.1:8000`: server-rendered Jinja2 with a locally
   served htmx, PostgreSQL-backed sessions and CSRF on every mutating request.
 - `worker` — `python -m app.jobs.worker`: four job slots, a 30-second heartbeat, the
-  scheduler, retention cleanup and the worker-side pull import.
+  scheduler, retention cleanup, the worker-side pull import, TLS scanning (20 connections in
+  flight), the background trust recheck, and worker-only SMTP delivery for expiry alerts and
+  the digest.
 - `db` — PostgreSQL 16 holding inventory, jobs, users and the append-only audit log;
   private keys and TOTP seeds are stored encrypted.
 - One image (`cert-dashboard:local`) runs both `web` and `worker`; `migrate` is a separate
   one-shot Compose profile service that only receives the database owner password.
 - The host owns what the application deliberately does not: TLS termination and the front
-  proxy in front of `web`, `pg_dump` backups, and the off-host copies of the master key.
+  proxy in front of `web`, `pg_dump` backups, the off-host copies of the master key and the
+  SMTP relay.
 
 ## Quick start
 
@@ -71,11 +77,36 @@ resource-limited child process) or pull the chain a host actually serves from
 existing row instead of duplicated, renewal lineage is tracked, and every stored chain
 is assessed against internal trust anchors plus the pinned public bundle.
 
+**Observe what is served.** Register `host:port` (plus an optional SNI name) endpoints on the Scans
+screen and the worker connects to each on the daily schedule or on demand, with a 10-second
+`scan.timeout_seconds` deadline and at most 20 connections in flight. Every attempt records one
+classified result — `ok`, `mismatch`, `expired`, `unreachable` or `error` — with the served
+fingerprint, common name, issuer, expiry, TLS version, chain length and elapsed time; the last 20 are
+browsable per endpoint and an unreachable endpoint is retried alone, at most three times, without
+re-scanning the healthy ones. Observed certificates are **never imported, matched into inventory or
+trusted**: scanning only records what the endpoint serves, and the expected certificate is snapshotted
+into each result. A daily background recheck keeps the stored trust paths current, and the Settings
+status page shows any chain that stopped being trusted.
+
+**Alert and digest.** Each active certificate is watched against `alert.thresholds_days`
+(60/30/14/7/1/0 by default): the smallest crossed threshold produces one e-mail per certificate and
+threshold, addressed to the certificate's owner first and then the team list, listing the certificate
+facts, its active bindings and its renewal state. A `notification_log` ledger with a unique dedupe key
+and a row lock stops a threshold from being mailed twice, and three bounded attempts (30 s and 120 s
+backoff, transient failures only) retry a failing send; delivery is **at-least-once**, so a crash
+between the relay accepting the mail and the ledger commit can resend the same message once (see
+`docs/development.md`), and a scheduler tick step sweeps the failures of the day. A daily digest lists the
+expiring, expired, new TLS mismatches, unknown certificates, stale servers, failed jobs, rolled-back
+hosts and failed notifications plus the inventory revision — and is sent even when there is nothing to
+report. Mail leaves the worker only, over STARTTLS, SSL/TLS or plaintext as configured, and AUTH is
+attempted only over TLS.
+
 **Find and inspect.** The Overview shows disjoint expiry buckets (expired, < 7, 7–< 30,
-30–< 60 days) with setup guidance when the inventory is empty. The certificate list has
-filters, sorting, bookmarkable queries, 1–100 rows per page and a JSON export; the detail
-page shows public fields, key presence/public fingerprint, related audits, lineage, chain
-status warnings and editable metadata.
+30–< 60 days) with setup guidance when the inventory is empty, plus TLS health, recent jobs, renewals
+in flight and a status strip. The certificate, Scans, Servers and Bindings lists have filters, sorting,
+bookmarkable queries, 1–100 rows per page and a JSON export; the certificate detail page shows public
+fields, key presence/public fingerprint, related audits, lineage, chain status warnings, its endpoints
+panel and editable metadata.
 
 **Renew, up to issued.** A resumable manual-CA wizard walks through CSR generation (RSA
 2048/3072/4096 or ECDSA P-256/P-384, RSA 2048 by default), download of the CSR, submission to
@@ -98,7 +129,10 @@ confirmation-gated maintenance prune.
 
 **Run jobs.** A PostgreSQL `SKIP LOCKED` queue with per-type retry policy, a timeout
 reaper and stale-owner fencing; a worker with heartbeat, `/healthz` and a stale-worker
-banner; a daily retention cleanup at 04:00 UTC.
+banner; daily UTC schedules for the endpoint scan and the trust recheck (02:00 — separate
+schedule keys that deliberately share `scan.daily_at`/`scan.enabled`), the retention cleanup
+(04:00), the expiry check (07:00) and the digest (07:30), the last three each with their own
+time/enable setting.
 
 ## Security posture
 
@@ -120,6 +154,14 @@ banner; a daily retention cleanup at 04:00 UTC.
 - **No secret in a log.** Structured request logs carry route, status and request ID, never
   URLs with query strings, cookies, bodies or exception text; the same redaction covers
   audit details.
+- **Observed, never trusted.** A scan records what an endpoint serves and changes nothing else:
+  the served certificate is never imported, matched into inventory or trusted, and `chain_status`
+  changes only through an explicit trust recheck.
+- **Mail credentials stay in the worker.** `smtp_password` is a worker-only file secret; the web
+  process never loads it and never opens an SMTP connection, AUTH runs only over STARTTLS or SSL/TLS,
+  a STARTTLS server can never make the client fall back to plaintext, and SMTP failures are kept as
+  fixed step names plus numeric reply codes — no peer reply text, exception text or AUTH challenge is
+  stored, logged or rendered.
 
 ## Documentation
 
@@ -131,17 +173,20 @@ banner; a daily retention cleanup at 04:00 UTC.
   — the normative design (sections cited throughout the code).
 - [`docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`](docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md)
   — the executed Plan 1 task list and its contract decisions.
+- [`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md`](docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md)
+  — the executed Plan 2 task list (scanning, alerts, digest, screens).
 
 ## Development
 
-Python 3.12 with `uv`. The unit suite needs no network and no database; nine topology
-tests additionally need a reachable Docker daemon, and integration tests need one for
-PostgreSQL Testcontainers.
+Python 3.12 with `uv`. `tests/unit` needs no database and no network; its `test_topology`
+cases (27) additionally need a reachable Docker daemon, so the local gate filters them.
+Integration tests need Docker — PostgreSQL Testcontainers plus the `targets` profile of
+`docker-compose.test.yml` — and run in CI.
 
 ```sh
 uv sync --frozen
 uv run ruff check .
-uv run pytest -q tests/unit
+uv run pytest -q tests/unit -k 'not test_topology'
 ```
 
 The complete command set, including the coverage gates and the container smoke test that

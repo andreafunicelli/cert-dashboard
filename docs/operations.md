@@ -18,9 +18,10 @@ file, image, CI variable or the repository. File secrets are read once at startu
   `127.0.0.1:8000`; set `TRUSTED_PROXIES` (compose environment, empty by default) to the proxy
   address so client IPs in the audit log are correct.
 - Root access on the host for provisioning secrets (the application never elevates).
-- Optional, for later plans: an SSH key trusted by the managed servers, a Git token for the
-  inventory repository and an SMTP password. They are mounted only through the credentials
-  override (section 2.3).
+- An internal SMTP relay for expiry alerts and the daily digest, and at least one recipient address
+  (section 10). Without a relay the dashboard still works; it records the failures instead of sending.
+- Optional, for later plans: an SSH key trusted by the managed servers and a Git token for the
+  inventory repository. They are mounted only through the credentials override (section 2.3).
 
 ## 2. First installation
 
@@ -115,7 +116,18 @@ do not use, then include it with the base file:
 docker compose -f docker-compose.yml -f docker-compose.credentials.yml up -d worker
 ```
 
-Strict host key checking is enabled by the override; a changed host key fails the job.
+Strict host key checking is enabled by the override; a changed host key fails the job. The same
+override is what mounts `smtp_password`: the base file does not, so a relay that needs AUTH requires
+this override (section 10.1). To give the mails clickable links, set `DASHBOARD_URL` for the worker as
+well — it is an environment value, never a secret:
+
+```sh
+DASHBOARD_URL="https://cert-dashboard.example.internal" \
+  docker compose -f docker-compose.yml -f docker-compose.credentials.yml up -d worker
+```
+
+A `DASHBOARD_URL` that is not an absolute `http(s)` URL without credentials, query or fragment refuses
+worker startup (exit code 2). Without it, mails carry relative paths such as `/certificates/42`.
 
 ## 3. Routine operations
 
@@ -127,6 +139,9 @@ Strict host key checking is enabled by the override; a changed host key fails th
 | Rotate the master key | Section 6 |
 | Download certificate material | Certificate detail page: leaf, chain and full-chain PEM downloads are audited as `certificate.download`. Roots are never included |
 | Export a private key | Certificate detail page → Export PFX. Only a PFX protected by a password you choose (12–1,024 characters) exists; you re-enter your own password each time; the export is audited as `key.export` without any password; failures are audited as `key.export_failed`. Nothing is written to disk. PEM key export is deliberately not offered |
+| Configure or test e-mail | Section 10.1: **Settings → SMTP**, then **Send test email**. The outcome (step names and reply codes) is shown on the same tab |
+| Pause alerts, digest or scanning | Section 10.2: clear *Send the daily digest*, *Run the daily expiry check* or *Run the daily scan* in **Settings → Alerts** / **Settings → Scanning**. Manual **Scan now** keeps working |
+| Check what the endpoints serve | **Scans** (`/scans`): statuses, history, **Scan now**/**Scan all**, expectations (section 10.4) |
 
 ## 4. Database backup and restore
 
@@ -349,8 +364,8 @@ backup first (4.1).
 
 ## 8. Operational signals
 
-The signals below follow spec §11.8. Rows marked **Plan 1** work in this release; rows marked
-**Later plans** depend on features that are not shipped yet and are listed only so you know what
+The signals below follow spec §11.8. Rows marked **Plan 1** and **Plan 2** work in this release; rows
+marked **Later plans** depend on features that are not shipped yet and are listed only so you know what
 will appear. Do not rely on them today.
 
 | Signal | Availability | Where to look | Response |
@@ -361,8 +376,12 @@ will appear. Do not rely on them today.
 | Disk usage on the dashboard host | Plan 1 (host monitoring) | `df -h /var/lib/docker /var/backups/cert-dashboard-db`; `docker system df` | Container logs are capped at 50m x 5 files per container. Database dumps are pruned by the script in 4.1. Alert the host monitoring at 80% usage. The application prunes its own data with the `cleanup` job, which runs daily at 04:00 UTC (`cleanup.daily_at`, `cleanup.enabled`): finished jobs older than `retention.days` (90 by default); scan results older than a fixed 90 days (`SCAN_RESULT_RETENTION`, independent of `retention.days`); expired/idle/revoked sessions; login counters older than one day; and artifacts older than 30 days. It never removes audit rows, and **Settings → Maintenance** (section 9.2) queues the same prune on demand |
 | Key export failures | Plan 1 | Audit rows `key.export_failed` (for example `SELECT created_at, target_id, details FROM audit_log WHERE action = 'key.export_failed' ORDER BY created_at DESC LIMIT 20`) | `key_unwrap` or a missing master-key version: the secret file does not hold the version used by that certificate; restore the missing copy (section 5) before anything is rotated. `no_key`: the certificate has no stored key (expected for imported certificates without one) |
 | Repeated failed re-authentication or lockouts | Plan 1 | Audit rows `auth.login_failed` and `auth.lockout` (for example `SELECT created_at, action, target_id, details, ip FROM audit_log WHERE action IN ('auth.login_failed', 'auth.lockout') ORDER BY created_at DESC LIMIT 50`) | 10 consecutive failures lock an account for 15 minutes; a wrong password at the PFX export form counts toward the same counter. Many failures from one address point at a guessing attempt: block it on the front proxy |
+| Endpoints unreachable, mismatching or expired | Plan 2 | **Scans** list (sorted by status, `expired` first), the Overview **TLS health** counters (they link to `/scans?status=…`), and the digest's *New TLS mismatches* section. Query: `docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT last_scan_status, count(*) FROM endpoint WHERE is_active GROUP BY 1"` | `unreachable` for more than one run: check the target's firewall/service, then **Scan now**. `mismatch`: the served certificate is not the expected one — renew and deploy it, import the served certificate, or update the expectation (section 10.4). `expired`: `not_after` has passed; renew (section 3 of the renewal wizard) |
+| Scan job failed | Plan 2 | **Overview → Recent jobs**, the job's audit row (`scan.run`), `docker compose logs worker` | While attempts remain, a scan that leaves endpoints unreachable fails retryably (`transient_network`) and the next attempt rescans only those endpoints; the third and final attempt records its counts and **succeeds** even if they are still down, so a host that stays unreachable shows as `unreachable` on the endpoint, not as a failed job. Fix the network path, then **Scan now**. A `validation` failure means the payload was wrong (only the UI and scheduler enqueue scans) |
+| Consecutive SMTP failures | Plan 2 | **Settings → Status** SMTP panel (consecutive failures, last error, last success, last test) and the `smtp_failing` warning; **Settings → Alerts** lists the newest failed notifications with attempts and the next attempt; the digest repeats them under *Failed notifications in the last 24 hours* | Fix the relay or credentials (section 10.1), then **Send test email**. Only transient failures (connection, timeout, 4xx reply) are retried automatically: an expiry row twice within its UTC day (30 s, 120 s), then it stays `failed`. AUTH, TLS-verification and permanent-rejection failures are not retried; the next UTC day's evaluation creates a new key and attempts again. Mail delivery is at-least-once, so a duplicate after a crash is possible and needs no action |
+| SMTP TLS verification disabled | Plan 2 | `smtp_tls_unverified` warning in **Settings → Status**; the SMTP tab shows the unsafe note | Re-enable `smtp.tls_verify` once the relay presents a certificate the host trusts; while it is off, credentials and mail content can be intercepted |
+| Missing or late digest | Plan 2 | **Overview** status strip (**Last digest**) and **Settings → Status** | Check `alert.digest_enabled`, `digest.daily_at` (07:30 UTC) and the digest job in **Overview → Recent jobs**. An empty recipient list is recorded as a failed `no_recipients` row and is not retried; only a transient relay failure (connection, timeout, 4xx reply) retries the job, up to three attempts |
 | Discovery failing for many hosts | Later plans | Not available yet | Will appear in the digest and the job list |
-| Consecutive SMTP failures | Later plans | Not available yet | Will appear in the status panel and as a missing digest |
 | Deploy rollback | Later plans | Not available yet | Will appear on the Overview, in the digest and in the audit log |
 | Disk usage on targets (`/var/backups/cert-dashboard`) | Later plans | Not available yet | Deploy backups and their retention arrive with the deploy plan |
 
@@ -378,9 +397,10 @@ drill (4.2), a rotation (6) or an incident (8):
 
 | Panel | What it shows | Use it to |
 | --- | --- | --- |
-| Warnings | `smtp_not_configured`, `inventory_not_configured`, `no_alert_recipients` (no recipients and an active certificate without an owner e-mail), `missing_key_versions`, `worker_stale` | See at a glance what is unconfigured or broken |
+| Warnings | `smtp_not_configured`, `smtp_failing`, `smtp_tls_unverified`, `inventory_not_configured`, `no_alert_recipients` (no recipients and an active certificate without an owner e-mail), `missing_key_versions`, `worker_stale` | See at a glance what is unconfigured or broken |
 | Worker | State `ok` or `stale`, last heartbeat, 30-second heartbeat, stale after 5 minutes, live worker count (the same rule as `/healthz` and the red page banner) | Confirm a restart of `worker` took effect |
 | Queue | Queued, running, paused and failed-in-24-hours job counts; last finished job per type; last scheduled runs | Spot a saturated worker or a failing schedule |
+| SMTP | Consecutive delivery failures, the newest error, the last successful delivery and the newest test send (status, time, steps) | Prove the relay works after a change, and see why alerts stopped |
 | Keyring | Active version, loaded versions, SHA-256 of the keyring **file**, versions referenced by stored keys or TOTP seeds but missing from the file, rows not yet on the active version | Compare the fingerprint with the operations record (section 5); prove a rotation is finished (6 step 4) |
 | Database | Database size | Capacity planning next to the host disk checks in section 8 |
 
@@ -414,3 +434,195 @@ replace the file, run `sh scripts/install-secrets.sh /etc/cert-dashboard/secrets
 the services (`docker compose up -d --force-recreate web worker`, see section 3). Until the restart,
 **Settings → Status** keeps showing the fingerprint of the keyring file the running process loaded, so
 a mismatch with the file on disk means a restart is still pending.
+
+## 10. Alerts, digest and scanning
+
+This release observes what the registered endpoints actually serve and mails about it. Mail delivery,
+the expiry check, the digest, the scan and the trust recheck run on the worker; the web interface only
+queues that work and shows the result. Endpoint administration is the exception: adding an endpoint,
+setting its expectation and activating or deactivating it are committed synchronously by the web
+request together with their audit rows (section 10.4), so the change is visible as soon as the form
+returns.
+
+### 10.1 SMTP relay and the test e-mail
+
+The relay is configured in **Settings → SMTP** (admin only, audited, no secret values on the page):
+
+| Field | Note |
+| --- | --- |
+| Host | empty means SMTP is not configured (`smtp_not_configured`) |
+| Port | 1–65535; empty uses the default for the security mode: 587 STARTTLS, 465 SSL/TLS, 25 None |
+| Security | STARTTLS, SSL/TLS or None |
+| From address | the envelope and `From:` sender |
+| Username | optional; AUTH is attempted only when this **and** `smtp_password` exist |
+| Verify the SMTP server's TLS certificate | leave on; see the warning below |
+
+Steps:
+
+1. If the relay needs authentication, put the password the relay issued into
+   `/etc/cert-dashboard/secrets/smtp_password` with your normal secret process (written straight into
+   the file, never echoed, `umask 077`), apply the canonical owner and mode, and mount it through the
+   credentials override:
+
+   ```sh
+   sh scripts/install-secrets.sh /etc/cert-dashboard/secrets
+   docker compose -f docker-compose.yml -f docker-compose.credentials.yml up -d worker
+   ```
+
+   The password is typed nowhere else: it lives only in that `0400 10001:10001` file, is read once by
+   the worker and is never displayed, stored in the database or written to a log.
+2. Fill in the tab, save, then optionally set `DASHBOARD_URL` for the worker (section 2.3) so mail
+   links are absolute.
+3. Click **Send test email**. The web process queues an `alert_expiry/smtp_test` job for the signed-in
+   user's address and reports the outcome on the same tab: status, finish time and the SMTP
+   conversation as an ordered list of step names and reply codes (`connect 220`, `ehlo 250`,
+   `starttls 220`, `auth 235`, `mail 250`, `rcpt 250`, `data 250`) — or a fixed failure such as
+   `451 at rcpt`, with the steps it reached appended
+   (`535 at auth; connect 220, ehlo 250, starttls 220, auth 535`). A test send is never retried and
+   writes no delivery record.
+4. Turn on the alerts and the digest (10.2), then watch the first real mail arrive.
+
+Rules the transport enforces, so you do not have to guess:
+
+- **AUTH only over TLS.** A username with Security *None* is refused before anything is sent
+  (`smtp_not_configured`); a STARTTLS server that does not offer the extension fails with
+  `smtp_tls` instead of falling back to plaintext.
+- **Code-only errors by design.** Outcomes are a fixed step name plus the numeric reply code; the
+  dashboard never keeps the relay's reply text, exception text or AUTH challenge — a relay that echoes
+  a credential cannot leak it. Quote those codes in tickets; they are all you get, and that is
+  intentional.
+- **No automatic retry for permanent failures.** Only 4xx/timeouts/disconnects retry. `5xx`, AUTH and
+  TLS failures are reported once and left for you to fix.
+- **`smtp.tls_verify=false` is unsafe.** Settings shows "unsafe: TLS certificate verification disabled
+  — mail credentials and content can be intercepted." and **Settings → Status** raises
+  `smtp_tls_unverified`. Use it only to get out of a broken relay-certificate situation, then turn it
+  back on.
+- **Delivery is at-least-once.** The ledger row is locked while the message is sent; a worker crash in
+  the narrow window between the relay accepting the mail and the row being committed can resend that
+  one message on the retry. A rare duplicate needs no action.
+
+### 10.2 Recipients, thresholds and the daily schedule
+
+**Settings → Alerts** holds the policy: *Alert thresholds (days before expiry)* (default
+`60,30,14,7,1,0`; 1–10 distinct values, 0–365), *Recipients* (one address per line, at most 50),
+*Send the daily digest* and *Run the daily expiry check*. The certificate's own owner e-mail is put
+first and the team list follows, deduplicated; a certificate with no owner uses the team list, and with
+no recipient anywhere the attempt is recorded as `no_recipients` instead of being lost silently.
+
+One mail is sent per certificate per run, at the smallest threshold it has crossed, and only once per
+certificate and threshold: reruns, queue retries and the next day do not repeat it, apart from the rare
+at-least-once duplicate described in 10.1. The first digest
+after installation covers the previous 24 hours; later ones start at the previous digest's send time.
+
+The schedules are UTC and changed in **Settings → Schedule** and **Settings → Scanning**:
+
+| What | Default | Setting | Switch |
+| --- | --- | --- | --- |
+| Endpoint scan and background trust recheck | 02:00 | `scan.daily_at` | `scan.enabled` ("Run the daily scan") |
+| Expiry check | 07:00 | `expiry_check.daily_at` | `expiry_check.enabled` ("Run the daily expiry check") |
+| Daily digest | 07:30 | `digest.daily_at` | `alert.digest_enabled` ("Send the daily digest") |
+| Retention cleanup | 04:00 | `cleanup.daily_at` | `cleanup.enabled` |
+
+To stop the mail temporarily, clear *Send the daily digest* / *Run the daily expiry check*; to stop
+scheduled scanning (and the trust recheck with it) clear *Run the daily scan*. Manual **Scan now** /
+**Scan all** keep working with the schedule off. Clearing the recipient list does not stop the jobs and
+does not silence expiry mail: those alerts still go to each certificate's owner e-mail, and only a
+certificate with no owner is recorded as a `no_recipients` row (not sent, not retried). The digest has
+no owner fallback, so with the list empty each digest run is a failed `no_recipients` row — visible in
+**Settings → Alerts** and counted in **Settings → Status** — instead of a delivered mail.
+
+The digest is sent **even when it has nothing to report** ("Nothing to report. This mail is the daily
+heartbeat of the alerting path."), so a missing digest means a delivery or schedule problem, not an
+empty inventory. A second successful run on the same UTC day sends nothing.
+
+### 10.3 Reading delivery signals
+
+| Question | Where to look |
+| --- | --- |
+| Is the relay working now? | **Settings → SMTP → Send test email**, then the outcome on that tab; **Settings → Status → SMTP** repeats the newest test send |
+| Why did alerts stop? | **Settings → Status → SMTP** (consecutive failures, newest error, last success) and the `smtp_failing` warning |
+| Which messages failed, and will they retry? | **Settings → Alerts** lists the newest 50 failed notifications with attempts (`attempt 1 of 3`) and the next attempt time |
+| What did the digest report? | The digest mail itself; **Overview** status strip shows **Last digest** |
+| Full delivery history | `docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT kind, status, attempts, sent_at, last_attempt_at, next_attempt_at, error FROM notification_log ORDER BY created_at DESC LIMIT 20"` |
+
+Retries are automatic only for transient failures (connection refused or reset, timeout, 4xx reply).
+An expiry row is retried within the UTC day it was created (after 30 s, then 120 s) and then stays
+`failed`; the next UTC day's evaluation creates a new row. A digest retries the whole job up to three
+attempts. AUTH rejections, TLS verification failures, permanent rejections and `no_recipients` rows (an
+ownerless certificate with an empty team list, or a digest with an empty team list) are not retried
+automatically: fix the relay or the recipients (10.1), confirm with **Send test
+email**, and wait for the next scheduled run — for an expiry row that is the next UTC day's
+evaluation, for the digest the next day's 07:30 job. Failures keep showing in the digest's *Failed
+notifications in the last 24 hours* section and in **Settings → Status** until they age out.
+
+### 10.4 The Scans screen
+
+**Scans** (`/scans`) is the home of endpoints — the `host:port` (+ optional SNI) pairs whose
+certificate the dashboard observes.
+
+- The list shows endpoint, SNI, server, expected and observed certificate, observed expiry, status,
+  last check and actions. Filters: status, server, certificate, Ansible group, free-text host/SNI
+  search, active/inactive; sorts and 1–100 rows per page are in the query string, so a view is
+  bookmarkable. **Export list as JSON** writes the allowlisted row fields (at most 5,000 rows).
+- **Statuses:** `ok` (served certificate equals the expectation), `mismatch` (a certificate is served
+  but differs — an endpoint with no expectation reports `mismatch` until you set one), `expired`
+  (the served certificate is past `not_after`), `unreachable` (connect/DNS/timeout), `error`
+  (handshake/protocol/parse), or "not scanned". Ordering puts `expired` first, then `mismatch`,
+  `unreachable`, `error`, never-scanned and `ok`.
+- **Scan now** (per row) and **Scan all** only queue work: the web process never opens a connection to
+  the target, the worker does it (20 in flight, `scan.timeout_seconds` per endpoint, 10 s by default).
+  An endpoint that stays unreachable is retried alone, up to three attempts, and never blocks the rest.
+- **Add endpoint** takes host, port, SNI (empty = the host), and optionally an expected certificate.
+  The host must be a DNS name or IP literal and the port 1–65535; entering an existing endpoint
+  identity tells you which row already holds it. The endpoint is written and audited immediately;
+  no job is queued. Setting an expectation or activating/deactivating works the same way, so the
+  management forms are synchronous — only **Scan now** and **Scan all** queue worker jobs.
+  Endpoints are deactivated, never deleted, so their history stays.
+- **History** opens the last 20 results of one endpoint. The detail page explains a mismatch with the
+  expected and observed certificate and the three usual actions: renew and deploy the certificate,
+  import the served certificate from this endpoint (prefilled `/certificates/import`), or update the
+  expectation.
+- **Set expectation** picks an active certificate from the inventory; *use the observed certificate*
+  is offered when the served fingerprint is already in inventory, and otherwise points at the import
+  form. Changing an expectation never rewrites past results.
+- The certificate detail page has an **Endpoints** panel: every endpoint expecting that certificate,
+  with a per-endpoint **Scan now**, a link to its history and an **Add endpoint** button prefilled with
+  the certificate.
+
+Scan history is kept for 90 days (`SCAN_RESULT_RETENTION`, removed by the daily cleanup); the endpoint
+row and its current status are kept indefinitely.
+
+### 10.5 Servers and Bindings before discovery exists
+
+**Servers** (`/servers`, `/servers/{id}`) and **Bindings** (`/bindings`) are read-only views of the
+`server` and `binding` tables: hostnames, Ansible groups, web server, binding counts, last discovery
+state, mismatched endpoint counts; per binding the vhost, config and certificate/key/chain paths, the
+file owners and octal modes, the on-disk fingerprint, the matched certificate and the match state.
+`/bindings/help` explains `key_mismatch` and `missing_file` and states that the dashboard does not fix
+them. Both exports omit free-text notes and key material.
+
+This release ships **no discovery job**, so nothing fills those tables: on a fresh installation the
+screens are empty, and *Run discovery* / *Last raw dump summary* are disabled with
+`handler discover/default not registered (Plan 3)`. Servers and bindings arrive with Plan 3's discovery;
+until then endpoints (added by hand on **Scans**, or upserted by a pull import) are how TLS is observed,
+and the Overview's unknown-certificate and key-mismatch counters stay at zero unless rows were loaded
+outside the application.
+
+### 10.6 Overview slots
+
+The Overview keeps the expiry buckets and adds four read-only slots: **TLS health** (endpoint counters
+with links to the matching Scans filters, unknown certificates and key-mismatched bindings linked into
+the bindings view), **Recent jobs** (the newest ten with type, summary, status, duration, actor and a
+link to the audit trail; pull imports link to their progress page), **Renewals in flight** (renewals in
+`draft`, `csr_generated`, `submitted`, `issued` or `deployed`, oldest first, with their age in days) and
+the **status strip** (worker state and heartbeat, the inventory revision or "no inventory revision
+recorded yet", and the last digest time).
+
+### 10.7 Not part of this release
+
+The §7.7 inventory refresh is **not** a Plan 2 job: Plan 2 Contract decision 15 defines it as the
+preflight of every `discover`/`deploy` job, so it arrives with Plan 3 together with *Test pull*. The
+existing pull import (`scan/import_pull`) is unchanged and writes no scan result. Discovery, inventory
+revision and deployment are not available in this release; the disabled controls say so, and
+`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md` is the plan that adds
+them.
