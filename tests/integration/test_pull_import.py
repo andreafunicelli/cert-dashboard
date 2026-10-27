@@ -482,12 +482,61 @@ def test_progress_page_polls_while_pending_and_links_the_certificate_when_done(
 
 
 def test_progress_page_says_already_in_inventory_for_a_duplicate(worker_harness, signed_in, tls_server, web_factory):
-    _post(signed_in, tls_server.host, tls_server.port)
+    # The worker runs several jobs concurrently, and two queued jobs for one certificate race:
+    # whichever commits first creates it. Drain the first job before the second exists, so the
+    # duplicate is always the second one.
+    first = _job_id(_post(signed_in, tls_server.host, tls_server.port))
+    worker_harness.run_queued()
+    assert _job(web_factory, first).result["created"] is True
     second = _job_id(_post(signed_in, tls_server.host, tls_server.port, sni="other.example.internal"))
     worker_harness.run_queued()
     assert _job(web_factory, second).status == JobStatus.SUCCEEDED
     page = signed_in.get(f"/imports/{second}")
     assert "already in inventory" in page.text.lower()
+
+
+def test_two_concurrent_pull_imports_of_one_certificate_have_exactly_one_creator(
+    worker_harness, signed_in, tls_server, web_factory, monkeypatch, pull_certs
+):
+    # Both jobs pass the existence check before either inserts (forced with a barrier, so the
+    # interleaving is deterministic). The unique index decides the winner; the loser must fall back
+    # to the duplicate path. Which job wins is not defined, only that exactly one creates.
+    import threading
+
+    from app.services import certificates as certificates_service
+
+    barrier = threading.Barrier(2, timeout=20)
+    waited: set[int] = set()
+    find_existing = certificates_service._find_existing
+
+    def find_then_meet(db, leaf):
+        found = find_existing(db, leaf)
+        ident = threading.get_ident()
+        if found is None and ident not in waited:
+            waited.add(ident)
+            barrier.wait()
+        return found
+
+    monkeypatch.setattr(certificates_service, "_find_existing", find_then_meet)
+    ids = [
+        _job_id(_post(signed_in, tls_server.host, tls_server.port)),
+        _job_id(_post(signed_in, tls_server.host, tls_server.port, sni="other.example.internal")),
+    ]
+    worker_harness.run_queued()
+    jobs = [_job(web_factory, job_id) for job_id in ids]
+    assert [job.status for job in jobs] == [JobStatus.SUCCEEDED, JobStatus.SUCCEEDED], [
+        job.error_message for job in jobs
+    ]
+    assert sorted(job.result["created"] for job in jobs) == [False, True]
+    assert jobs[0].result["certificate_id"] == jobs[1].result["certificate_id"]
+    with web_factory() as db:
+        stored = db.scalars(
+            select(Certificate).where(Certificate.sha256_fingerprint == _fingerprint(pull_certs.leaf))
+        ).all()
+    assert len(stored) == 1
+    for job in jobs:
+        text = signed_in.get(f"/imports/{job.id}").text.lower()
+        assert ("already in inventory" in text) is (job.result["created"] is False)
 
 
 def test_progress_page_shows_the_sanitized_failure_and_stops_polling(
