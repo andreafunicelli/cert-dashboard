@@ -325,6 +325,22 @@ def test_cycles_and_limits(tmp_path):
     assert "depth" in warning and str(deep / "d17.conf") in warning
 
 
+def test_S_file_too_deep_in_the_include_chain_is_still_collected_as_a_root(tmp_path):
+    chain = {"apache2.conf": "Include d1.conf\n"}
+    chain.update({f"d{n}.conf": f"Include d{n + 1}.conf\n" for n in range(1, 17)})
+    chain["d17.conf"] = "SSLCertificateFile ssl/deep.crt\n"
+    deep = make_apache_tree(tmp_path / "deep/etc/apache2", chain)
+    ctl = fake_apachectl(tmp_path / "deep", deep, [deep / "d17.conf"])
+    document = run_collector(ctl)
+    d17 = str(deep / "d17.conf")
+    assert f"# configuration file {d17}:\nSSLCertificateFile ssl/deep.crt\n" in document["config"]
+    assert document["files_from_s"] == [d17]
+    assert document["files_from_includes"] == [str(deep / f"d{n}.conf") for n in range(1, 17)]
+    [warning] = non_fallback(document)
+    assert "depth 17" in warning and d17 in warning
+    assert markers(document).count(d17) == 1
+
+
 def too_many_files_tree(base: Path, extra: int) -> tuple[Path, str]:
     files = {"apache2.conf": "IncludeOptional conf.d/*.conf\n"}
     files.update({f"conf.d/{n:04d}.conf": "# f\n" for n in range(499 + extra)})

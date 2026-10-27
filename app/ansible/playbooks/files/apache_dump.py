@@ -124,12 +124,13 @@ def _walk(roots, server_root):
             real = os.path.realpath(value)
             if real in seen or not os.path.isfile(value):
                 continue
-            seen.add(real)
             if depth > MAX_DEPTH:
+                # not read, so its visited slot stays free for a later (e.g. -S) root encounter
                 warnings.append(
                     f"include depth {depth} exceeds {MAX_DEPTH}; not reading {value} (from {origin})"
                 )
                 continue
+            seen.add(real)
             if len(order) >= MAX_FILES:
                 raise DumpTooLarge(f"more than {MAX_FILES} files")
             try:
