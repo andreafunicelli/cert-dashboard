@@ -216,7 +216,7 @@ def test_a_failed_capture_is_reported_without_stderr(tmp_path, tls):
 
 
 def test_a_host_without_a_webserver_is_a_failed_capture(tmp_path):
-    found = discover(tmp_path, {WEB: local_host()})
+    found = discover(tmp_path, {WEB: local_host(nginx_binary="", apachectl_binary="")})  # nothing to detect on a CI runner
     assert (found[WEB].status, found[WEB].reason, found[WEB].document) == ("failed", "dump_failed", None)
     assert found[WEB].error == "no supported webserver found on the host"
 

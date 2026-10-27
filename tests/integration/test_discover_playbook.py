@@ -231,6 +231,15 @@ def test_missing_and_passphrase_keys_are_reported(ssh_targets, fresh_targets, ru
     locked = key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.BestAvailableEncryption(b"pw")
     )
+    # nginx loads every key at `nginx -T`, so an encrypted key needs its ssl_password_file to be a working config
+    legacy_conf = ssh_targets.read("ssh-nginx-1", "/etc/nginx/conf.d/legacy.conf").decode()
+    with_password = legacy_conf.replace(
+        "ssl_certificate_key /etc/nginx/ssl/legacy.key;",
+        "ssl_certificate_key /etc/nginx/ssl/legacy.key;\n    ssl_password_file /etc/nginx/ssl/legacy.pass;",
+    )
+    assert with_password != legacy_conf
+    ssh_targets.put("ssh-nginx-1", "/etc/nginx/ssl/legacy.pass", b"pw\n", mode=0o600)
+    ssh_targets.put("ssh-nginx-1", "/etc/nginx/conf.d/legacy.conf", with_password.encode(), mode=0o644)
     ssh_targets.put("ssh-nginx-1", "/etc/nginx/ssl/legacy.key", locked, mode=0o600)
     ssh_targets.exec("ssh-apache", "rm", "-f", "/etc/apache2/ssl/www.chain.pem")
     ssh_targets.mark_baseline("ssh-nginx-1")
