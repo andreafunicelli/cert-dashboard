@@ -144,6 +144,56 @@ def test_test_targets_are_pinned_profiled_and_loopback_only():
     assert smtp["tmpfs"] == ["/spool"] and smtp["ports"] == ["127.0.0.1::1025"]
 
 
+SSH_TARGETS = {"ssh-nginx-1": ("nginx", 18443), "ssh-nginx-2": ("nginx", 18444), "ssh-apache": ("apache", 18445)}
+FIXTURE_BIND = "${SSH_TARGET_DIR:-./secrets/test/ssh-targets}/%s:/fixture:ro"
+
+
+def test_ssh_targets_are_pinned_profiled_and_loopback_only():
+    for name in ("docker-compose.yml", "docker-compose.credentials.yml", "docker-compose.migrate.yml"):
+        cfg = compose(name)
+        assert not set(SSH_TARGETS) & set(cfg["services"]), f"SSH targets leaked into {name}"
+        assert "ssh-targets" not in yaml.safe_dump(cfg)
+    dockerfile = (ROOT / "tests/fixtures/targets/Dockerfile").read_text()
+    pinned = re.findall(r"^FROM debian:bookworm-slim@sha256:[0-9a-f]{64}$", dockerfile, re.MULTILINE)
+    assert len(pinned) == 1 and re.findall(r"^FROM .*$", dockerfile, re.MULTILINE) == pinned
+    cfg = compose("docker-compose.test.yml")
+    assert cfg["networks"]["ssh-targets"]["driver"] == "bridge"
+    for name, (webserver, tls_port) in SSH_TARGETS.items():
+        svc = cfg["services"][name]
+        assert svc["profiles"] == ["ssh-targets"], name
+        assert svc["init"] is True and svc["networks"] == ["ssh-targets"], name
+        assert svc["image"] == f"cert-dashboard-target:{webserver}", name
+        for forbidden in ("secrets", "privileged", "network_mode", "cap_add", "devices", "pid", "ipc"):
+            assert forbidden not in svc, f"{name}: {forbidden}"
+        assert svc["ports"] == ["127.0.0.1::22", f"127.0.0.1:{tls_port}:{tls_port}"], name
+        assert svc["volumes"] == [FIXTURE_BIND % name], name
+        assert svc["environment"]["TARGET_TLS_PORT"] == str(tls_port), name
+        assert not any(
+            key.upper().endswith(("PASSWORD", "SECRET", "TOKEN", "KEY")) for key in svc["environment"]
+        ), name
+        health = " ".join(svc["healthcheck"]["test"])
+        process = "nginx" if webserver == "nginx" else "apache2"
+        assert "pgrep -x sshd" in health and f"pgrep -x {process}" in health, name
+    builds = {name: svc["build"] for name, svc in cfg["services"].items() if name in SSH_TARGETS and "build" in svc}
+    assert builds == {
+        name: {"context": "./tests/fixtures/targets", "args": {"WEBSERVER": webserver}}
+        for name, webserver in (("ssh-nginx-1", "nginx"), ("ssh-apache", "apache"))
+    }
+
+
+def test_ci_builds_ssh_target_images_after_the_pull_and_before_pytest():
+    path = ROOT / ".github/workflows/ci.yml"
+    if not path.exists():
+        pytest.skip("CI workflow checked in the host checkout")
+    commands = [step.get("run", "") for step in yaml.safe_load(path.read_text())["jobs"]["verify"]["steps"]]
+    pull = next(i for i, c in enumerate(commands) if "--profile targets pull" in c)
+    build = next(i for i, c in enumerate(commands) if "--profile ssh-targets build" in c)
+    pytest_run = next(i for i, c in enumerate(commands) if "pytest" in c and not c.startswith("docker run"))
+    assert pull < build < pytest_run
+    assert commands[build].startswith("docker compose -f docker-compose.test.yml --profile ssh-targets build")
+    assert "docker compose -f docker-compose.test.yml --profile ssh-targets config --quiet" in commands
+
+
 def test_htmx_is_packaged_for_offline_runtime():
     import hashlib
 
@@ -174,6 +224,24 @@ def test_rendered_migration_has_exactly_one_password_source():
     assert migrate["environment"]["DB_USER"] == "db_owner"
 
 
+@pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI required; run authoritative suite in Linux")
+def test_rendered_ssh_targets_publish_loopback_only_and_mount_one_read_only_bind():
+    result = subprocess.run(
+        ["docker", "compose", "-f", "docker-compose.test.yml", "--profile", "ssh-targets", "config", "--format", "json"],
+        cwd=ROOT, capture_output=True, text=True, check=True,
+    )
+    services = json.loads(result.stdout)["services"]
+    for name, (_, tls_port) in SSH_TARGETS.items():
+        svc = services[name]
+        assert [(p["host_ip"], p["target"], str(p["published"]) if p.get("published") else None) for p in svc["ports"]] == [
+            ("127.0.0.1", 22, None), ("127.0.0.1", tls_port, str(tls_port))
+        ], name
+        assert svc["init"] is True and list(svc["networks"]) == ["ssh-targets"], name
+        assert [(v["type"], v["target"], v.get("read_only")) for v in svc["volumes"]] == [("bind", "/fixture", True)], name
+        assert not svc.get("privileged") and not svc.get("cap_add") and not svc.get("secrets"), name
+        assert svc.get("network_mode") is None, name
+
+
 def secret_path(target):
     return posixpath.normpath(target if target.startswith("/") else "/run/secrets/" + target)
 
@@ -186,7 +254,7 @@ def secret_path(target):
     ["docker-compose.yml", "docker-compose.credentials.yml", "docker-compose.migrate.yml"],
     ["docker-compose.test.yml"],
 ])
-@pytest.mark.parametrize("profile", ["*", "targets"])
+@pytest.mark.parametrize("profile", ["*", "targets", "ssh-targets"])
 def test_rendered_services_never_mount_two_secrets_at_the_same_path(files, profile):
     command = ["docker", "compose", "--profile", profile]
     for name in files:

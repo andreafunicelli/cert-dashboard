@@ -525,6 +525,47 @@ not on a Docker-less laptop), and `docker compose -f docker-compose.test.yml --p
 `tests/integration/test_scan_targets.py` is the end-to-end case: it scans a real nginx and a real Apache
 target through `ok → mismatch → unreachable` and sends one test e-mail to the `smtp` service.
 
+### SSH targets
+
+Plan 3's discovery and deployment tests run Ansible against real `sshd` + nginx/Apache containers. They are
+**CI-only** (no Docker on a laptop or in the Hermes container); the local gate is `uv run ruff check .` and
+`uv run pytest -q tests/unit`, which also checks the compose topology and the pure fixture helpers.
+
+| Service | Inventory host | Groups | `webserver_type` | TLS port | Vhosts |
+| --- | --- | --- | --- | --- | --- |
+| `ssh-nginx-1` | `web01.example.internal` | `canary_ring` | `nginx` | 18443 | `www` and `legacy` (both use `/etc/nginx/ssl/www.crt`; keys `www.key` / `legacy.key`) |
+| `ssh-nginx-2` | `web02.example.internal` | `ring_a` | *(absent: auto-detected)* | 18444 | `www` |
+| `ssh-apache` | `web03.example.internal` | `ring_a` | `apache` | 18445 | `www` with a chain file, plus a plain `:80` vhost |
+
+The images come from `tests/fixtures/targets/Dockerfile` (`debian:bookworm-slim` pinned by digest,
+`openssh-server sudo python3 openssl git procps` plus `nginx` or `apache2`; packages follow the pinned base at
+build time). User `cdeploy` (uid 2000, no password) logs in with a key only and may `sudo` to root without a
+password — the dedicated privilege-escalation rule of §6.4. The compose services (`profiles: [ssh-targets]`,
+`init: true`, a dedicated `ssh-targets` bridge network, no secrets, one read-only `/fixture` bind) publish SSH on a
+random `127.0.0.1` port and TLS on the **same** port inside and outside the container, so a binding discovered
+on a target is also reachable from the runner. `entrypoint.sh` runs `target-reset` and then `sshd -D -e` in the
+foreground; `target-reset` rebuilds the committed config tree (`/etc/nginx` or `/etc/apache2`, TLS dirs
+included), the backup tree and the webserver, so files a test added are removed.
+
+CI builds the images once, in a setup step after the target pull and before pytest —
+`docker compose -f docker-compose.test.yml --profile ssh-targets build ssh-nginx-1 ssh-apache` — and the tests
+start them with `up -d --wait --no-build --pull never`; nothing is downloaded during a test run and every
+connection goes to `127.0.0.1`.
+
+Use the fixtures from `tests/integration/conftest.py`: `ssh_targets` (session; generates the host keys, client
+key and the "old" leaf, starts the stack, writes a pinned `known_hosts` and always runs `down -v`),
+`fresh_targets` (function; resets all three targets — request it in every test that reads or mutates them) and
+`runner_secrets` (the client key and `known_hosts` as `RunnerSecrets`). `tests/fixtures/ssh_targets.py` holds the
+`TargetStack` API (`inventory_file`, `exec`, `read`, `stat`, `put`, `served_fingerprint`, `signal_webserver`,
+`backups`, `unchanged_since_reset`, `mark_baseline`, `stop`/`start`, …); assertions on a target always go through
+`docker compose exec` as root, never through the code under test. A restarted target gets a new random SSH port,
+so use `ssh_targets.start(service)`, which rewrites `known_hosts`.
+
+`tests/integration/test_ssh_targets.py` proves the harness: Ansible reaches every target over pinned SSH with
+`become`, a forged or unknown host key and a wrong client key are `auth`, a stopped target is
+`transient_network`, the targets serve the old certificate on their fixed ports and `target-reset` restores the
+initial state exactly.
+
 ## Linux deployment secrets
 
 Provision canonical files beneath `/etc/cert-dashboard/secrets` through the

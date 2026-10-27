@@ -108,6 +108,9 @@ def build_env(secrets: RunnerSecrets, run_dir: Path) -> dict[str, str]:
         "ANSIBLE_PYTHON_INTERPRETER": "auto_silent",
         "ANSIBLE_DEPRECATION_WARNINGS": "False",
         "ANSIBLE_COLLECTIONS_PATH": str(run_dir / "collections"),
+        # Short on purpose: ssh adds 17 random characters to the multiplexing socket path and a Unix
+        # socket path holds at most 107, so ~/.ansible/cp under a deep run directory kills the connection.
+        "ANSIBLE_SSH_CONTROL_PATH_DIR": str(run_dir / "cp"),
     }
     if secrets.vault_password is not None:
         env["ANSIBLE_VAULT_PASSWORD_FILE"] = str(VAULT_CLIENT)
@@ -153,7 +156,7 @@ def _resolve_playbook(name: str) -> Path:
 def _prepare_dirs(run_dir: Path) -> None:
     run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(run_dir, 0o700)
-    for name in ("home", "tmp", "collections"):
+    for name in ("home", "tmp", "collections", "cp"):
         (run_dir / name).mkdir(mode=0o700, exist_ok=True)
 
 

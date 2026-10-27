@@ -1,0 +1,19 @@
+---
+# Reachability probe for the SSH-enabled test targets: pinned host key, client key, `become` to root.
+- name: ping with become
+  hosts: all
+  gather_facts: false
+  become: true
+  tasks:
+    - name: ping
+      ansible.builtin.ping:
+
+    - name: effective user
+      ansible.builtin.command: id -un
+      register: effective_user
+      changed_when: false
+
+    - name: publish result
+      ansible.builtin.set_stats:
+        data: >-
+          {{ {'cert_dashboard': {inventory_hostname: {'become_user': effective_user.stdout}}} }}
