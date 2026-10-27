@@ -127,12 +127,13 @@ with the pull request that delivered each group of changes.
   server.
 - **Send test email** as the never-retried `alert_expiry/smtp_test` worker job, with its step/reply
   transcript on the SMTP tab (Task 5, PR #25).
-- `notification_log` delivery ledger: unique dedupe key, row-locked sends, three bounded attempts with
-  30/120 s backoff, and the `notification_retry` scheduler tick step (Task 6, PR #26).
+- `notification_log` delivery ledger: unique dedupe key, row-locked sends (at-least-once delivery — a
+  crash between SMTP acceptance and the commit can resend once), three bounded attempts with 30/120 s
+  backoff for retryable failures, and the `notification_retry` scheduler tick step (Task 6, PR #26).
 - Expiry evaluation and rendering: configured thresholds, smallest crossed threshold, owner-first
   recipients, text and minimal HTML mail, optional `DASHBOARD_URL` links (Task 7, PR #27).
-- `alert_expiry/default` with the 07:00 `expiry_check` schedule, idempotent per threshold and
-  partial-failure semantics (Task 8, PR #28).
+- `alert_expiry/default` with the 07:00 `expiry_check` schedule, deduplicated per threshold (one row
+  per certificate, threshold and UTC day) and partial-failure semantics (Task 8, PR #28).
 - Digest collection against the state at the last digest — new TLS mismatches, unknown certificates,
   stale servers, failed jobs, rolled-back hosts, failed notifications — plus the `binding.match_state`
   audit producer (Task 9, PR #29).

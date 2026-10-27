@@ -377,10 +377,10 @@ will appear. Do not rely on them today.
 | Key export failures | Plan 1 | Audit rows `key.export_failed` (for example `SELECT created_at, target_id, details FROM audit_log WHERE action = 'key.export_failed' ORDER BY created_at DESC LIMIT 20`) | `key_unwrap` or a missing master-key version: the secret file does not hold the version used by that certificate; restore the missing copy (section 5) before anything is rotated. `no_key`: the certificate has no stored key (expected for imported certificates without one) |
 | Repeated failed re-authentication or lockouts | Plan 1 | Audit rows `auth.login_failed` and `auth.lockout` (for example `SELECT created_at, action, target_id, details, ip FROM audit_log WHERE action IN ('auth.login_failed', 'auth.lockout') ORDER BY created_at DESC LIMIT 50`) | 10 consecutive failures lock an account for 15 minutes; a wrong password at the PFX export form counts toward the same counter. Many failures from one address point at a guessing attempt: block it on the front proxy |
 | Endpoints unreachable, mismatching or expired | Plan 2 | **Scans** list (sorted by status, `expired` first), the Overview **TLS health** counters (they link to `/scans?status=…`), and the digest's *New TLS mismatches* section. Query: `docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT last_scan_status, count(*) FROM endpoint WHERE is_active GROUP BY 1"` | `unreachable` for more than one run: check the target's firewall/service, then **Scan now**. `mismatch`: the served certificate is not the expected one — renew and deploy it, import the served certificate, or update the expectation (section 10.4). `expired`: `not_after` has passed; renew (section 3 of the renewal wizard) |
-| Scan job failed | Plan 2 | **Overview → Recent jobs**, the job's audit row (`scan.run`), `docker compose logs worker` | A scan job fails only when endpoints stayed unreachable on its last attempt (`transient_network`). Fix the network path; a `validation` failure means the payload was wrong (only the UI and scheduler enqueue scans) |
-| Consecutive SMTP failures | Plan 2 | **Settings → Status** SMTP panel (consecutive failures, last error, last success, last test) and the `smtp_failing` warning; **Settings → Alerts** lists the newest failed notifications with attempts and the next attempt; the digest repeats them under *Failed notifications in the last 24 hours* | Fix the relay or credentials (section 10.1), then **Send test email**. A failed expiry row is retried twice within its UTC day (30 s, 120 s) and then stays `failed`; the next day's key takes over. Mail delivery is at-least-once, so a duplicate after a crash is possible and needs no action |
+| Scan job failed | Plan 2 | **Overview → Recent jobs**, the job's audit row (`scan.run`), `docker compose logs worker` | While attempts remain, a scan that leaves endpoints unreachable fails retryably (`transient_network`) and the next attempt rescans only those endpoints; the third and final attempt records its counts and **succeeds** even if they are still down, so a host that stays unreachable shows as `unreachable` on the endpoint, not as a failed job. Fix the network path, then **Scan now**. A `validation` failure means the payload was wrong (only the UI and scheduler enqueue scans) |
+| Consecutive SMTP failures | Plan 2 | **Settings → Status** SMTP panel (consecutive failures, last error, last success, last test) and the `smtp_failing` warning; **Settings → Alerts** lists the newest failed notifications with attempts and the next attempt; the digest repeats them under *Failed notifications in the last 24 hours* | Fix the relay or credentials (section 10.1), then **Send test email**. Only transient failures (connection, timeout, 4xx reply) are retried automatically: an expiry row twice within its UTC day (30 s, 120 s), then it stays `failed`. AUTH, TLS-verification and permanent-rejection failures are not retried; the next UTC day's evaluation creates a new key and attempts again. Mail delivery is at-least-once, so a duplicate after a crash is possible and needs no action |
 | SMTP TLS verification disabled | Plan 2 | `smtp_tls_unverified` warning in **Settings → Status**; the SMTP tab shows the unsafe note | Re-enable `smtp.tls_verify` once the relay presents a certificate the host trusts; while it is off, credentials and mail content can be intercepted |
-| Missing or late digest | Plan 2 | **Overview** status strip (**Last digest**) and **Settings → Status** | Check `alert.digest_enabled`, `digest.daily_at` (07:30 UTC) and the digest job in **Overview → Recent jobs**. An empty recipient list records a failed `no_recipients` row; a relay failure retries the job up to three times |
+| Missing or late digest | Plan 2 | **Overview** status strip (**Last digest**) and **Settings → Status** | Check `alert.digest_enabled`, `digest.daily_at` (07:30 UTC) and the digest job in **Overview → Recent jobs**. An empty recipient list is recorded as a failed `no_recipients` row and is not retried; only a transient relay failure (connection, timeout, 4xx reply) retries the job, up to three attempts |
 | Discovery failing for many hosts | Later plans | Not available yet | Will appear in the digest and the job list |
 | Deploy rollback | Later plans | Not available yet | Will appear on the Overview, in the digest and in the audit log |
 | Disk usage on targets (`/var/backups/cert-dashboard`) | Later plans | Not available yet | Deploy backups and their retention arrive with the deploy plan |
@@ -506,7 +506,8 @@ first and the team list follows, deduplicated; a certificate with no owner uses 
 no recipient anywhere the attempt is recorded as `no_recipients` instead of being lost silently.
 
 One mail is sent per certificate per run, at the smallest threshold it has crossed, and only once per
-certificate and threshold: reruns, queue retries and the next day do not repeat it. The first digest
+certificate and threshold: reruns, queue retries and the next day do not repeat it, apart from the rare
+at-least-once duplicate described in 10.1. The first digest
 after installation covers the previous 24 hours; later ones start at the previous digest's send time.
 
 The schedules are UTC and changed in **Settings → Schedule** and **Settings → Scanning**:
@@ -537,10 +538,14 @@ empty inventory. A second successful run on the same UTC day sends nothing.
 | What did the digest report? | The digest mail itself; **Overview** status strip shows **Last digest** |
 | Full delivery history | `docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT kind, status, attempts, sent_at, last_attempt_at, next_attempt_at, error FROM notification_log ORDER BY created_at DESC LIMIT 20"` |
 
-A failed expiry row is retried within the UTC day it was created (after 30 s, then 120 s) and then
-stays `failed`; the next day's evaluation creates a new row. A failed digest retries the whole job up
-to three times. Failures keep showing in the digest's *Failed notifications in the last 24 hours*
-section and in **Settings → Status** until they age out.
+Retries are automatic only for transient failures (connection refused or reset, timeout, 4xx reply).
+An expiry row is retried within the UTC day it was created (after 30 s, then 120 s) and then stays
+`failed`; the next UTC day's evaluation creates a new row. A digest retries the whole job up to three
+attempts. AUTH rejections, TLS verification failures, permanent rejections and an empty recipient list
+are not retried automatically: fix the relay or the recipients (10.1), confirm with **Send test
+email**, and wait for the next scheduled run — for an expiry row that is the next UTC day's
+evaluation, for the digest the next day's 07:30 job. Failures keep showing in the digest's *Failed
+notifications in the last 24 hours* section and in **Settings → Status** until they age out.
 
 ### 10.4 The Scans screen
 

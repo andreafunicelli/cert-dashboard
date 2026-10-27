@@ -89,11 +89,13 @@ into each result. A daily background recheck keeps the stored trust paths curren
 status page shows any chain that stopped being trusted.
 
 **Alert and digest.** Each active certificate is watched against `alert.thresholds_days`
-(60/30/14/7/1/0 by default): the smallest crossed threshold produces exactly one e-mail per
-certificate and threshold, addressed to the certificate's owner first and then the team list, listing
-the certificate facts, its active bindings and its renewal state. A `notification_log` ledger with a
-unique dedupe key, a row lock and three bounded attempts (30 s and 120 s backoff) makes delivery
-idempotent, and a scheduler tick step sweeps the failures of the day. A daily digest lists the
+(60/30/14/7/1/0 by default): the smallest crossed threshold produces one e-mail per certificate and
+threshold, addressed to the certificate's owner first and then the team list, listing the certificate
+facts, its active bindings and its renewal state. A `notification_log` ledger with a unique dedupe key
+and a row lock stops a threshold from being mailed twice, and three bounded attempts (30 s and 120 s
+backoff, transient failures only) retry a failing send; delivery is **at-least-once**, so a crash
+between the relay accepting the mail and the ledger commit can resend the same message once (see
+`docs/development.md`), and a scheduler tick step sweeps the failures of the day. A daily digest lists the
 expiring, expired, new TLS mismatches, unknown certificates, stale servers, failed jobs, rolled-back
 hosts and failed notifications plus the inventory revision — and is sent even when there is nothing to
 report. Mail leaves the worker only, over STARTTLS, SSL/TLS or plaintext as configured, and AUTH is
