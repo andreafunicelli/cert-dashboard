@@ -196,17 +196,50 @@ def _prepare_checkout(checkout: Path, env: Mapping[str, str]) -> None:
     _git(checkout, env, "init", "--quiet", "--initial-branch=main")
 
 
-def _pull(remote: str, ref: str, checkout: Path, env: Mapping[str, str], now: datetime) -> InventoryRevision:
+def _fetch(remote: str, ref: str, checkout: Path, env: Mapping[str, str]) -> tuple[str, int]:
+    """Fetch ``ref`` into the temporary ref; the working tree is not touched."""
     _prepare_checkout(checkout, env)
     _git(checkout, env, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--", remote, f"+{ref or 'HEAD'}:{FETCH_REF}")
     rev = _git(checkout, env, "rev-parse", "--verify", f"{FETCH_REF}^{{commit}}")
     if not _SHA.fullmatch(rev):
         raise _GitFailed
-    committed = int(_git(checkout, env, "log", "-1", "--format=%ct", rev))
+    return rev, int(_git(checkout, env, "log", "-1", "--format=%ct", rev))
+
+
+def _apply(checkout: Path, env: Mapping[str, str], rev: str) -> None:
     _git(checkout, env, "reset", "--quiet", "--hard", rev)
     _git(checkout, env, "clean", "-ffdxq")
+
+
+def _restore(checkout: Path, env: Mapping[str, str], last: InventoryRevision) -> bool:
+    """Put the previous revision back after a failure past the reset; True only once it is verified."""
+    try:
+        _apply(checkout, env, last.rev)
+        return _git(checkout, env, "rev-parse", "--verify", "HEAD^{commit}") == last.rev
+    except (_GitFailed, OSError, ValueError):
+        return False
+
+
+def _pull(
+    remote: str, ref: str, checkout: Path, env: Mapping[str, str], now: datetime, last: InventoryRevision | None
+) -> InventoryRevision | None:
+    """Fetch, then reset the working tree. Returns the new revision, or None when nothing was changed."""
+    try:
+        rev, committed = _fetch(remote, ref, checkout, env)
+    except (_GitFailed, OSError, ValueError):
+        return None
     revision = InventoryRevision(rev, datetime.fromtimestamp(committed, UTC), now, True, None)
-    _write_marker(checkout, revision)
+    try:
+        _apply(checkout, env, rev)
+        _write_marker(checkout, revision)
+    except (_GitFailed, OSError, ValueError):
+        # The working tree may already be at the new revision: never answer with the old SHA unless it is back.
+        if last is not None and _restore(checkout, env, last):
+            return None
+        (checkout / MARKER).unlink(missing_ok=True)
+        raise JobFailure(
+            "transient_network", "inventory checkout could not be updated and is in an unknown state", retryable=True
+        ) from None
     return revision
 
 
@@ -230,10 +263,9 @@ def refresh_checkout(
         return last
     if last is not None and timedelta(0) <= now - last.pulled_at < PULL_MIN_INTERVAL:
         return last
-    try:
-        return _pull(remote, ref, checkout, env, now)
-    except (_GitFailed, OSError, ValueError):
-        pass
+    pulled = _pull(remote, ref, checkout, env, now, last)
+    if pulled is not None:
+        return pulled
     if last is None:
         raise JobFailure("transient_network", "inventory pull failed and no checkout is available", retryable=True)
     if now - last.pulled_at > CHECKOUT_MAX_AGE:

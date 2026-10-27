@@ -7,15 +7,13 @@ from app.services.inventory import (
     load_inventory_config,
     refresh_checkout,
 )
-from tests.integration.conftest import inventory_repo
 
 
-def test_inventory_repo_writes_the_settings_and_serves_a_listable_inventory(web_factory, tmp_path, now):
+def test_inventory_repo_writes_the_settings_and_serves_a_listable_inventory(web_factory, tmp_path, now, inventory_repo):
     from app.ansible.runner import RunnerSecrets, build_env
 
     repo = inventory_repo(
         web_factory,
-        tmp_path,
         hosts={"web01.example.internal": {"ansible_host": "127.0.0.1", "webserver_type": "nginx"}},
         groups={"ring_a": ["web01.example.internal"]},
         vault=("fixture-vault-password-3f9a", {"db_secret": "vaulted-canary-77e1"}),

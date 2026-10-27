@@ -222,3 +222,44 @@ def test_a_foreign_non_empty_directory_is_never_initialised_or_cleaned(tmp_path,
         refresh_checkout(remote.url, "main", foreign, env=environment(tmp_path), now=now)
     assert failure.value.error_class == "config_invalid"
     assert (foreign / "precious.txt").read_text() == "keep" and not (foreign / ".git").exists()
+
+
+def _fail_git_command(monkeypatch, name, *, times):
+    """Make the given git subcommand fail ``times`` times (real git for everything else)."""
+    from app.services import inventory
+
+    real, remaining = inventory._git, {"n": times}
+
+    def flaky(checkout, env, *args):
+        if args and args[0] == name and remaining["n"] > 0:
+            remaining["n"] -= 1
+            raise inventory._GitFailed
+        return real(checkout, env, *args)
+
+    monkeypatch.setattr(inventory, "_git", flaky)
+
+
+def test_a_failure_after_the_reset_restores_and_reports_the_previous_revision(tmp_path, now, monkeypatch):
+    remote = make_bare_repo(tmp_path / "remote.git", {"inventory/hosts.yml": HOSTS_V1})
+    checkout, env = tmp_path / "inventory", environment(tmp_path)
+    first = refresh_checkout(remote.url, "main", checkout, env=env, now=now)
+    remote.commit({"inventory/hosts.yml": HOSTS_V2})
+    _fail_git_command(monkeypatch, "clean", times=1)
+    kept = refresh_checkout(remote.url, "main", checkout, env=env, now=now + timedelta(hours=1))
+    assert (kept.rev, kept.refreshed, kept.warning) == (first.rev, False, PULL_FAILED)
+    head = subprocess.run(["git", "-C", str(checkout), "rev-parse", "HEAD"], capture_output=True, text=True, check=False).stdout
+    assert head.strip() == first.rev and (checkout / "inventory/hosts.yml").read_text() == HOSTS_V1
+
+
+def test_a_failure_after_the_reset_that_cannot_be_undone_fails_closed(tmp_path, now, monkeypatch):
+    remote = make_bare_repo(tmp_path / "remote.git", {"inventory/hosts.yml": HOSTS_V1})
+    checkout, env = tmp_path / "inventory", environment(tmp_path)
+    refresh_checkout(remote.url, "main", checkout, env=env, now=now)
+    remote.commit({"inventory/hosts.yml": HOSTS_V2})
+    _fail_git_command(monkeypatch, "clean", times=99)
+    with pytest.raises(JobFailure) as failure:
+        refresh_checkout(remote.url, "main", checkout, env=env, now=now + timedelta(hours=1))
+    assert failure.value.error_class == "transient_network" and failure.value.retryable
+    assert current_revision(checkout) is None
+    with pytest.raises(JobFailure):
+        refresh_checkout(remote.url, "main", checkout, env=env, now=now + timedelta(hours=1), pull=False)

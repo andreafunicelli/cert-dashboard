@@ -1343,33 +1343,42 @@ def audit_actions(factory, target_id):
 
 
 
-def inventory_repo(factory, root, *, hosts, groups=None, vault=None, ref="main") -> InventoryRepo:
-    """A bare ``file://`` inventory repository under ``root`` and the ``inventory.*`` rows pointing at it.
+@pytest.fixture
+def inventory_repo(tmp_path_factory):
+    """``inventory_repo(factory, *, hosts, groups=None, vault=None) -> InventoryRepo``.
 
-    ``hosts`` maps hostname -> host variables, ``groups`` maps group -> hostnames, ``vault`` is
-    ``(password, mapping)`` for an encrypted ``group_vars/all/vault.yml``. The rows are written directly:
-    the settings validator accepts only ``https``/``ssh``/scp URLs, so this is a test-only shortcut.
+    Builds a bare ``file://`` inventory repository in a fresh temporary directory and writes the
+    ``inventory.*`` rows pointing at it. ``hosts`` maps hostname -> host variables, ``groups`` maps
+    group -> hostnames, ``vault`` is ``(password, mapping)`` for an encrypted
+    ``group_vars/all/vault.yml``. The rows are written directly: the settings validator accepts only
+    ``https``/``ssh``/scp URLs, so this is a test-only shortcut.
     """
     import json
 
-    document = {
-        "all": {
-            "hosts": {name: dict(variables) for name, variables in hosts.items()},
-            "children": {group: {"hosts": {name: {} for name in names}} for group, names in (groups or {}).items()},
+    def build(factory, *, hosts, groups=None, vault=None, ref="main") -> InventoryRepo:
+        root = tmp_path_factory.mktemp("inventory-repo")
+        document = {
+            "all": {
+                "hosts": {name: dict(variables) for name, variables in hosts.items()},
+                "children": {
+                    group: {"hosts": {name: {} for name in names}} for group, names in (groups or {}).items()
+                },
+            }
         }
-    }
-    repo = make_bare_repo(Path(root) / "inventory.git", {"inventory/hosts.yml": json.dumps(document)})
-    if vault is not None:
-        password, mapping = vault
-        staging = Path(root) / "vault-staging"
-        (staging / "group_vars/all").mkdir(parents=True)
-        write_vaulted(staging / "group_vars/all/vault.yml", mapping, password)
-        repo.commit({"inventory/group_vars/all/vault.yml": (staging / "group_vars/all/vault.yml").read_text()})
-    for key, value in (
-        ("inventory.repo_url", repo.url),
-        ("inventory.ref", ref),
-        ("inventory.path", "inventory"),
-        ("inventory.webserver_var", "webserver_type"),
-    ):
-        set_setting(factory, key, value)
-    return repo
+        repo = make_bare_repo(root / "inventory.git", {"inventory/hosts.yml": json.dumps(document)})
+        if vault is not None:
+            password, mapping = vault
+            staging = root / "vault-staging"
+            (staging / "group_vars/all").mkdir(parents=True)
+            write_vaulted(staging / "group_vars/all/vault.yml", mapping, password)
+            repo.commit({"inventory/group_vars/all/vault.yml": (staging / "group_vars/all/vault.yml").read_text()})
+        for key, value in (
+            ("inventory.repo_url", repo.url),
+            ("inventory.ref", ref),
+            ("inventory.path", "inventory"),
+            ("inventory.webserver_var", "webserver_type"),
+        ):
+            set_setting(factory, key, value)
+        return repo
+
+    return build
