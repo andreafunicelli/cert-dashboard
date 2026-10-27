@@ -366,6 +366,7 @@ def refresh_checkout(
     With ``pull`` true the full fetch, reset, clean, marker sequence runs regardless of the 60 s interval.
     """
     last, finding = _inspect(checkout, env)
+    failure: JobFailure | None = None
     if finding is not None:
         failure = _report(finding, on_inconsistent)
         if not pull:
@@ -380,10 +381,16 @@ def refresh_checkout(
         return last
     if last is not None and timedelta(0) <= now - last.pulled_at < PULL_MIN_INTERVAL:
         return last
-    pulled = _pull(remote, ref, checkout, env, now, last)
+    try:
+        pulled = _pull(remote, ref, checkout, env, now, last)
+    except JobFailure:
+        if failure is not None:
+            # A repair that fails past the reset is still the detected inconsistency, never a plain network error.
+            raise failure from None
+        raise
     if pulled is not None:
         return pulled
-    if finding is not None:
+    if failure is not None:
         raise failure
     if last is None:
         raise JobFailure("transient_network", "inventory pull failed and no checkout is available", retryable=True)

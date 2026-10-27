@@ -119,6 +119,32 @@ def test_a_failed_heal_never_falls_back_to_the_untrusted_checkout(tmp_path, now,
     assert (failure.value.error_class, failure.value.message) == ("inventory_inconsistent", INCONSISTENT)
 
 
+def test_a_heal_that_fails_after_the_reset_is_still_reported_as_inconsistent(tmp_path, now, monkeypatch):
+    from app.services import inventory
+
+    remote, checkout, env, _first, _second = crashed_between_reset_and_marker(tmp_path, now, monkeypatch)
+    real = inventory._git
+
+    def failing_clean(checkout_dir, child_env, *args):
+        if args and args[0] == "clean":
+            raise inventory._GitFailed
+        return real(checkout_dir, child_env, *args)
+
+    findings = []
+    monkeypatch.setattr(inventory, "_git", failing_clean)
+    with pytest.raises(JobFailure) as failure:
+        refresh_checkout(
+            remote.url, "main", checkout, env=env, now=now + timedelta(hours=2), on_inconsistent=findings.append
+        )
+    assert (failure.value.error_class, failure.value.message, failure.value.retryable) == (
+        "inventory_inconsistent",
+        INCONSISTENT,
+        True,
+    )
+    assert len(findings) == 1
+    assert not (checkout / MARKER).exists()
+
+
 @pytest.mark.parametrize(
     ("damage", "reason"),
     [("missing", "marker_missing"), ("corrupt", "marker_corrupt"), ("not a sha", "marker_corrupt")],
