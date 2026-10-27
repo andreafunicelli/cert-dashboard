@@ -134,11 +134,15 @@ def test_environment_is_explicit(tmp_path, monkeypatch):
         "ANSIBLE_PYTHON_INTERPRETER",
         "ANSIBLE_DEPRECATION_WARNINGS",
         "ANSIBLE_COLLECTIONS_PATH",
+        "ANSIBLE_SSH_CONTROL_PATH_DIR",
     }
     assert set(env) == common
     assert env["PATH"].split(os.pathsep)[0] == str(Path(sys.executable).parent)
     assert Path(env["HOME"]).parent == run_dir and Path(env["ANSIBLE_LOCAL_TEMP"]).parent == run_dir
     assert Path(env["ANSIBLE_COLLECTIONS_PATH"]).parent == run_dir
+    # ssh appends 17 random characters to the multiplexing socket path while it listens, and a Unix socket path
+    # holds at most 107: the control directory must stay short even under a deep run directory (no `home/.ansible`).
+    assert Path(env["ANSIBLE_SSH_CONTROL_PATH_DIR"]).parent == run_dir and len(Path(env["ANSIBLE_SSH_CONTROL_PATH_DIR"]).name) <= 3
     assert env["ANSIBLE_HOST_KEY_CHECKING"] == "True"
     assert env["ANSIBLE_PRIVATE_KEY_FILE"] == str(base.ssh_key)
     ssh_args = env["ANSIBLE_SSH_ARGS"]
