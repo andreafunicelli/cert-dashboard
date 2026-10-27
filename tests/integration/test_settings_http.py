@@ -433,9 +433,20 @@ def test_smtp_tab_explains_password_and_enables_test_send(signed_in, web_factory
     assert "unsafe: TLS certificate verification disabled" in signed_in.get("/settings?tab=smtp").text
 
 
-def test_inventory_tab_disables_test_pull(signed_in):
+def test_inventory_tab_gates_test_pull_on_the_inventory_and_the_worker(signed_in, web_factory):
+    from tests.integration.conftest import set_setting
+
     page = signed_in.get("/settings?tab=inventory").text
-    assert "Test pull" in page and "handler discover/default not registered (Plan 3)" in page
+    # discover/test_pull is registered (Plan 3 Task 5): the only reason left is the missing repository.
+    assert "Test pull" in page and "No inventory repository is configured" in page
+    assert "discover/test_pull not registered" not in page and 'action="/settings/inventory/test-pull"' not in page
+    set_setting(web_factory, "inventory.repo_url", "https://git.example.test/inventory.git")
+    try:
+        page = signed_in.get("/settings?tab=inventory").text
+        assert 'action="/settings/inventory/test-pull"' in page and "No inventory repository" not in page
+        assert "No test pull has run yet." in page
+    finally:
+        set_setting(web_factory, "inventory.repo_url", "")
 
 
 # --- HTTP: posts -----------------------------------------------------------------------------------

@@ -456,6 +456,36 @@ def make_worker(tmp_path, clock):
 
 
 @pytest.fixture
+def ansible_worker(tmp_path, make_worker):
+    """``ansible_worker(factory, **overrides)``: ``make_worker`` with an SSH key and the Ansible directories.
+
+    The key is a real, freshly generated ed25519 key in OpenSSH format (never a secret anywhere else),
+    ``known_hosts_file`` an existing file, and ``inventory_root`` / ``key_staging_dir`` private temporary
+    directories. Tests that really connect to the SSH targets override ``ansible_ssh_key`` and
+    ``known_hosts_file`` with the ``ssh_targets`` values.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    key = Ed25519PrivateKey.generate().private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH, serialization.NoEncryption()
+    )
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("")
+
+    def build(factory, **overrides):
+        values = {
+            "ansible_ssh_key": key,
+            "known_hosts_file": known_hosts,
+            "inventory_root": tmp_path / "inventory",
+            "key_staging_dir": tmp_path / "keys",
+        }
+        return make_worker(factory, **(values | overrides))
+
+    return build
+
+
+@pytest.fixture
 def worker_harness(web_factory, make_worker):
     """A worker bound to the same database and clock as the ``client`` fixture."""
     from app.models import WorkerHeartbeat

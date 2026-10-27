@@ -38,6 +38,8 @@ back to the tab; refusals are 422 and change nothing)::
     maintenance  POST /settings/maintenance/prune              confirm=PRUNE OLD JOBS (enqueue cleanup)
     smtp         POST /settings/smtp/test                      (no fields)         (enqueue alert_expiry/smtp_test)
                  GET  /settings/smtp/test/{job_id}             htmx fragment: the test job's outcome
+    inventory    POST /settings/inventory/test-pull            (no fields)         (enqueue discover/test_pull)
+                 GET  /settings/inventory/test-pull/{job_id}   htmx fragment: the test pull's outcome
 """
 
 import re
@@ -57,10 +59,12 @@ from starlette.datastructures import FormData, UploadFile
 from app.crypto.parse import MAX_INPUT_BYTES
 from app.jobs.handlers import build_registry
 from app.jobs.handlers.smtp_test import SMTP_TEST_ACTION
+from app.jobs.handlers.test_pull import TEST_PULL_ACTION
 from app.jobs.handlers.trust_recheck import TRUST_RECHECK_ACTION
 from app.jobs.queue import enqueue
+from app.jobs.worker import worker_capabilities
 from app.models import Certificate, Job, JSONValue, TrustAnchor, User
-from app.models.enums import JobType
+from app.models.enums import JobStatus, JobType
 from app.services.audit import record
 from app.services.notifications import MAX_NOTIFICATION_ATTEMPTS
 from app.services.scans import ON_DEMAND_PRIORITY
@@ -268,7 +272,7 @@ def _capabilities() -> dict[str, str]:
     registry = build_registry()
     reasons = {
         "test_email": unsupported_reason(registry, "Plan 2", (JobType.ALERT_EXPIRY, SMTP_TEST_ACTION)),
-        "test_pull": unsupported_reason(registry, "Plan 3", (JobType.DISCOVER, "default")),
+        "test_pull": unsupported_reason(registry, "Plan 3", (JobType.DISCOVER, TEST_PULL_ACTION)),
         "trust_recheck": unsupported_reason(registry, "Plan 2", (JobType.SCAN, TRUST_RECHECK_ACTION)),
     }
     return {key: reason for key, reason in reasons.items() if reason}
@@ -283,6 +287,112 @@ _WARNINGS = {
     "missing_key_versions": "Stored key material refers to master-key versions that are not in the keyring.",
     "worker_stale": "The worker has not sent a heartbeat for more than 5 minutes.",
 }
+
+
+_NO_INVENTORY = "No inventory repository is configured: set the repository URL first."
+_NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+_REVISION = re.compile(r"[0-9a-f]{40}")
+
+
+def _iso(value: object) -> str | None:
+    """``value`` when it is a timezone-aware ISO 8601 string (as the worker writes it), else None."""
+    if not isinstance(value, str):
+        return None
+    try:
+        return value if datetime.fromisoformat(value).tzinfo is not None else None
+    except ValueError:
+        return None
+
+
+def _revision_of(result: object) -> tuple[str, str | None] | None:
+    """``(inventory_rev, inventory_rev_date)`` from a job result, or None unless the SHA is well formed."""
+    if not isinstance(result, dict):
+        return None
+    rev = result.get("inventory_rev")
+    if not isinstance(rev, str) or not _REVISION.fullmatch(rev):
+        return None
+    return rev, _iso(result.get("inventory_rev_date"))
+
+
+def _count(value: object) -> int | None:
+    return value if type(value) is int and value >= 0 else None
+
+
+def _test_pull_jobs():
+    """Every ``discover/test_pull`` job (the payload's action tells it from a discovery)."""
+    return select(Job).where(Job.type == JobType.DISCOVER, Job.payload["action"].as_string() == TEST_PULL_ACTION)
+
+
+def _test_pull_view(job: Job) -> dict[str, JSONValue]:
+    """A test pull as plain values: only the fields the handler writes, re-checked for shape."""
+    result = job.result if isinstance(job.result, dict) else {}
+    revision = _revision_of(result) if job.status == JobStatus.SUCCEEDED else None
+    warning = result.get("inventory_warning")
+    outcome: dict[str, JSONValue] | None = None
+    if revision is not None:
+        outcome = {
+            "rev": revision[0],
+            "rev_date": revision[1],
+            "refreshed": result.get("inventory_refreshed") is True,
+            "warning": warning[:200] if isinstance(warning, str) else None,
+            "hosts": _count(result.get("hosts")),
+            "groups": _count(result.get("groups")),
+        }
+    return {
+        "job_id": str(job.id),
+        "status": getattr(job.status, "value", job.status),
+        "requested_at": job.created_at.isoformat(),
+        "finished_at": job.finished_at.isoformat() if job.finished_at is not None else None,
+        "result": outcome,
+        "error_class": job.error_class,
+        "error_message": job.error_message,
+    }
+
+
+def inventory_status(db: Session, now: datetime) -> dict[str, JSONValue]:
+    """What the Inventory tab shows, from the database alone (the web process never reads the checkout).
+
+    ``current_*`` is the newest *succeeded* discover or deploy result (a test pull is a discover job), with
+    ``None`` when there is none: the revision is never guessed. ``last_test`` is the newest test pull of any
+    status. ``worker`` is the newest live worker's startup report (spec 9.2), ``reporting=False`` when no
+    worker with a fresh heartbeat has reported one.
+    """
+    newest = db.execute(
+        select(Job.result, Job.finished_at)
+        .where(
+            Job.type.in_((JobType.DISCOVER, JobType.DEPLOY)),
+            Job.status == JobStatus.SUCCEEDED,
+            Job.result["inventory_rev"].as_string().is_not(None),
+        )
+        .order_by(Job.finished_at.desc().nulls_last(), Job.id.desc())
+        .limit(1)
+    ).first()
+    revision = _revision_of(newest[0]) if newest is not None else None
+    finished = newest[1] if newest is not None else None
+    last = db.scalars(_test_pull_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1)).first()
+    capabilities = worker_capabilities(db, now)
+    return {
+        "configured": bool(get_setting(db, "inventory.repo_url")),
+        "current_rev": revision[0] if revision else None,
+        "current_rev_date": revision[1] if revision else None,
+        "current_at": finished.isoformat() if revision and finished else None,
+        "last_test": None if last is None else _test_pull_view(last),
+        "worker": {
+            "reporting": capabilities is not None,
+            "ssh_key_present": capabilities.ssh_key_present if capabilities else None,
+            "known_hosts_present": capabilities.known_hosts_present if capabilities else None,
+        },
+    }
+
+
+def _test_pull_reason(status: Mapping[str, JSONValue]) -> str:
+    """Why "Test pull" cannot work right now, or "" (an unreported worker is a hint, not a reason)."""
+    worker = status["worker"]
+    if not status["configured"]:
+        return _NO_INVENTORY
+    if isinstance(worker, dict) and worker["reporting"] and not worker["ssh_key_present"]:
+        return _NO_SSH_KEY
+    return ""
 
 
 def _human_bytes(size: int) -> str:
@@ -369,6 +479,11 @@ def _page(
             context["tls_unsafe"] = tab == "smtp" and get_setting(db, "smtp.tls_verify") is False
             if tab == "smtp":
                 context.update(smtp_test=latest_smtp_test(db), timezone=display_timezone(db), when=_when)
+            if tab == "inventory":
+                inv = inventory_status(db, request.app.state.clock())
+                context.update(inventory=inv, test_pull=inv["last_test"], timezone=display_timezone(db), when=_when)
+                if not context["disabled"].get("test_pull") and (reason := _test_pull_reason(inv)):
+                    context["disabled"]["test_pull"] = reason
             if tab == "alerts":
                 context.update(
                     failures=notification_failures(db),
@@ -614,6 +729,37 @@ def _smtp_test_fragment(request: Request, job_id: UUID):
     return render_block(request, "settings.html.j2", "smtp_test_result", smtp_test=view, timezone=timezone, when=_when)
 
 
+def _handle_test_pull(request: Request, form: FormData):
+    """Queue the test pull; only the worker holds the Git token and the SSH key and touches the checkout."""
+    if not _only(form):
+        return _refused(request, "inventory", _UNRECOGNISED)
+
+    def work(db, now, actor):
+        # max_attempts=1: a test is never retried, so the outcome shown is the one real attempt.
+        enqueue(
+            db,
+            JobType.DISCOVER,
+            {"action": TEST_PULL_ACTION},
+            actor,
+            priority=ON_DEMAND_PRIORITY,
+            run_after=now,
+            max_attempts=1,
+        )
+
+    _transact(request, work)
+    return _done(request, "inventory", "Test pull queued; the worker runs it and the result appears below.")
+
+
+def _test_pull_fragment(request: Request, job_id: UUID):
+    with request.app.state.factory() as db:
+        job = db.scalars(_test_pull_jobs().where(Job.id == job_id)).first()
+        if job is None:
+            raise HTTPException(404)
+        view = _test_pull_view(job)
+        timezone = display_timezone(db)
+    return render_block(request, "settings.html.j2", "test_pull_result", test_pull=view, timezone=timezone, when=_when)
+
+
 async def _submit(request: Request, handler, *args, max_files: int = 0):
     form = await request.form(max_files=max_files, max_fields=20, max_part_size=MAX_INPUT_BYTES * 2)
     try:
@@ -660,6 +806,14 @@ def register_settings_routes(app: FastAPI) -> None:
     @app.get("/settings/smtp/test/{job_id}")
     def smtp_test_result(request: Request, job_id: UUID):
         return _smtp_test_fragment(request, job_id)
+
+    @app.post("/settings/inventory/test-pull")
+    async def test_pull_submit(request: Request):
+        return await _submit(request, _handle_test_pull)
+
+    @app.get("/settings/inventory/test-pull/{job_id}")
+    def test_pull_result(request: Request, job_id: UUID):
+        return _test_pull_fragment(request, job_id)
 
     @app.post("/settings/{tab}")
     async def settings_submit(request: Request, tab: str):

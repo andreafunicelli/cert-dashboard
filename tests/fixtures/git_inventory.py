@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 
 _COMMIT_DATE = "2026-10-19T12:00:00+00:00"
@@ -55,7 +56,8 @@ class InventoryRepo:
 
     @property
     def head_date(self) -> str:
-        return self._git("log", "-1", "--format=%cI", "HEAD", cwd=self.path)
+        """The commit date of ``head`` as ISO 8601 UTC with an explicit offset (git >= 2.45 prints ``Z``)."""
+        return datetime.fromisoformat(self._git("log", "-1", "--format=%cI", "HEAD", cwd=self.path)).astimezone(UTC).isoformat()
 
     def commit(self, files: dict[str, str], *, branch: str = "main") -> str:
         """Write ``files`` (path -> text; ``None`` is not supported) on ``branch`` and push; returns the SHA."""

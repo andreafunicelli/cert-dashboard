@@ -153,7 +153,7 @@ def _resolve_playbook(name: str) -> Path:
     return path
 
 
-def _prepare_dirs(run_dir: Path) -> None:
+def prepare_run_dir(run_dir: Path) -> None:
     run_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
     os.chmod(run_dir, 0o700)
     for name in ("home", "tmp", "collections", "cp"):
@@ -261,7 +261,7 @@ def run_playbook(context: RunnerContext, run: AnsibleRun, *, ident: str) -> RunO
 
     playbook = _resolve_playbook(run.playbook)
     run_dir = context.run_dir
-    _prepare_dirs(run_dir)
+    prepare_run_dir(run_dir)
     env = build_env(context.secrets, run_dir)
     collector = _Collector()
     artifact_root = run_dir / "artifacts"
