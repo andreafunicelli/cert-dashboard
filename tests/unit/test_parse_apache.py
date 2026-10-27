@@ -544,6 +544,56 @@ def test_d3_d_key_inline_and_certificate_included():
     assert (binding.cert_paths, binding.key_paths) == ((f"{ROOT}/ssl/www.crt",), (f"{ROOT}/ssl/www.key",))
 
 
+def test_certificates_split_between_inline_and_included_files_keep_their_source_files():
+    files = config(
+        (f"{ROOT}/apache2.conf", "ServerRoot /etc/apache2\n"),
+        (
+            WWW,
+            vhost(
+                "    SSLCertificateFile ssl/rsa.crt",
+                "    SSLCertificateKeyFile ssl/rsa.key",
+                "    Include tls.d/ecdsa.conf",
+            ),
+        ),
+        (f"{ROOT}/tls.d/ecdsa.conf", "SSLCertificateFile ssl/ecdsa.crt\nSSLCertificateKeyFile ssl/ecdsa.key\n"),
+    )
+    binding = only(parse_apache(ApacheDump(WWW_S, files)))
+    assert binding.cert_paths == (f"{ROOT}/ssl/rsa.crt", f"{ROOT}/ssl/ecdsa.crt")
+    assert binding.key_paths == (f"{ROOT}/ssl/rsa.key", f"{ROOT}/ssl/ecdsa.key")
+    assert binding.cert_files == (WWW, f"{ROOT}/tls.d/ecdsa.conf")
+    assert binding.config_file == WWW
+
+
+def test_certificates_split_between_included_and_inline_files_keep_their_source_files():
+    files = config(
+        (f"{ROOT}/apache2.conf", "ServerRoot /etc/apache2\n"),
+        (
+            WWW,
+            vhost(
+                "    Include tls.d/rsa.conf",
+                "    SSLCertificateFile ssl/ecdsa.crt",
+                "    SSLCertificateKeyFile ssl/ecdsa.key",
+            ),
+        ),
+        (f"{ROOT}/tls.d/rsa.conf", "SSLCertificateFile ssl/rsa.crt\nSSLCertificateKeyFile ssl/rsa.key\n"),
+    )
+    binding = only(parse_apache(ApacheDump(WWW_S, files)))
+    assert binding.cert_paths == (f"{ROOT}/ssl/rsa.crt", f"{ROOT}/ssl/ecdsa.crt")
+    assert binding.cert_files == (f"{ROOT}/tls.d/rsa.conf", WWW)
+    assert binding.config_file == f"{ROOT}/tls.d/rsa.conf"
+
+
+def test_default_binding_certificates_keep_their_source_files():
+    files = config(
+        (f"{ROOT}/apache2.conf", "ServerRoot /etc/apache2\nListen 443 https\nInclude tls/rsa.conf\nInclude tls/ecdsa.conf\n"),
+        (f"{ROOT}/tls/rsa.conf", "SSLEngine on\nSSLCertificateFile ssl/rsa.crt\nSSLCertificateKeyFile ssl/rsa.key\n"),
+        (f"{ROOT}/tls/ecdsa.conf", "SSLCertificateFile ssl/ecdsa.crt\nSSLCertificateKeyFile ssl/ecdsa.key\n"),
+    )
+    binding = only(parse_apache(ApacheDump("", files)))
+    assert binding.vhost_name == "default"
+    assert binding.cert_files == (f"{ROOT}/tls/rsa.conf", f"{ROOT}/tls/ecdsa.conf")
+
+
 def test_a_snippet_listed_before_its_includer_is_still_not_a_global_directive():
     files = config(
         (f"{ROOT}/apache2.conf", "ServerRoot /etc/apache2\n"),

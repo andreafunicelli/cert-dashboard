@@ -541,6 +541,7 @@ class _Parser:
             tuple(_path(d) for d in certs),
             tuple(_path(d) for d in keys),
             _path(chain_nodes[0]) if chain_nodes else None,
+            tuple(d.file for d in certs),
         )
 
 

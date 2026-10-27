@@ -32,6 +32,10 @@ class ParsedBinding:
     cert_paths: tuple[str, ...]
     key_paths: tuple[str, ...]
     chain_path: str | None
+    # Optional provenance, positional with ``cert_paths``: the configuration file holding each certificate
+    # directive (Apache vhosts can mix inline and included directives). Empty when the parser does not
+    # report it; ``config_file`` is the file of the first certificate directive.
+    cert_files: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

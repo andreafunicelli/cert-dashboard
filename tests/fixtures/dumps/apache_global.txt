@@ -16,4 +16,3 @@ Include conf.d/*.conf
     ServerName www.example.com
     SSLEngine on
 </VirtualHost>
-

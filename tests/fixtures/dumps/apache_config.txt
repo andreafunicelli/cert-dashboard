@@ -27,4 +27,3 @@ IncludeOptional sites-enabled/*.conf
     SSLEngine off
     Redirect permanent / https://www.example.com/
 </VirtualHost>
-
