@@ -10,6 +10,7 @@ tokenizer pass per file plus a block stack; no regular expression ever runs over
 from __future__ import annotations
 
 import posixpath
+from bisect import bisect_left
 from dataclasses import dataclass, field
 from fnmatch import fnmatchcase
 
@@ -135,6 +136,45 @@ def _tokenize(text: str, path: str) -> list[tuple[str, str]]:
     return tokens
 
 
+class _PathTrie:
+    """Dumped file paths indexed by path segment, so a glob only visits the directories it names.
+
+    A wildcard segment narrows its directory to the names sharing the segment's literal prefix
+    (binary search), so patterns that match nothing cost O(log n) instead of a scan of every file.
+    """
+
+    def __init__(self) -> None:
+        self.children: dict[str, _PathTrie] = {}
+        self.path: str | None = None
+        self._names: list[str] | None = None
+
+    def add(self, path: str) -> None:
+        node = self
+        for segment in path.split("/"):
+            node = node.children.setdefault(segment, _PathTrie())
+        node.path = path
+
+    def match(self, parts: list[str]) -> list[str]:
+        if not parts:
+            return [self.path] if self.path is not None else []
+        head, rest = parts[0], parts[1:]
+        wild = [head.index(c) for c in "*?[" if c in head]
+        if not wild:
+            child = self.children.get(head)
+            return child.match(rest) if child else []
+        if self._names is None:
+            self._names = sorted(self.children)
+        prefix = head[: min(wild)]
+        found: list[str] = []
+        for i in range(bisect_left(self._names, prefix), len(self._names)):
+            name = self._names[i]
+            if not name.startswith(prefix):
+                break
+            if fnmatchcase(name, head):
+                found.extend(self.children[name].match(rest))
+        return found
+
+
 class _Parser:
     def __init__(self, files: dict[str, str], prefix: str) -> None:
         self.files = files
@@ -144,7 +184,9 @@ class _Parser:
         self._stack: list[str] = []
         self._reached: set[str] = set()
         self._expansions = 0
-        self._segments = {path: path.split("/") for path in files}
+        self._trie = _PathTrie()
+        for path in files:
+            self._trie.add(path)
 
     def run(self) -> ParseResult:
         main = next(iter(self.files))
@@ -240,13 +282,7 @@ class _Parser:
 
     def _glob(self, pattern: str) -> list[str]:
         """Dumped files matching *pattern* segment by segment (``*`` never crosses ``/``), sorted."""
-        parts = pattern.split("/")
-        return sorted(
-            path
-            for path, segments in self._segments.items()
-            if len(segments) == len(parts)
-            and all(fnmatchcase(seg, pat) for seg, pat in zip(segments, parts, strict=True))
-        )
+        return sorted(self._trie.match(pattern.split("/")))
 
     # -- semantics -------------------------------------------------------------------------------
 

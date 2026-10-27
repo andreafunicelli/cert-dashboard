@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from app.ansible import parse_nginx as parse_nginx_module
 from app.ansible.parse_nginx import parse_nginx
 from app.ansible.parsed import ParseError, ParseResult
 from app.models.enums import WebserverType
@@ -382,3 +383,41 @@ def test_large_dumps_parse_in_linear_time():
     )
     result = parse_nginx(dump(("/etc/nginx/nginx.conf", "events {}\nhttp {\n" + servers + "\n}")))
     assert len(result.bindings) == 5000
+
+
+def _count_fnmatch(monkeypatch):
+    calls = []
+    real = parse_nginx_module.fnmatchcase
+
+    def counting(name, pat):
+        calls.append(name)
+        return real(name, pat)
+
+    monkeypatch.setattr(parse_nginx_module, "fnmatchcase", counting)
+    return calls
+
+
+def test_unmatched_glob_includes_do_not_rescan_every_dumped_file(monkeypatch):
+    n = 1500
+    includes = "\n".join(f"include conf.d/x{i}-*.conf;" for i in range(n))
+    files = [("/etc/nginx/nginx.conf", "events {}\nhttp {\n" + includes + "\n}")]
+    files += [(f"/etc/nginx/conf.d/f{i}.conf", "") for i in range(n)]
+    calls = _count_fnmatch(monkeypatch)
+    result = parse_nginx(dump(*files))
+    assert len(calls) < 10 * n  # a full rescan per glob would be n * n = 2.25M comparisons
+    assert result.bindings == ()
+    assert not any("include" in w for w in result.warnings)  # unmatched globs stay silent
+
+
+def test_glob_expansion_stays_sorted_and_scoped_to_the_matching_prefix(monkeypatch):
+    files = [
+        ("/etc/nginx/nginx.conf", "events {}\nhttp {\ninclude conf.d/b*.conf;\n}"),
+        ("/etc/nginx/conf.d/b2.conf", "server { listen 443 ssl; server_name two.example.com; " + CERT_KEY + " }"),
+        ("/etc/nginx/conf.d/a1.conf", "server { listen 443 ssl; server_name other.example.com; " + CERT_KEY + " }"),
+        ("/etc/nginx/conf.d/b1.conf", "server { listen 8443 ssl; server_name one.example.com; " + CERT_KEY + " }"),
+        ("/etc/nginx/conf.d/c1.conf", "server { listen 443 ssl; server_name three.example.com; " + CERT_KEY + " }"),
+    ]
+    calls = _count_fnmatch(monkeypatch)
+    result = parse_nginx(dump(*files))
+    assert [b.vhost_name for b in result.bindings] == ["one.example.com", "two.example.com"]
+    assert sorted(calls) == ["b1.conf", "b2.conf"]
