@@ -1261,6 +1261,38 @@ def compose_targets(tmp_path_factory):
     targets.down()
 
 
+# --- SSH-enabled nginx/Apache targets (Plan 3 Task 3) -----------------------------------------
+
+
+@pytest.fixture(scope="session")
+def ssh_targets(tmp_path_factory, ca):
+    """The ``ssh-targets`` compose profile: three real sshd + webserver containers with pinned host keys."""
+    from tests.fixtures.ssh_targets import TargetStack
+
+    stack = TargetStack(tmp_path_factory.mktemp("ssh-targets"), ca)
+    stack.up()
+    yield stack
+    stack.down()
+
+
+@pytest.fixture
+def fresh_targets(ssh_targets):
+    """``ssh_targets`` with all three reset to their initial state; request it in any test that reads or mutates them."""
+    ssh_targets.reset_all()
+    return ssh_targets
+
+
+@pytest.fixture
+def runner_secrets(tmp_path, ssh_targets):
+    """The test ``ansible_ssh_key`` (a 0600 file) and the pinned ``known_hosts`` for the SSH targets."""
+    from app.ansible.runner import RunnerSecrets
+
+    key = tmp_path / "ansible_ssh_key"
+    key.write_bytes(ssh_targets.client_key)
+    key.chmod(0o600)
+    return RunnerSecrets(key, ssh_targets.known_hosts)
+
+
 # --- job control helpers (Plan 3 Task 1) -------------------------------------------------------
 
 

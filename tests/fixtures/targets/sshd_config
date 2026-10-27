@@ -1,0 +1,14 @@
+# Test-only sshd for the SSH-enabled targets: key-only, no root login, host key and authorized key from /fixture.
+Port 22
+HostKey /etc/ssh/ssh_host_ed25519_key
+AuthorizedKeysFile /etc/ssh/authorized_keys/%u
+AllowUsers cdeploy
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+PubkeyAuthentication yes
+UsePAM no
+StrictModes yes
+X11Forwarding no
+PrintMotd no
+Subsystem sftp /usr/lib/openssh/sftp-server

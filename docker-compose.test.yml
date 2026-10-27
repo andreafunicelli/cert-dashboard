@@ -1,4 +1,17 @@
 name: cert-dashboard-test
+
+# Shared shape of the SSH-enabled targets (profile ssh-targets): init process, dedicated bridge network, no secrets,
+# no extra privileges. Each service adds its image, vhost set, ports and fixture bind.
+x-ssh-target: &ssh-target
+  profiles: [ssh-targets]
+  init: true
+  networks: [ssh-targets]
+x-ssh-target-health: &ssh-target-health
+  interval: 2s
+  timeout: 5s
+  retries: 30
+  start_period: 5s
+
 services:
   db:
     image: postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4
@@ -83,6 +96,57 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  # SSH-enabled nginx/Apache targets for the discovery and deployment tests (Plan 3): real sshd, real webserver,
+  # built by a CI setup step (`build ssh-nginx-1 ssh-apache`) and started with --no-build --pull never.
+  ssh-nginx-1:
+    <<: *ssh-target
+    image: cert-dashboard-target:nginx
+    build:
+      context: ./tests/fixtures/targets
+      args:
+        WEBSERVER: nginx
+    environment:
+      TARGET_CONFIG: nginx/one
+      TARGET_TLS_PORT: "18443"
+    volumes:
+      - ${SSH_TARGET_DIR:-./secrets/test/ssh-targets}/ssh-nginx-1:/fixture:ro
+    ports: ["127.0.0.1::22", "127.0.0.1:18443:18443"]
+    healthcheck:
+      <<: *ssh-target-health
+      test: [CMD-SHELL, "pgrep -x sshd >/dev/null && pgrep -x nginx >/dev/null"]
+  ssh-nginx-2:
+    <<: *ssh-target
+    image: cert-dashboard-target:nginx
+    environment:
+      TARGET_CONFIG: nginx/two
+      TARGET_TLS_PORT: "18444"
+    volumes:
+      - ${SSH_TARGET_DIR:-./secrets/test/ssh-targets}/ssh-nginx-2:/fixture:ro
+    ports: ["127.0.0.1::22", "127.0.0.1:18444:18444"]
+    healthcheck:
+      <<: *ssh-target-health
+      test: [CMD-SHELL, "pgrep -x sshd >/dev/null && pgrep -x nginx >/dev/null"]
+  ssh-apache:
+    <<: *ssh-target
+    image: cert-dashboard-target:apache
+    build:
+      context: ./tests/fixtures/targets
+      args:
+        WEBSERVER: apache
+    environment:
+      TARGET_CONFIG: apache
+      TARGET_TLS_PORT: "18445"
+    volumes:
+      - ${SSH_TARGET_DIR:-./secrets/test/ssh-targets}/ssh-apache:/fixture:ro
+    ports: ["127.0.0.1::22", "127.0.0.1:18445:18445"]
+    healthcheck:
+      <<: *ssh-target-health
+      test: [CMD-SHELL, "pgrep -x sshd >/dev/null && pgrep -x apache2 >/dev/null"]
+
+networks:
+  ssh-targets:
+    driver: bridge
 
 secrets:
   master_key:
