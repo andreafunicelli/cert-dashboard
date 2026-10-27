@@ -366,9 +366,10 @@ and `smtp_not_configured` rows are recorded for Settings and the digest but are 
 **Digest** (`digest/default`, schedule key `digest`, 07:30 UTC, `alert.digest_enabled`, priority 50).
 "Since the last digest" is the `sent_at` of the newest sent digest row, or 24 hours before now when no
 digest has ever been sent; *new* is decided against the state at that cutoff, not by looking only at
-rows inside the window. Sections, each rendered only when non-empty: expiring within 7 days; already
-expired; new TLS mismatches (with the current mismatch count); unknown certificates found by discovery;
-servers whose last discovery failed, never ran or is older than 48 h; jobs failed in the last 24 hours;
+rows inside the window. Each section gets a heading only when it has content or a count: expiring within
+7 days; already expired; new TLS mismatches (with the current mismatch count, so the heading appears
+even when nothing is new); unknown certificates found by discovery; servers whose last discovery
+failed, never ran or is older than 48 h; jobs failed in the last 24 hours;
 rolled-back hosts in the last 24 hours (a failed rollback says "needs manual attention"); failed
 notifications in the last 24 hours. Every list is capped at `DIGEST_LIST_LIMIT` (50) and says
 "showing 50 of 55"; totals are never capped. The mail always states the inventory revision — "none

@@ -20,7 +20,7 @@ endpoints with classified results and history, the daily background trust rechec
 alerts and a daily digest over SMTP, the renewal wizard up to issued, audited downloads,
 audit browser, users/MFA, typed settings, the job queue, the worker and its scheduler, and the
 Scans, Servers, Bindings and Overview screens. Every control owned by Plan 3 — discovery,
-deployment, the inventory revision and *Test pull* — renders disabled together with the reason.
+deployment and *Test pull* — renders disabled together with the reason.
 
 ## Architecture
 
