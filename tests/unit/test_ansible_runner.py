@@ -444,3 +444,22 @@ def test_dockerfile_copies_the_helpers_with_an_explicit_executable_bit():
     copies = [line for line in lines if line.startswith("COPY") and "--chmod=0755" in line]
     for helper in ("vault_client.py", "git_askpass.py"):
         assert any(f"app/ansible/{helper}" in line for line in copies), helper
+
+
+def test_local_probe_hosts_keep_their_remote_tmp_inside_the_run(tmp_path):
+    # ansible-core expands "~" for the remote temp directory from the passwd entry of the user, not
+    # from $HOME; the service user's real home is absent or read-only in the image.
+    playbook = write_playbook(
+        tmp_path / "home.yml",
+        "    - ansible.builtin.set_stats:\n"
+        "        data: >-\n"
+        "          {{ {'cert_dashboard': {inventory_hostname: {'tmp': ansible_remote_tmp}}} }}\n"
+        "    - ansible.builtin.command: 'true'\n",
+    )
+    outcome = run_playbook(
+        make_context(tmp_path, plain_secrets(tmp_path)),
+        AnsibleRun(str(playbook), "localhost", {}, 60),
+        ident="home",
+    )
+    assert outcome.status == "successful", outcome.log_excerpt
+    assert outcome.hosts["localhost"].data == {"tmp": str(tmp_path / "run" / "home" / ".ansible" / "tmp")}
