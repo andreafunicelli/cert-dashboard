@@ -44,6 +44,7 @@ class Settings(DatabaseSettings):
     key_staging_dir: Path = Path("/run/cert-keys")
     trusted_proxies: tuple[str, ...] = ()
     dashboard_url: str | None = None
+    known_hosts_file: Path = Path("/etc/ssh/ssh_known_hosts")
 
     def __post_init__(self) -> None:
         try:
@@ -117,6 +118,16 @@ def _dashboard_url(environ: Mapping[str, str]) -> str | None:
     return value
 
 
+def _known_hosts_file(environ: Mapping[str, str]) -> Path:
+    """Optional absolute path of the SSH known_hosts file; never echoes the rejected value."""
+    value = environ.get("SSH_KNOWN_HOSTS", "").strip()
+    if not value:
+        return Path("/etc/ssh/ssh_known_hosts")
+    if not value.startswith("/") or "\x00" in value:
+        raise ConfigurationError("SSH_KNOWN_HOSTS: expected an absolute file path")
+    return Path(value)
+
+
 def load_settings(
     profile: Literal["web", "worker", "cli"],
     environ: Mapping[str, str],
@@ -166,6 +177,7 @@ def load_settings(
             value.strip() for value in environ.get("TRUSTED_PROXIES", "").split(",") if value.strip()
         ),
         dashboard_url=_dashboard_url(environ) if profile == "worker" else None,
+        known_hosts_file=_known_hosts_file(environ),
     )
 
 

@@ -32,17 +32,22 @@ from app.db import assert_database_ready, create_session_factory
 from app.jobs.queue import (
     RETRY_POLICY,
     SYSTEM_ACTOR,
+    JobCancelled,
+    JobControl,
     JobFailure,
+    JobPaused,
+    JobRequeued,
     StaleJobError,
     claim,
     enqueue,
     finish,
     reap,
+    release_claim,
     retry_due,
 )
-from app.models import AppSetting, Job, JSONValue, SchedulerState, WorkerHeartbeat
+from app.models import AppSetting, AuditLog, Job, JSONValue, SchedulerState, WorkerHeartbeat
 from app.models.enums import JobType
-from app.services.audit import SecretRedactionFilter
+from app.services.audit import Actor, SecretRedactionFilter, record
 from app.services.notifications import enqueue_notification_retry
 
 _LOG = logging.getLogger(__name__)
@@ -72,13 +77,15 @@ class JobContext:
 
 type JobHandler = Callable[[JobContext, Mapping[str, JSONValue]], Mapping[str, JSONValue]]
 type PayloadValidator = Callable[[Mapping[str, JSONValue]], dict[str, JSONValue]]
+# Runs inside the transaction that marks the job ``succeeded`` (so ``job.status`` is already final).
+SuccessHook = Callable[[Session, Job, datetime], None]
 
 
 class JobRegistry:
     """Capability map ``(JobType, action) -> (validator, handler)``; the web app only reads it."""
 
     def __init__(self) -> None:
-        self._entries: dict[tuple[JobType, str], tuple[PayloadValidator, JobHandler]] = {}
+        self._entries: dict[tuple[JobType, str], tuple[PayloadValidator, JobHandler, SuccessHook | None]] = {}
 
     def register(
         self,
@@ -87,11 +94,19 @@ class JobRegistry:
         *,
         action: str = "default",
         validator: PayloadValidator,
+        on_success: SuccessHook | None = None,
     ) -> None:
         key = (JobType(job_type), action)
         if key in self._entries:
             raise ValueError(f"handler already registered for {key[0].value}/{action}")
-        self._entries[key] = (validator, handler)
+        if on_success is not None and not callable(on_success):
+            raise TypeError("on_success must be callable")
+        self._entries[key] = (validator, handler, on_success)
+
+    def success_hook(self, job_type: JobType, action: str = "default") -> SuccessHook | None:
+        """The hook registered for ``(job_type, action)``, if any."""
+        entry = self._entries.get((JobType(job_type), action))
+        return entry[2] if entry is not None else None
 
     def supports(self, job_type: JobType, action: str = "default") -> bool:
         return (JobType(job_type), action) in self._entries
@@ -115,7 +130,7 @@ class JobRegistry:
         entry = self._entries.get((job_type, action))
         if entry is None:
             raise JobFailure("validation", _UNKNOWN_HANDLER)
-        validator, handler = entry
+        validator, handler, _ = entry
         try:
             clean = validator(payload)
         except Exception:  # noqa: BLE001 - any validator error is a sanitized validation failure
@@ -124,7 +139,7 @@ class JobRegistry:
             raise JobFailure("validation", _INVALID_PAYLOAD)
         try:
             return handler(context, clean)
-        except JobFailure:
+        except (JobFailure, JobControl):
             raise
         except KeyUnwrapError:
             raise JobFailure("key_unwrap", _KEY_UNWRAP) from None
@@ -349,6 +364,54 @@ def worker_liveness(db: Session, now: datetime) -> Literal["ok", "stale"]:
     if newest is None or newest < now - LIVENESS_WINDOW:
         return "stale"
     return "ok"
+
+
+# --- worker capabilities (spec 9.2) --------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class WorkerCapabilities:
+    """What the newest live worker holds, as the web process (which cannot see secrets) may know it."""
+
+    worker_id: str
+    ssh_key_present: bool
+    known_hosts_present: bool
+    vault_password_present: bool
+    inventory_token_present: bool
+
+
+def record_worker_start(factory: sessionmaker[Session], settings: Settings, worker_id: str, now: datetime) -> None:
+    """Write one ``worker.start`` audit row: the worker id and four presence booleans, never a value."""
+    details: dict[str, JSONValue] = {
+        "worker_id": worker_id,
+        "ssh_key_present": settings.ansible_ssh_key is not None,
+        "known_hosts_present": settings.known_hosts_file.is_file(),
+        "vault_password_present": settings.ansible_vault_password is not None,
+        "inventory_token_present": settings.inventory_git_token is not None,
+    }
+    with factory.begin() as db:
+        row = record(db, Actor(None, f"worker:{worker_id}"), "worker.start", "worker", worker_id, details)
+        row.created_at = now  # the injected clock, like the heartbeat it is matched against
+
+
+def worker_capabilities(db: Session, now: datetime) -> WorkerCapabilities | None:
+    """Capabilities from the newest ``worker.start`` row whose worker has a fresh heartbeat."""
+    row = db.execute(
+        select(AuditLog.details)
+        .join(WorkerHeartbeat, WorkerHeartbeat.worker_id == AuditLog.target_id)
+        .where(AuditLog.action == "worker.start", WorkerHeartbeat.last_seen_at >= now - LIVENESS_WINDOW)
+        .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return WorkerCapabilities(
+        worker_id=str(row["worker_id"]),
+        ssh_key_present=row.get("ssh_key_present") is True,
+        known_hosts_present=row.get("known_hosts_present") is True,
+        vault_password_present=row.get("vault_password_present") is True,
+        inventory_token_present=row.get("inventory_token_present") is True,
+    )
 
 
 # --- key staging wipe ---------------------------------------------------------------------------
@@ -663,6 +726,12 @@ class Worker:
                     raise StaleJobError(f"job {job_id} no longer exists")
                 db.expunge(job)
             result = self.registry.dispatch(context, job)
+        except JobControl as control:
+            try:
+                return self._settle_control(job_id, control)
+            except ValueError:
+                # The outcome's result is not JSON-native or looks secret; fail the job instead.
+                failure = JobFailure("internal", _INTERNAL)
         except JobFailure as exc:
             failure = exc
         except Exception as exc:  # noqa: BLE001 - classified as internal; text may carry secrets
@@ -682,12 +751,67 @@ class Worker:
             error_message=failure.message,
         )
 
-    def _finish(self, job_id: UUID, status: Literal["succeeded", "failed"], **details) -> str:
+    def _settle_control(self, job_id: UUID, control: JobControl) -> str:
+        """Map a handler's control outcome behind the same ownership fence as ``_finish``."""
+        if isinstance(control, JobCancelled):
+            return self._finish(job_id, "cancelled", result=control.result, error_message=control.message)
+        if isinstance(control, JobPaused):
+
+            def release(db: Session, now: datetime) -> None:
+                release_claim(
+                    db,
+                    job_id,
+                    self.worker_id,
+                    now,
+                    to="paused",
+                    resume_from_batch=control.resume_from_batch,
+                    result=control.result,
+                )
+
+            return self._commit_outcome(job_id, "paused", release)
+        if isinstance(control, JobRequeued):
+
+            def requeue(db: Session, now: datetime) -> None:
+                release_claim(db, job_id, self.worker_id, now, to="queued", run_after=control.run_after)
+
+            return self._commit_outcome(job_id, "queued", requeue)
+        _LOG.error("unknown job control outcome: %s", type(control).__name__)
+        return self._finish(job_id, "failed", error_class="internal", error_message=_INTERNAL)
+
+    def _finish(self, job_id: UUID, status: Literal["succeeded", "failed", "cancelled"], **details) -> str:
+        def apply(db: Session, now: datetime) -> None:
+            finish(db, job_id, self.worker_id, status, now, **details)
+            if status == "succeeded":
+                self._run_success_hook(db, job_id, now)
+
+        return self._commit_outcome(job_id, status, apply)
+
+    def _run_success_hook(self, db: Session, job_id: UUID, now: datetime) -> None:
+        """Run the registration's hook in a savepoint: a failing hook never undoes the success."""
+        job = db.get(Job, job_id)
+        if job is None or not isinstance(job.payload, dict):
+            return
+        action = job.payload.get("action", "default")
+        hook = self.registry.success_hook(JobType(job.type), action) if isinstance(action, str) else None
+        if hook is None:
+            return
+        try:
+            with db.begin_nested():
+                hook(db, job, now)
+        except Exception as exc:  # noqa: BLE001 - only the class name is logged: the text may carry secrets
+            _LOG.error(
+                "success hook failed: %s",
+                type(exc).__name__,
+                extra={"worker_id": self.worker_id, "job_id": str(job_id)},
+            )
+
+    def _commit_outcome(self, job_id: UUID, outcome: str, apply: Callable[[Session, datetime], None]) -> str:
+        """Run ``apply`` in one transaction, between the two shutdown-fence checks."""
         db = self.factory()
         try:
             with db.begin():
                 self._check_fence(job_id)  # cheap early exit: nothing written yet
-                finish(db, job_id, self.worker_id, status, self.clock(), **details)
+                apply(db, self.clock())
                 # The fence is re-checked with the transaction still open and the job marked as
                 # committing under the same lock close() uses to abandon: shutdown either wins
                 # (rollback here) or waits for the commit that follows.
@@ -709,7 +833,7 @@ class Worker:
                 self._committing.discard(job_id)
                 self._slots.notify_all()
             db.close()
-        return status
+        return outcome
 
     def _check_fence(self, job_id: UUID, *, committing: bool = False) -> None:
         with self._slots:
@@ -777,6 +901,7 @@ def run_worker(settings: Settings, registry: JobRegistry) -> None:
             previous[signum] = signal.signal(signum, lambda _signum, _frame: runtime.request_stop())
     try:
         assert_database_ready(engine)
+        record_worker_start(factory, settings, runtime.worker_id, runtime.clock())
         runtime.run()
     finally:
         runtime.close()

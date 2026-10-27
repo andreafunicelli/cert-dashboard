@@ -14,7 +14,7 @@ from app.jobs import worker
 from app.jobs.handlers import build_registry
 from app.jobs.handlers.cleanup import prune_artifacts, validate_cleanup_payload
 from app.jobs.handlers.trust_recheck import TRUST_RECHECK_ACTION, validate_trust_recheck_payload
-from app.jobs.queue import JobFailure
+from app.jobs.queue import InvalidJobState, JobCancelled, JobControl, JobFailure, JobPaused, JobRequeued
 from app.jobs.worker import JobContext, JobRegistry
 from app.models import Job
 from app.models.enums import JobType
@@ -430,3 +430,56 @@ def test_trust_recheck_is_scheduled_under_the_scan_settings():
     assert worker.SCHEDULES["trust_recheck"] == worker.Schedule("trust_recheck", JobType.SCAN, "trust_recheck")
     assert worker._TIME_SETTING["trust_recheck"] == "scan.daily_at"
     assert worker._ENABLED_SETTING["trust_recheck"] == "scan.enabled"
+
+
+# --- success hooks and job control (Plan 3 Task 1) ---------------------------------------------
+
+
+def test_registry_rejects_a_non_callable_success_hook():
+    registry = JobRegistry()
+    with pytest.raises(TypeError, match="on_success"):
+        registry.register(JobType.DEPLOY, ok_handler, validator=accept, on_success="not callable")
+    assert not registry.supports(JobType.DEPLOY)  # nothing half-registered
+
+
+def test_success_hook_is_looked_up_per_type_and_action():
+    registry = JobRegistry()
+
+    def hook(db, job, now):
+        return None
+
+    registry.register(JobType.DEPLOY, ok_handler, validator=accept, on_success=hook)
+    registry.register(JobType.DEPLOY, ok_handler, action="other", validator=accept)
+    registry.register(JobType.CLEANUP, ok_handler, validator=accept)
+    assert registry.success_hook(JobType.DEPLOY) is hook
+    assert registry.success_hook(JobType.DEPLOY, "default") is hook
+    assert registry.success_hook(JobType.DEPLOY, "other") is None
+    assert registry.success_hook(JobType.CLEANUP) is None
+    assert registry.success_hook(JobType.SCAN) is None
+
+
+def test_dispatch_passes_job_control_through_unchanged():
+    for outcome in (
+        JobPaused(resume_from_batch=1, result={"phase": "paused"}),
+        JobRequeued(NOW),
+        JobCancelled("stopped", {"phase": "cancelled"}),
+    ):
+
+        def raiser(context, payload, outcome=outcome):
+            raise outcome
+
+        registry = JobRegistry()
+        registry.register(JobType.DEPLOY, raiser, validator=accept)
+        with pytest.raises(JobControl) as exc:
+            registry.dispatch(make_context(), job_of(JobType.DEPLOY, {}))
+        assert exc.value is outcome
+
+
+def test_job_control_outcomes_carry_their_arguments():
+    paused = JobPaused(2, {"a": 1})
+    assert (paused.resume_from_batch, paused.result) == (2, {"a": 1})
+    assert JobRequeued(NOW).run_after == NOW
+    cancelled = JobCancelled("m", {"a": 1})
+    assert (cancelled.message, cancelled.result) == ("m", {"a": 1})
+    assert issubclass(InvalidJobState, ValueError)
+    assert not issubclass(JobControl, JobFailure)

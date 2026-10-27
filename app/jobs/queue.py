@@ -4,6 +4,7 @@ Every function runs inside the caller's transaction and never commits; audit row
 with the state change they describe, so a rollback removes both. ``now`` is always passed in.
 """
 
+import logging
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -17,6 +18,8 @@ from sqlalchemy.orm import Session
 from app.models import Job, JobHost, JSONValue
 from app.models.enums import JobHostStatus, JobStatus, JobType
 from app.services.audit import Actor, record, redact
+
+_LOG = logging.getLogger(__name__)
 
 ERROR_MESSAGE_LIMIT = 2_000
 TIMEOUT_MESSAGE = "Job exceeded its time limit or its worker stopped responding."
@@ -55,6 +58,40 @@ _RETRY_DELAYS = {1: 30, 2: 120, 3: 300}
 
 class StaleJobError(Exception):
     """The job is not running under this worker any more (reaped, re-claimed or never claimed)."""
+
+
+class JobControl(Exception):
+    """Base of the outcomes a handler raises to release or end its claim without succeeding or failing."""
+
+
+class JobPaused(JobControl):
+    """Hold the job: no claim, slot, lock or ``timeout_at`` until an operator requeues it."""
+
+    def __init__(self, resume_from_batch: int, result: Mapping[str, JSONValue]) -> None:
+        self.resume_from_batch = resume_from_batch
+        self.result = result
+        super().__init__(f"paused; resume from batch {resume_from_batch}")
+
+
+class JobRequeued(JobControl):
+    """Give the claim back and try again at ``run_after`` (for example while a lock is busy)."""
+
+    def __init__(self, run_after: datetime) -> None:
+        self.run_after = run_after
+        super().__init__(f"requeued until {run_after.isoformat()}")
+
+
+class JobCancelled(JobControl):
+    """End the job as ``cancelled``; ``message`` is stored sanitized as the job's error message."""
+
+    def __init__(self, message: str, result: Mapping[str, JSONValue]) -> None:
+        self.message = message
+        self.result = result
+        super().__init__("cancelled")
+
+
+class InvalidJobState(ValueError):
+    """The job is not in a state that allows the requested operation."""
 
 
 def safe_error_class(value: str | None) -> str:
@@ -279,8 +316,79 @@ def finish(
         error_class = job.error_class = job.error_message = None
     else:
         error_class = job.error_class
+        if error_message is not None:  # a handler's JobCancelled message; plain cancels keep theirs
+            job.error_message = safe_error_message(error_message)
     _audit(db, Actor(None, f"worker:{worker_id}"), f"job.{status}", job, error_class)
     db.flush()
+
+
+def release_claim(
+    db: Session,
+    job_id: UUID,
+    worker_id: str,
+    now: datetime,
+    *,
+    to: Literal["queued", "paused"],
+    run_after: datetime | None = None,
+    resume_from_batch: int | None = None,
+    result: Mapping[str, JSONValue] | None = None,
+) -> Job:
+    """Give a running job back without a terminal state, only for the worker that still owns it.
+
+    The claim is refunded (``attempt - 1``): a released claim ended in no outcome, so it is not an
+    execution attempt. Ownership, ``timeout_at`` and ``locked_*`` are cleared, so a paused or
+    requeued job is never reaped. Pausing writes ``job.paused`` and sets ``paused_at``; requeueing
+    needs ``run_after`` and writes no audit (like the claim it undoes), only an INFO log line.
+    """
+    _require_aware("now", now)
+    if to not in ("queued", "paused"):
+        raise ValueError("to must be queued or paused")
+    if to == "queued":
+        if run_after is None:
+            raise ValueError("run_after is required to requeue a job")
+        _require_aware("run_after", run_after)
+    if resume_from_batch is not None and resume_from_batch < 0:
+        raise ValueError("resume_from_batch must not be negative")
+    clean_result = _clean_json("result", result) if result is not None else None
+    job = db.execute(
+        select(Job).where(Job.id == job_id).with_for_update().execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if job is None or job.status != JobStatus.RUNNING or job.locked_by != worker_id:
+        raise StaleJobError(f"job {job_id} is not running under worker {worker_id}")
+    job.attempt = max(job.attempt - 1, 0)
+    job.locked_by = job.locked_at = job.timeout_at = None
+    if resume_from_batch is not None:
+        job.resume_from_batch = resume_from_batch
+    if clean_result is not None:
+        job.result = clean_result
+    if to == "paused":
+        job.status = JobStatus.PAUSED
+        job.paused_at = now
+        _audit(db, Actor(None, f"worker:{worker_id}"), "job.paused", job, job.error_class)
+    else:
+        job.status = JobStatus.QUEUED
+        job.run_after = run_after
+        _LOG.info("job requeued", extra={"job_id": str(job_id), "worker_id": worker_id})
+    db.flush()
+    return job
+
+
+def cancel_idle(db: Session, job_id: UUID, actor: Actor, now: datetime) -> Job:
+    """Cancel a ``queued`` or ``paused`` job (nobody holds it); any other state is ``InvalidJobState``."""
+    _require_aware("now", now)
+    job = db.execute(
+        select(Job).where(Job.id == job_id).with_for_update().execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if job is None:
+        raise InvalidJobState(f"job {job_id} does not exist")
+    if job.status not in (JobStatus.QUEUED, JobStatus.PAUSED):
+        raise InvalidJobState(f"job {job_id} is {JobStatus(job.status).value}; only queued or paused jobs can be cancelled")
+    job.status = JobStatus.CANCELLED
+    job.finished_at = now
+    job.locked_by = job.locked_at = job.timeout_at = None
+    _audit(db, actor, "job.cancelled", job, job.error_class)
+    db.flush()
+    return job
 
 
 def reap(db: Session, now: datetime) -> int:
