@@ -1,0 +1,27 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events {
+}
+
+http {
+    include conf.d/*.conf;
+}
+# configuration file /etc/nginx/conf.d/cert-inline.conf:
+server {
+    listen 443 ssl;
+    server_name cert-inline.example.com;
+    ssl_certificate ssl/split-a.crt;
+    include snippets/split-a-key.conf;
+}
+# configuration file /etc/nginx/conf.d/key-inline.conf:
+server {
+    listen 8443 ssl;
+    server_name key-inline.example.com;
+    include snippets/split-b-cert.conf;
+    ssl_certificate_key ssl/split-b.key;
+}
+# configuration file /etc/nginx/snippets/split-a-key.conf:
+ssl_certificate_key ssl/split-a.key;
+# configuration file /etc/nginx/snippets/split-b-cert.conf:
+ssl_certificate ssl/split-b.crt;

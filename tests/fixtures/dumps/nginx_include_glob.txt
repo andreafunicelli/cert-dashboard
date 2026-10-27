@@ -1,0 +1,34 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events {
+}
+
+http {
+    include conf.d/*.conf;
+}
+# configuration file /etc/nginx/conf.d/10-tls-default.conf:
+ssl_certificate     /etc/nginx/ssl/default.crt;
+ssl_certificate_key /etc/nginx/ssl/default.key;
+# configuration file /etc/nginx/conf.d/20-app.conf:
+server {
+    listen 443 ssl;
+    server_name app.example.com;
+    include /etc/nginx/tls.d/app-*.conf;
+}
+# configuration file /etc/nginx/conf.d/30-other.conf:
+server {
+    listen 443 ssl;
+    server_name other.example.com;
+}
+# configuration file /etc/nginx/conf.d/readme.txt:
+server { listen 9999 ssl; server_name ignored.example.com; }
+# configuration file /etc/nginx/tls.d/app-b.conf:
+ssl_certificate     /etc/nginx/ssl/app-ecdsa.crt;
+ssl_certificate_key /etc/nginx/ssl/app-ecdsa.key;
+# configuration file /etc/nginx/tls.d/app-a.conf:
+ssl_certificate     /etc/nginx/ssl/app-rsa.crt;
+ssl_certificate_key /etc/nginx/ssl/app-rsa.key;
+# configuration file /etc/nginx/tls.d/app-c.conf.bak:
+ssl_certificate     /etc/nginx/ssl/stale.crt;
+ssl_certificate_key /etc/nginx/ssl/stale.key;

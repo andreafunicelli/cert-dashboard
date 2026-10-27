@@ -1,0 +1,18 @@
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+# configuration file /etc/nginx/nginx.conf:
+events {
+}
+
+http {
+    include sites/*.conf;
+}
+# configuration file /etc/nginx/sites/www.conf:
+server {
+    listen 443 ssl;
+    server_name www.example.com;
+    include snippets/www-tls.conf;
+}
+# configuration file /etc/nginx/snippets/www-tls.conf:
+ssl_certificate     ssl/www.crt;
+ssl_certificate_key ssl/www.key;

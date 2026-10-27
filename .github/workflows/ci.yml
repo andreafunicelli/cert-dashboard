@@ -23,6 +23,7 @@ jobs:
       - name: Crypto and renewal coverage gates
         run: |
           uv run coverage report --fail-under=85 --include='app/crypto/*'
+          uv run coverage report --fail-under=85 --include='app/ansible/parse_*'
           if [ -f app/services/renewals.py ]; then
             uv run coverage report --fail-under=85 --include='app/services/renewals.py'
           fi
