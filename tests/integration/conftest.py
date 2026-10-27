@@ -1141,10 +1141,16 @@ class ComposeTargets:
             serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
         )
         for name, data, mode in (("fullchain.pem", chain_pem, 0o644), ("key.pem", key_pem, 0o600)):
-            fd = os.open(folder / name, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+            # Replace the file (new inode) instead of rewriting it: nginx caches a loaded certificate by
+            # path, inode and mtime in whole seconds, so a same-size in-place rewrite within one second
+            # of the previous write would survive a reload.
+            temporary = folder / f".{name}.tmp"
+            temporary.unlink(missing_ok=True)
+            fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
             with os.fdopen(fd, "wb") as handle:
                 handle.write(data)
-            os.chmod(folder / name, mode)  # the umask must not widen a key file
+            os.chmod(temporary, mode)  # the umask must not widen a key file
+            os.replace(temporary, folder / name)
 
     def _compose(self, *args, check=True, timeout=120):
         import subprocess
@@ -1207,7 +1213,8 @@ class ComposeTargets:
             except OSError as error:  # still (re)starting
                 last = type(error).__name__
             time.sleep(0.25)
-        raise TimeoutError(f"{service} did not serve the new certificate in 30 s ({last})")
+        logs = self._compose("logs", "--no-color", "--tail", "20", service, check=False).stdout
+        raise TimeoutError(f"{service} did not serve the new certificate in 30 s ({last})\n{logs}")
 
     def stop(self, service) -> None:
         self._compose("stop", "-t", "2", service)
