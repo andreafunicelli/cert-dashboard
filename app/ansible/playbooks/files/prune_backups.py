@@ -6,11 +6,15 @@ uses the standard library only and never imports the dashboard. ``prune_plan`` i
 
 Rules (§6.4):
   * ``retention_days == 0`` keeps everything (0 means "keep forever"); negative values are treated the same.
-  * a directory is a candidate only when its ``manifest.json`` carries the header ``deploy_backup.yml`` writes
-    (``job_id``/``created_at``/``files``) and ``files`` maps absolute paths to the metadata object each entry
-    needs (``sha256``/``fingerprint``/``owner``/``group``/``mode``/``size``) -- anything malformed is left
-    untouched, because the safe reading of an unreadable backup index is "unknown origin, unknown age,
-    unknown content, keep it";
+  * the layout is ``<backup_root>/<job_id>/manifest.json`` and the header must name the directory that holds
+    it: a document whose ``job_id`` disagrees with its directory, or that has no ``job_id``/``created_at``/
+    ``files`` header at all, describes an unknown backup and is never removed;
+  * every ``files`` entry must be the metadata object ``deploy_backup.yml`` writes
+    (``sha256``/``fingerprint``/``owner``/``group``/``mode``/``size``) *with values that task can produce*: a
+    64-digit lowercase hex checksum, an empty-or-hex fingerprint, a string owner/group, an octal file mode
+    (``stat.mode`` is ``"0644"``) and a non-negative size. A path name alone, or a checksum/mode no ``stat``
+    can yield, is not a usable index -- and the safe reading of an unusable backup index is "unknown origin,
+    unknown age, unknown content, keep it";
   * the newest backup of *every* path is always kept, so a rollback target is never pruned away. A
     directory therefore survives when at least one of its paths has no newer backup elsewhere.
 """
@@ -19,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import sys
 from collections.abc import Mapping, Sequence
@@ -29,6 +34,11 @@ BACKUP_ROOT = "/var/backups/cert-dashboard"
 MANIFEST_NAME = "manifest.json"
 # The per-file metadata object ``deploy_backup.yml`` writes into ``manifest.json`` (spec 6.4 step 2).
 METADATA_FIELDS = ("sha256", "fingerprint", "owner", "group", "mode", "size")
+# What the playbook's ``stat`` results look like: ``checksum`` is a bare SHA-256, ``mode`` is ``"%04o"``
+# ("0644", "4755"). Both are validated as values, not just as Python types: a checksum or a mode that
+# ``stat`` cannot produce means the manifest was not written by the backup task.
+SHA256_PATTERN = re.compile(r"\A[0-9a-f]{64}\Z")
+FILE_MODE_PATTERN = re.compile(r"\A[0-7]{4}\Z")
 EXIT_OK = 0
 EXIT_REFUSED = 2
 
@@ -46,19 +56,36 @@ def _created_at(document: Mapping[str, object]) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
+def _sha256_ok(value: object) -> bool:
+    """True when ``value`` is a bare lowercase SHA-256 digest, the only form ``stat.checksum`` has."""
+    return isinstance(value, str) and SHA256_PATTERN.match(value) is not None
+
+
+def _fingerprint_ok(value: object) -> bool:
+    """True for the values ``path_fingerprints`` holds: a SHA-256 of a serving certificate, or no entry ("")."""
+    return isinstance(value, str) and (value == "" or _sha256_ok(value))
+
+
 def _metadata_ok(entry: object) -> bool:
     """True when one ``files`` value has the metadata object shape ``deploy_backup.yml`` writes.
 
     A path name alone does not describe what a backup directory holds, so a manifest whose ``files`` values
     are not the ``{sha256, fingerprint, owner, group, mode, size}`` object is not a usable index and its
-    directory is never a removal candidate (same safe reading as an unreadable manifest).
+    directory is never a removal candidate (same safe reading as an unreadable manifest). The values are
+    checked too, not only their Python types: an empty or truncated checksum and a mode that is not an octal
+    file mode cannot come from the ``stat`` result the backup task records, so such a document is malformed
+    and its age authorises nothing.
     """
     if not isinstance(entry, Mapping) or any(field not in entry for field in METADATA_FIELDS):
         return False
-    if not all(isinstance(entry[field], str) for field in ("sha256", "owner", "group", "mode")):
+    if not _sha256_ok(entry["sha256"]):
         return False
-    fingerprint = entry["fingerprint"]
-    if fingerprint is not None and not isinstance(fingerprint, str):
+    if not _fingerprint_ok(entry["fingerprint"]):
+        return False
+    if not all(isinstance(entry[field], str) for field in ("owner", "group")):
+        return False
+    mode = entry["mode"]
+    if not (isinstance(mode, str) and FILE_MODE_PATTERN.match(mode) is not None):
         return False
     size = entry["size"]
     return isinstance(size, int) and not isinstance(size, bool) and size >= 0
@@ -76,20 +103,22 @@ def _paths(document: Mapping[str, object]) -> tuple[str, ...] | None:
     return tuple(files)
 
 
-def _job_id_ok(document: Mapping[str, object]) -> bool:
-    """True when the manifest carries the ``job_id`` header ``deploy_backup.yml`` writes.
+def _job_id_ok(directory: str, document: Mapping[str, object]) -> bool:
+    """True when the manifest header names the directory that holds it, as ``deploy_backup.yml`` writes it.
 
-    A document without one cannot be attributed to a deploy, so its timestamp does not describe a backup this
-    tool may delete: the directory is kept, like every other malformed manifest.
+    The layout is ``<backup_root>/<job_id>/manifest.json`` and the playbook writes the same ``job_id`` into
+    the header, so the identity can be checked instead of assumed. A document without one cannot be
+    attributed to a deploy, and one naming another directory does not describe these files: either way its
+    timestamp says nothing about the backup, so the directory is kept like every other malformed manifest.
     """
     job_id = document.get("job_id")
-    return isinstance(job_id, str) and bool(job_id.strip())
+    return isinstance(job_id, str) and job_id == directory
 
 
-def _usable(document: object) -> tuple[datetime, tuple[str, ...]] | None:
+def _usable(directory: str, document: object) -> tuple[datetime, tuple[str, ...]] | None:
     if not isinstance(document, Mapping):
         return None
-    if not _job_id_ok(document):
+    if not _job_id_ok(directory, document):
         return None
     created = _created_at(document)
     paths = _paths(document)
@@ -102,7 +131,9 @@ def prune_plan(manifests: Mapping[str, Mapping[str, object]], now: datetime, ret
     """Directory names to remove, sorted; every malformed manifest and every newest-per-path is kept."""
     if retention_days <= 0:
         return []
-    usable = {name: entry for name, document in manifests.items() if (entry := _usable(document)) is not None}
+    usable = {
+        name: entry for name, document in manifests.items() if (entry := _usable(name, document)) is not None
+    }
     newest: dict[str, tuple[datetime, str]] = {}
     for name, (created, paths) in usable.items():
         for path in paths:

@@ -6,7 +6,10 @@ owner on the target are untouched. Task 14's playbook stops after the backup, so
 here ends ``failed``/``internal`` with ``step: backed_up`` — the fail-safe boundary of the task.
 """
 
+import importlib.util
 import json
+from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 from app.ansible.deploy import run_host_deploy
@@ -19,6 +22,16 @@ LEGACY_KEY = "/etc/nginx/ssl/legacy.key"
 WWW_VHOST = "www.example.internal"
 LEGACY_VHOST = "legacy.example.internal"
 BACKUP_ROOT = "/var/backups/cert-dashboard"
+PRUNE_SCRIPT = Path(__file__).resolve().parents[2] / "app" / "ansible" / "playbooks" / "files" / "prune_backups.py"
+
+
+def load_prune_script():
+    """Load the standalone target-side script the retention step (Task 15) will run."""
+    spec = importlib.util.spec_from_file_location("prune_backups_under_test", PRUNE_SCRIPT)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def describe(outcome) -> str:
@@ -66,6 +79,13 @@ def test_backup_tree_and_manifest_without_touching_live_files(ssh_targets, fresh
     assert manifest["created_at"].endswith("Z")
     assert manifest["files"][WWW_CRT]["fingerprint"] == ssh_targets.old.fingerprint
     assert manifest["files"][WWW_CRT]["owner"] == "root" and manifest["files"][WWW_CRT]["mode"] == "0644"
+    # The manifest this run wrote must be one the retention tool can read (Task 15 runs it): an over-strict
+    # pruner would keep every backup forever. A synthetic newer manifest of the same paths makes this one
+    # removable, so an empty plan below means the real manifest is unusable.
+    pruner = load_prune_script()
+    newer = {**manifest, "job_id": "newer", "created_at": "2999-01-01T00:00:00Z"}
+    later = datetime(3000, 1, 1, tzinfo=UTC)
+    assert pruner.prune_plan({str(JOB_ID): manifest, "newer": newer}, later, 30) == [str(JOB_ID)]
 
 
 def test_drift_aborts_before_any_backup(ssh_targets, fresh_targets, deploy_material, tmp_path):
