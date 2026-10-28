@@ -118,6 +118,23 @@ def test_a_manifest_whose_file_metadata_is_malformed_is_never_removed():
     assert script.prune_plan(manifests, NOW, 30) == []
 
 
+def test_a_manifest_missing_its_job_id_header_is_never_removed():
+    """Task 14: the manifest header is ``{job_id, created_at, files}``; a document without it is malformed.
+
+    Without the job id the directory cannot be attributed to a deploy, so its age alone must not authorise a
+    removal -- the same safe reading as an unreadable or unshaped manifest.
+    """
+    script = load_script()
+    old = manifest("/etc/ssl/www.crt", days_ago=90)
+    manifests = {
+        "old-missing-job-id": {key: value for key, value in old.items() if key != "job_id"},
+        "job-id-empty": {**old, "job_id": ""},
+        "job-id-not-a-string": {**old, "job_id": 123},
+        "fresh": manifest("/etc/ssl/www.crt", days_ago=1),
+    }
+    assert script.prune_plan(manifests, NOW, 30) == []
+
+
 def test_a_naive_created_at_is_read_as_utc():
     script = load_script()
     manifests = {

@@ -293,6 +293,49 @@ def test_the_verified_step_without_per_binding_evidence_is_internal():
     assert (outcome.status, outcome.reason) == ("failed", "internal")
 
 
+def test_an_explicit_negative_verification_is_never_a_success():
+    """``matches: false`` is an explicit statement that the host did *not* serve the new leaf.
+
+    A fingerprint next to it proves nothing about the service, so the run is an ``internal`` failure rather
+    than a success (Contract decision 18: success needs affirmative verification).
+    """
+    published = {
+        "step": "verified",
+        "targets": {
+            "1": {**verified(1), "verified": {"fingerprint": NEW, "matches": False, "attempts": 3}},
+            "2": {**verified(2), "verified": {"fingerprint": NEW, "matches": False, "attempts": 3}},
+        },
+    }
+    outcome = parse_host_result(HOST, recorded(published, status="successful", rc=0), [target(1), target(2)])
+    assert (outcome.status, outcome.reason) == ("failed", "internal")
+    assert outcome.message == f"internal: {INTERNAL_TEXT}"
+
+
+def test_one_binding_with_a_negative_verification_fails_the_whole_host():
+    published = {
+        "step": "verified",
+        "targets": {
+            "1": verified(1),
+            "2": {**verified(2), "verified": {"fingerprint": NEW, "matches": False, "attempts": 1}},
+        },
+    }
+    outcome = parse_host_result(HOST, recorded(published, status="successful", rc=0), [target(1), target(2)])
+    assert (outcome.status, outcome.reason) == ("failed", "internal")
+
+
+def test_a_verification_record_that_does_not_affirm_a_match_is_internal():
+    # No ``matches`` field, or a non-boolean one, is not affirmative evidence: only ``true`` counts.
+    for record in (
+        {"fingerprint": NEW, "attempts": 1},
+        {"fingerprint": NEW, "matches": "true", "attempts": 1},
+        {"fingerprint": NEW, "matches": 1, "attempts": 1},
+        {"fingerprint": NEW, "matches": None, "attempts": 1},
+    ):
+        published = {"step": "verified", "targets": {"1": {"written": True, "verified": record}}}
+        outcome = parse_host_result(HOST, recorded(published, status="successful", rc=0), [target()])
+        assert (outcome.status, outcome.reason) == ("failed", "internal"), record
+
+
 def test_a_run_without_any_planned_target_cannot_succeed():
     published = {"step": "verified", "targets": {"1": verified(1)}}
     outcome = parse_host_result(HOST, recorded(published, status="successful", rc=0), [])

@@ -9,10 +9,11 @@ the playbook as absolute paths: a deploy preflight must not depend on whatever `
 and a missing binary is an ``internal``/``preflight_tool_missing`` outcome *before* any run — never a
 ``key_mismatch_preflight``.
 
-The mapping is deliberately strict: ``succeeded`` needs ``step == "verified"`` evidence carrying the new
-fingerprint for *every* target binding. Task 14's playbook stops after the backup, so a run of it ends
-``failed``/``internal`` ("deploy playbook ended before verification") with nothing changed outside
-``/var/backups/cert-dashboard/<job_id>``; that is the fail-safe boundary of the task, not a bug.
+The mapping is deliberately strict: ``succeeded`` needs ``step == "verified"`` evidence that affirmatively
+(``matches: true``) carries the new fingerprint for *every* target binding. Task 14's playbook stops after
+the backup, so a run of it ends ``failed``/``internal`` ("deploy playbook ended before verification") with
+nothing changed outside ``/var/backups/cert-dashboard/<job_id>``; that is the fail-safe boundary of the task,
+not a bug.
 """
 
 from __future__ import annotations
@@ -287,12 +288,18 @@ def parse_host_result(hostname: str, outcome: RunOutcome, targets: Sequence[Depl
 
 
 def _verified(evidence: _Evidence, targets: Sequence[DeployTarget]) -> HostOutcome:
-    """``succeeded`` needs one ``verified`` record per target carrying that target's new fingerprint."""
+    """``succeeded`` needs one affirmative ``verified`` record per target, carrying its new fingerprint.
+
+    ``matches`` must be literally ``true``: a record that says the host did not serve the new leaf — or one
+    that never affirms it — is not evidence of success, whatever ``fingerprint`` sits next to it.
+    """
     if not targets:
         return evidence.outcome("failed", "internal")
     for item in targets:
         record = _mapping(evidence.targets.get(item.binding_id))
         verified = _mapping(record.get("verified"))
+        if verified.get("matches") is not True:
+            return evidence.outcome("failed", "internal")
         if verified.get("fingerprint") != item.new_fingerprint:
             return evidence.outcome("failed", "internal")
     return evidence.outcome("succeeded", None)

@@ -6,11 +6,11 @@ uses the standard library only and never imports the dashboard. ``prune_plan`` i
 
 Rules (§6.4):
   * ``retention_days == 0`` keeps everything (0 means "keep forever"); negative values are treated the same.
-  * a directory is a candidate only when its ``manifest.json`` parses into ``created_at`` and a ``files``
-    mapping of absolute paths, each carrying the metadata object the playbook writes
-    (``sha256``/``fingerprint``/``owner``/``group``/``mode``/``size``) -- anything malformed is left
-    untouched, because the safe reading of an unreadable backup index is "unknown age, unknown content,
-    keep it";
+  * a directory is a candidate only when its ``manifest.json`` carries the header ``deploy_backup.yml`` writes
+    (``job_id``/``created_at``/``files``) and ``files`` maps absolute paths to the metadata object each entry
+    needs (``sha256``/``fingerprint``/``owner``/``group``/``mode``/``size``) -- anything malformed is left
+    untouched, because the safe reading of an unreadable backup index is "unknown origin, unknown age,
+    unknown content, keep it";
   * the newest backup of *every* path is always kept, so a rollback target is never pruned away. A
     directory therefore survives when at least one of its paths has no newer backup elsewhere.
 """
@@ -76,8 +76,20 @@ def _paths(document: Mapping[str, object]) -> tuple[str, ...] | None:
     return tuple(files)
 
 
+def _job_id_ok(document: Mapping[str, object]) -> bool:
+    """True when the manifest carries the ``job_id`` header ``deploy_backup.yml`` writes.
+
+    A document without one cannot be attributed to a deploy, so its timestamp does not describe a backup this
+    tool may delete: the directory is kept, like every other malformed manifest.
+    """
+    job_id = document.get("job_id")
+    return isinstance(job_id, str) and bool(job_id.strip())
+
+
 def _usable(document: object) -> tuple[datetime, tuple[str, ...]] | None:
     if not isinstance(document, Mapping):
+        return None
+    if not _job_id_ok(document):
         return None
     created = _created_at(document)
     paths = _paths(document)
