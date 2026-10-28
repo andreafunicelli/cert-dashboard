@@ -4,6 +4,7 @@ Every query joins what it shows (server, expected certificate, latest scan resul
 never changes the statement count; nothing here writes.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 
@@ -471,35 +472,59 @@ def _derives(server: Server, binding: Binding, endpoint: Endpoint) -> bool:
     return (host, port, sni or host) == (endpoint.host, endpoint.port, endpoint.sni or endpoint.host)
 
 
-def deactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor) -> int:
-    """Deactivate the active endpoints a binding owns, except those another active binding still derives.
+def _hand_over(db: Session, endpoint: Endpoint, heir: Binding, actor: Actor) -> None:
+    """Link an endpoint to the binding inheriting it; a ``matched`` heir also brings its certificate expectation."""
+    _link(db, endpoint, heir, actor)
+    if heir.match_state == "matched" and heir.certificate_id is not None and endpoint.expected_certificate_id != heir.certificate_id:
+        _discovery_change(db, endpoint, "expected_certificate_id", endpoint.expected_certificate_id, heir.certificate_id, actor)
+        endpoint.expected_certificate_id = heir.certificate_id
 
-    A shared endpoint moves to the lowest such binding instead. Returns the number deactivated; nothing is deleted.
-    """
-    binding = db.get(Binding, binding_id)
-    if binding is None:
-        return 0
-    owned = db.scalars(
-        select(Endpoint)
-        .where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(True))
-        .order_by(Endpoint.id)
-        .with_for_update()
-    ).all()
+
+def _retire_owned(db: Session, binding: Binding, owned: Sequence[Endpoint], actor: Actor) -> int:
+    """Hand each owned endpoint to the lowest other active binding that still derives it, else deactivate it."""
     if not owned:
         return 0
     server = db.get(Server, binding.server_id)
     siblings = db.scalars(
         select(Binding)
-        .where(Binding.server_id == binding.server_id, Binding.is_active.is_(True), Binding.id != binding_id)
+        .where(Binding.server_id == binding.server_id, Binding.is_active.is_(True), Binding.id != binding.id)
         .order_by(Binding.id)
     ).all()
     deactivated = 0
     for endpoint in owned:
         heir = next((item for item in siblings if server is not None and _derives(server, item, endpoint)), None)
         if heir is not None:
-            _link(db, endpoint, heir, actor)
+            _hand_over(db, endpoint, heir, actor)
             continue
         endpoint.is_active = False
         _discovery_change(db, endpoint, "is_active", True, False, actor)
         deactivated += 1
     return deactivated
+
+
+def _owned_active(db: Session, binding_id: int, *, besides: int | None = None) -> Sequence[Endpoint]:
+    query = select(Endpoint).where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(True))
+    if besides is not None:
+        query = query.where(Endpoint.id != besides)
+    return db.scalars(query.order_by(Endpoint.id).with_for_update()).all()
+
+
+def deactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor) -> int:
+    """Deactivate the active endpoints a binding owns, except those another active binding still derives.
+
+    A shared endpoint moves to the lowest such binding (and expects its certificate when that binding is
+    ``matched``) instead. Returns the number deactivated; nothing is deleted.
+    """
+    binding = db.get(Binding, binding_id)
+    if binding is None:
+        return 0
+    return _retire_owned(db, binding, _owned_active(db, binding_id), actor)
+
+
+def retire_stale_endpoints(db: Session, binding: Binding, current: Endpoint | None, actor: Actor) -> int:
+    """After a binding's endpoint identity changed, retire the active endpoints it owns but no longer derives.
+
+    ``current`` is the endpoint the binding derives now (``None`` when its address cannot be scanned). Shared
+    endpoints move to the binding that still derives them; paused endpoints are left alone. Returns the number deactivated.
+    """
+    return _retire_owned(db, binding, _owned_active(db, binding.id, besides=current.id if current else None), actor)

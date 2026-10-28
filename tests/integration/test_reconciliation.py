@@ -9,7 +9,7 @@ from sqlalchemy import event, func, select
 from app.models import AuditLog, Binding, Endpoint, Server
 from app.models.enums import EndpointSource, WebserverType
 from app.services.discovery import reconcile_host, record_host_failure, sync_inventory_servers
-from app.services.endpoints import create_endpoint
+from app.services.endpoints import create_endpoint, set_endpoint_active
 from app.services.inventory import InventoryHost
 from tests.integration.conftest import (
     JOB_ID,
@@ -394,3 +394,109 @@ def test_reconcile_host_owns_no_commit_and_locks_the_server_row(db, actor, now):
 def test_unknown_server_raises(db, actor, now):
     with pytest.raises(LookupError):
         reconcile_host(db, 999_999, host_document(HOST, now, []), job_id=JOB_ID, actor=actor, now=now)
+
+
+# --- derived endpoints follow their bindings (review of PR #51) -----------------------------------
+
+
+def endpoint_states(db, server_id):
+    return {(e.host, e.sni): (e.is_active, e.binding_id) for e in endpoints_of(db, server_id)}
+
+
+def test_a_changed_connection_address_retires_the_old_derived_endpoint(db, actor, now):
+    server = add_server(db, HOST, connection_address="192.0.2.10")
+    doc = binding_doc("www.example.internal")
+    run(db, server, actor, now, doc)
+    (binding,) = bindings_of(db, server.id)
+    server.connection_address = "192.0.2.11"
+    db.flush()
+    outcome = run(db, server, actor, now + timedelta(hours=1), doc)
+    assert (outcome.endpoints_created, outcome.deactivated) == (1, 0)
+    assert endpoint_states(db, server.id) == {
+        ("192.0.2.10", "www.example.internal"): (False, binding.id),
+        ("192.0.2.11", "www.example.internal"): (True, binding.id),
+    }
+    retired = next(e for e in endpoints_of(db, server.id) if e.host == "192.0.2.10")
+    assert db.scalar(
+        select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == "endpoint.update", AuditLog.target_id == str(retired.id), AuditLog.details["field"].astext == "is_active"
+        )
+    ) == 1
+    run(db, server, actor, now + timedelta(hours=2), doc)  # stable afterwards: nothing more to retire
+    assert audit_count(db, "endpoint.update") == 1 and endpoint_count(db, server.id) == 2
+
+
+def test_a_changed_server_name_retires_the_old_derived_endpoint(db, actor, now):
+    server = add_server(db, HOST)
+    run(db, server, actor, now, binding_doc("_", vhost_names=["_", "a.example.internal"]))
+    (binding,) = bindings_of(db, server.id)
+    run(db, server, actor, now + timedelta(hours=1), binding_doc("_", vhost_names=["_", "b.example.internal"]))
+    assert endpoint_states(db, server.id) == {
+        (HOST, "a.example.internal"): (False, binding.id),
+        (HOST, "b.example.internal"): (True, binding.id),
+    }
+
+
+def test_a_changed_server_name_keeps_an_endpoint_another_active_binding_derives(db, actor, now):
+    server = add_server(db, HOST)
+    moving = binding_doc("_", cert_path="/etc/ssl/rsa.pem", vhost_names=["_", "a.example.internal"])
+    staying = binding_doc("_", cert_path="/etc/ssl/ecdsa.pem", vhost_names=["_", "a.example.internal"])
+    run(db, server, actor, now, moving, staying)
+    low, high = bindings_of(db, server.id)
+    assert endpoint_states(db, server.id) == {(HOST, "a.example.internal"): (True, low.id)}
+    moved = binding_doc("_", cert_path="/etc/ssl/rsa.pem", vhost_names=["_", "b.example.internal"])
+    run(db, server, actor, now + timedelta(hours=1), moved, staying)
+    assert endpoint_states(db, server.id) == {
+        (HOST, "a.example.internal"): (True, high.id),  # still scanned, now through the binding that derives it
+        (HOST, "b.example.internal"): (True, low.id),
+    }
+
+
+def test_an_operator_pause_survives_an_endpoint_identity_change(db, actor, now):
+    server = add_server(db, HOST, connection_address="192.0.2.10")
+    doc = binding_doc("www.example.internal")
+    run(db, server, actor, now, doc)
+    (old,) = endpoints_of(db, server.id)
+    set_endpoint_active(db, old.id, False, actor)
+    before = audit_count(db, "endpoint.update")
+    server.connection_address = "192.0.2.11"
+    db.flush()
+    run(db, server, actor, now + timedelta(hours=1), doc)
+    assert endpoint_states(db, server.id)[("192.0.2.10", "www.example.internal")][0] is False
+    assert audit_count(db, "endpoint.update") == before  # the paused endpoint is not touched again
+
+
+def test_a_shared_endpoint_follows_the_certificate_of_the_binding_that_inherits_it(db, actor, now, ca, keyring, keyed_certificate):
+    other = import_leaf(db, issue_leaf(ca, now), keyring, actor, now)
+    server = add_server(db, HOST)
+    rsa = binding_doc("www.example.internal", cert_path="/etc/ssl/rsa.pem", fp=keyed_certificate.sha256_fingerprint, key=keyed_certificate.spki)
+    ecdsa = binding_doc("www.example.internal", cert_path="/etc/ssl/ecdsa.pem", fp=other.sha256_fingerprint, key=other.spki)
+    run(db, server, actor, now, rsa, ecdsa)
+    (endpoint,) = endpoints_of(db, server.id)
+    assert endpoint.expected_certificate_id == keyed_certificate.id
+    run(db, server, actor, now + timedelta(hours=1), ecdsa)
+    db.refresh(endpoint)
+    _, high = bindings_of(db, server.id)
+    assert (endpoint.is_active, endpoint.binding_id, endpoint.expected_certificate_id) == (True, high.id, other.id)
+    changes = [
+        (row.details["from"], row.details["to"])
+        for row in db.scalars(
+            select(AuditLog).where(
+                AuditLog.action == "endpoint.update", AuditLog.target_id == str(endpoint.id),
+                AuditLog.details["field"].astext == "expected_certificate_id",
+            )
+        )
+    ]
+    assert changes == [(keyed_certificate.id, other.id)]
+
+
+def test_moving_a_directive_into_an_include_moves_the_expectation_to_the_new_certificate(db, actor, now, ca, keyring, keyed_certificate):
+    other = import_leaf(db, issue_leaf(ca, now), keyring, actor, now)
+    server = add_server(db, HOST)
+    inline = binding_doc("www.example.internal", config_file="/etc/nginx/conf.d/www.conf", fp=keyed_certificate.sha256_fingerprint, key=keyed_certificate.spki)
+    run(db, server, actor, now, inline)
+    moved = binding_doc("www.example.internal", config_file="/etc/nginx/snippets/tls.conf", fp=other.sha256_fingerprint, key=other.spki)
+    run(db, server, actor, now + timedelta(days=1), moved)
+    (endpoint,) = endpoints_of(db, server.id)
+    _, new = bindings_of(db, server.id)
+    assert (endpoint.is_active, endpoint.binding_id, endpoint.expected_certificate_id) == (True, new.id, other.id)

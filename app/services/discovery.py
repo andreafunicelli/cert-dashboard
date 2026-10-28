@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.crypto.parse import ParseError, parse_certificates
-from app.models import Binding, Certificate, JSONValue, Server
+from app.models import Binding, Certificate, Endpoint, JSONValue, Server
 from app.models.enums import WebserverType
 from app.services.audit import Actor, record
 from app.services.bindings import audit_binding_state, binding_state
@@ -24,6 +24,7 @@ from app.services.endpoints import (
     ensure_binding_endpoint,
     expect_for_binding,
     reactivate_binding_endpoints,
+    retire_stale_endpoints,
 )
 from app.services.inventory import InventoryHost
 from app.services.scans import EndpointInputError
@@ -289,6 +290,7 @@ def reconcile_host(
     certificates = _spki_by_fingerprint(db, {item.fingerprint for _, item in seen_items if item.fingerprint})
     added = updated = unchanged = endpoints_created = 0
     present: set[Identity] = set()
+    current: dict[int, Endpoint | None] = {}
     job = str(job_id)
     for entry, item in seen_items:
         present.add(item.identity)
@@ -329,9 +331,10 @@ def reconcile_host(
         db.flush()
         audit_binding_state(db, binding, previous, actor, job_id=job, now=now)
         try:
-            _, created = ensure_binding_endpoint(db, binding, server, actor)
+            current[binding.id], created = ensure_binding_endpoint(db, binding, server, actor)
         except EndpointInputError:
-            continue  # an address that cannot be scanned (not a DNS name or IP literal): no endpoint
+            current[binding.id] = None  # an address that cannot be scanned (not a DNS name or IP literal): no endpoint
+            continue
         endpoints_created += created
         if previous is not None and not previous.is_active:
             reactivate_binding_endpoints(db, binding.id, actor)
@@ -348,5 +351,8 @@ def reconcile_host(
         audit_binding_state(db, binding, previous, actor, job_id=job, now=now)
         deactivate_binding_endpoints(db, binding.id, actor)
         deactivated += 1
+    for identity in present:  # last, so heirs are judged on the final state of every binding
+        binding = existing[identity]
+        retire_stale_endpoints(db, binding, current[binding.id], actor)
     db.flush()
     return ReconcileOutcome(added, updated, deactivated, unchanged, endpoints_created, False)
