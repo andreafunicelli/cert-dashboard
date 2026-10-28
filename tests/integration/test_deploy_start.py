@@ -2,6 +2,7 @@
 
 import threading
 from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 from cryptography import x509
@@ -151,11 +152,17 @@ def test_start_writes_the_job_and_every_host_row_in_one_transaction(db, actor, n
         now=now,
     )
     rows = host_rows(db, job.id)
-    assert (job.priority, job.max_attempts, job.payload["renewal_id"]) == (
-        DEPLOY_PRIORITY,
-        1,
-        str(deploy_world.renewal.id),
-    )
+    assert (job.priority, job.max_attempts) == (DEPLOY_PRIORITY, 1)
+    assert job.payload == {
+        "certificate_id": deploy_world.new_certificate.id,
+        "renewal_id": str(deploy_world.renewal.id),
+        "batch_percent": 10,
+        "pause_after_canary": True,
+        "include_unknown": False,
+        "chain_override": False,
+        "chain_status_at_plan": ChainStatus.TRUSTED.value,
+        "plan_sha256": preview.plan_sha256,
+    }
     assert {(r.binding_id, r.batch_no, r.status) for r in rows} == {
         (b.id, deploy_world.batch_of[b.server_id], JobHostStatus.PENDING) for b in deploy_world.target_bindings
     }
@@ -168,6 +175,25 @@ def test_start_writes_the_job_and_every_host_row_in_one_transaction(db, actor, n
         "bindings": 4,
         "canary": "web01.example.internal",
         "batches": [1, 1, 1],
+    }
+
+
+def test_a_retry_payload_adds_only_retry_of(db, actor, now, deploy_world):
+    """Contract decision 20: a retry enqueues the same plan plus ``retry_of``, nothing else."""
+    previous = uuid4()
+    job, preview = preview_and_start(
+        db, DeployOptions(deploy_world.new_certificate.id), actor, now, retry_of=previous
+    )
+    assert job.payload == {
+        "certificate_id": deploy_world.new_certificate.id,
+        "renewal_id": str(deploy_world.renewal.id),
+        "batch_percent": 10,
+        "pause_after_canary": True,
+        "include_unknown": False,
+        "chain_override": False,
+        "chain_status_at_plan": ChainStatus.TRUSTED.value,
+        "plan_sha256": preview.plan_sha256,
+        "retry_of": str(previous),
     }
 
 
@@ -320,8 +346,16 @@ def test_untrusted_chain_requires_a_reasoned_audited_override(db, actor, now, de
         actor=actor,
         now=now,
     )
-    assert job.payload["chain_override"] is True
-    assert job.payload["chain_status_at_plan"] == preview.chain_status
+    assert job.payload == {
+        "certificate_id": deploy_world.new_certificate.id,
+        "renewal_id": str(deploy_world.renewal.id),
+        "batch_percent": 10,
+        "pause_after_canary": True,
+        "include_unknown": False,
+        "chain_override": True,
+        "chain_status_at_plan": preview.chain_status,
+        "plan_sha256": preview.plan_sha256,
+    }
     override = [row for row in audits(db, "job", str(job.id)) if row.action == "deploy.chain_override"]
     assert len(override) == 1
     assert override[0].details == {
@@ -381,6 +415,54 @@ def test_override_never_bypasses_key_or_validity_guardrails(
 
 def job_count(db):
     return db.scalar(select(func.count()).select_from(Job)) or 0
+
+
+def test_a_superseded_certificate_is_refused_even_with_an_override(db, actor, now, deploy_world):
+    """Contract decision 16: the deployed certificate must be active, independently and always."""
+    deploy_world.new_certificate.status = CertificateStatus.SUPERSEDED
+    db.flush()
+    options = DeployOptions(
+        deploy_world.new_certificate.id, binding_ids=tuple(b.id for b in deploy_world.target_bindings)
+    )
+    preview = preview_deploy(db, options, now)
+    assert "superseded" in preview.blocked, preview.blocked
+    error = refused(
+        start_deploy,
+        db=db,
+        options=options,
+        plan_sha256=preview.plan_sha256,
+        confirmed=True,
+        override_reason="the operator insists this certificate is the one to deploy",
+        actor=actor,
+        now=now,
+    )
+    assert "superseded" in error.reasons, error.reasons
+    assert job_count(db) == 0
+
+
+def test_a_changed_default_canary_invalidates_the_confirmed_plan(db, actor, now, deploy_world):
+    """Contract decision 15: plan_sha256 binds the canary server actually used, not the option."""
+    world = deploy_world
+    options = DeployOptions(world.new_certificate.id)
+    preview = preview_deploy(db, options, now)
+    world.servers["web01.example.internal"].ansible_groups = ["ring_a"]
+    world.servers["web02.example.internal"].ansible_groups = ["canary_ring"]
+    db.flush()
+    changed = preview_deploy(db, options, now)
+    assert [host.hostname for host in changed.hosts if host.batch_no == 0] == ["web02.example.internal"]
+    assert changed.plan_sha256 != preview.plan_sha256
+    error = refused(
+        start_deploy,
+        db=db,
+        options=options,
+        plan_sha256=preview.plan_sha256,
+        confirmed=True,
+        override_reason=None,
+        actor=actor,
+        now=now,
+    )
+    assert set(error.reasons) == {"plan_changed"}
+    assert job_count(db) == 0
 
 
 def test_key_mismatch_and_missing_file_bindings_are_excluded_and_listed(db, actor, now, deploy_world):

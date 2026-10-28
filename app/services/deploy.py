@@ -408,7 +408,12 @@ def _plan_sha256(
     include_unknown: bool,
     chain_status: str,
 ) -> str:
-    """SHA-256 of the canonical plan the operator confirmed (Contract decision 15)."""
+    """SHA-256 of the canonical plan the operator confirmed (Contract decision 15).
+
+    ``canary_server_id`` is the *resolved* canary (batch 0 of ``plan_batches``), not the option: a
+    group-membership change that moves the default canary invalidates the confirmed hash even when
+    the selected binding ids stay the same.
+    """
     canonical = {
         "batch_percent": batch_percent,
         "binding_ids": sorted(binding_ids),
@@ -603,8 +608,10 @@ def _plan(db: Session, options: DeployOptions, now: datetime, keyring: Keyring |
         blocked["expired"] = f"the certificate expired on {certificate.not_after.isoformat()}"
     elif certificate.not_before > now:
         blocked["not_yet_valid"] = f"the certificate is not valid before {certificate.not_before.isoformat()}"
-    if certificate.status == CertificateStatus.REVOKED:
-        blocked["revoked"] = "the certificate is revoked"
+    if certificate.status != CertificateStatus.ACTIVE:
+        blocked[certificate.status.value] = (
+            f"the certificate is {certificate.status.value}; only an active certificate can be deployed"
+        )
     if not included:
         blocked["no_targets"] = "no active binding is a deploy target for this certificate"
     elif all(item.binding.on_disk_fingerprint == certificate.sha256_fingerprint for item in included):
@@ -638,7 +645,7 @@ def _plan(db: Session, options: DeployOptions, now: datetime, keyring: Keyring |
         plan_sha256=_plan_sha256(
             certificate,
             binding_ids,
-            options.canary_server_id,
+            batches[0][0].server_id if batches else None,
             batch_percent,
             pause_after_canary,
             options.include_unknown,
