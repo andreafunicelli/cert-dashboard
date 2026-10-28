@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.crypto.parse import ParseError, parse_certificates
@@ -19,13 +19,7 @@ from app.models import Binding, Certificate, Endpoint, JSONValue, Server
 from app.models.enums import WebserverType
 from app.services.audit import Actor, record
 from app.services.bindings import audit_binding_state, binding_state
-from app.services.endpoints import (
-    deactivate_binding_endpoints,
-    ensure_binding_endpoint,
-    expect_for_binding,
-    reactivate_binding_endpoints,
-    retire_stale_endpoints,
-)
+from app.services.endpoints import ensure_binding_endpoint, expect_for_binding, settle_endpoints
 from app.services.inventory import InventoryHost
 from app.services.scans import EndpointInputError
 
@@ -63,6 +57,7 @@ def _date(now: datetime) -> str:
 
 
 def _deactivate_server(db: Session, server: Server, actor: Actor, now: datetime) -> None:
+    """Deactivate a server and its bindings; the caller settles their endpoints once every removal is staged."""
     server.is_active = False
     record(db, actor, "server.deactivate", "server", str(server.id), {"hostname": server.hostname})
     note = f"server removed from inventory at {_date(now)}"
@@ -72,7 +67,6 @@ def _deactivate_server(db: Session, server: Server, actor: Actor, now: datetime)
         binding.notes = note
         db.flush()
         audit_binding_state(db, binding, previous, actor, job_id=None, now=now)
-        deactivate_binding_endpoints(db, binding.id, actor)
 
 
 def sync_inventory_servers(
@@ -128,13 +122,14 @@ def sync_inventory_servers(
                 server.webserver = host.webserver
             updated += changed
         ids[host.hostname] = server.id
-    deactivated = 0
-    for hostname, server in existing.items():
-        if hostname not in ids and server.is_active:
-            _deactivate_server(db, server, actor, now)
-            deactivated += 1
+    removed = [server for hostname, server in existing.items() if hostname not in ids and server.is_active]
+    for server in removed:
+        _deactivate_server(db, server, actor, now)
     db.flush()
-    return InventorySync(created, updated, deactivated, ids)
+    # after every removal: an endpoint an alias on a surviving server still derives changes owner instead of stopping
+    settle_endpoints(db, _owned_by(db, [server.id for server in removed]), actor)
+    db.flush()
+    return InventorySync(created, updated, len(removed), ids)
 
 
 def record_host_failure(db: Session, server_id: int, status: Literal["failed", "unreachable"], now: datetime) -> None:
@@ -145,6 +140,15 @@ def record_host_failure(db: Session, server_id: int, status: Literal["failed", "
     server.last_discovery_at = now
     server.last_discovery_status = status
     db.flush()
+
+
+def _owned_by(db: Session, server_ids: Sequence[int]) -> list[int]:
+    """Ids of the endpoints owned by these servers or linked to one of their bindings."""
+    if not server_ids:
+        return []
+    bindings = select(Binding.id).where(Binding.server_id.in_(server_ids))
+    query = select(Endpoint.id).where(or_(Endpoint.server_id.in_(server_ids), Endpoint.binding_id.in_(bindings)))
+    return list(db.scalars(query))
 
 
 # --- bindings ---------------------------------------------------------------------------------------
@@ -336,11 +340,7 @@ def reconcile_host(
             current[binding.id] = None  # an address that cannot be scanned (not a DNS name or IP literal): no endpoint
             continue
         endpoints_created += created
-        if previous is not None and not previous.is_active:
-            reactivate_binding_endpoints(db, binding.id, actor)
-        if state == "matched" and binding.certificate_id is not None:
-            expect_for_binding(db, binding.id, binding.certificate_id, actor)
-        elif state == "unknown" and previous is not None and previous.match_state != "unknown":
+        if state == "unknown" and previous is not None and previous.match_state != "unknown":
             # the certificate is no longer inventoried: the endpoint reports mismatch until one is set (§4.10).
             # Only on the transition, so an expectation an operator set on an unknown binding's endpoint survives.
             expect_for_binding(db, binding.id, None, actor)
@@ -353,10 +353,11 @@ def reconcile_host(
         binding.notes = f"removed from config at {_date(now)}"
         db.flush()
         audit_binding_state(db, binding, previous, actor, job_id=job, now=now)
-        deactivate_binding_endpoints(db, binding.id, actor)
         deactivated += 1
-    for identity in present:  # last, so heirs are judged on the final state of every binding
-        binding = existing[identity]
-        retire_stale_endpoints(db, binding, current[binding.id], actor)
+    db.flush()
+    # Last, once every binding is final: ownership, expectation and activity of every endpoint this host touches or
+    # owned (a removed binding, a changed address or server name) follow the bindings that derive it, across servers.
+    touched = {endpoint.id for endpoint in current.values() if endpoint is not None}
+    settle_endpoints(db, touched | set(_owned_by(db, [server_id])), actor, job_id=job)
     db.flush()
     return ReconcileOutcome(added, updated, deactivated, unchanged, endpoints_created, False)

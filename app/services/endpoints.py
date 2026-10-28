@@ -4,7 +4,7 @@ Every query joins what it shows (server, expected certificate, latest scan resul
 never changes the statement count; nothing here writes.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 
@@ -375,33 +375,30 @@ def _by_identity(db: Session, host: str, port: int, sni: str | None) -> Endpoint
 
 
 def _discovery_change(
-    db: Session, endpoint: Endpoint, field: str, previous: int | bool | None, value: int | bool | None, actor: Actor
+    db: Session,
+    endpoint: Endpoint,
+    field: str,
+    previous: int | bool | None,
+    value: int | bool | None,
+    actor: Actor,
+    **extra: JSONValue,
 ) -> None:
-    details: dict[str, JSONValue] = {"field": field, "from": previous, "to": value, "source": "discovery"}
+    details: dict[str, JSONValue] = {"field": field, "from": previous, "to": value, "source": "discovery", **extra}
     record(db, actor, "endpoint.update", "endpoint", str(endpoint.id), details)
-
-
-def _link(db: Session, endpoint: Endpoint, binding: Binding, actor: Actor) -> None:
-    previous = endpoint.binding_id
-    endpoint.binding_id = binding.id
-    endpoint.server_id = binding.server_id
-    _discovery_change(db, endpoint, "binding_id", previous, binding.id, actor)
 
 
 def ensure_binding_endpoint(db: Session, binding: Binding, server: Server, actor: Actor) -> tuple[Endpoint, bool]:
     """The endpoint of a binding's ``vhost_name:port`` and whether this call created it.
 
-    Bindings resolving to one identity share one endpoint, linked to the lowest active binding id. An existing
-    unlinked (manual) endpoint is adopted with its source kept; a link to an inactive or higher-id binding moves.
-    A new endpoint expects the binding's certificate when it is ``matched``. Raises ``EndpointInputError`` when
-    the host or port cannot be an endpoint.
+    Bindings of one or several servers resolving to one identity share one endpoint, which an existing manual
+    endpoint may already be (it keeps its source). A new endpoint starts owned by the binding and expecting its
+    certificate when it is ``matched``; who owns a shared endpoint is decided by ``settle_endpoints``, which the
+    caller runs once every binding of the document is final. Raises ``EndpointInputError`` when the host or port
+    cannot be an endpoint.
     """
     host, port, sni = _derived_identity(server, binding)
     existing = _by_identity(db, host, port, sni)
     if existing is not None:
-        owner = db.get(Binding, existing.binding_id) if existing.binding_id is not None else None
-        if owner is None or (owner.id != binding.id and (not owner.is_active or owner.id > binding.id)):
-            _link(db, existing, binding, actor)
         return existing, False
     endpoint = Endpoint(
         host=host,
@@ -453,87 +450,107 @@ def expect_for_binding(db: Session, binding_id: int, certificate_id: int | None,
     return len(owned)
 
 
-def reactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor) -> int:
-    """Scan again the endpoints a re-appearing binding owns (an operator's pause on a live binding is kept)."""
-    stopped = db.scalars(
-        select(Endpoint).where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(False)).order_by(Endpoint.id).with_for_update()
-    ).all()
-    for endpoint in stopped:
-        endpoint.is_active = True
-        _discovery_change(db, endpoint, "is_active", False, True, actor)
-    return len(stopped)
+type _Claim = tuple[Binding, Server]
 
 
-def _derives(server: Server, binding: Binding, endpoint: Endpoint) -> bool:
-    try:
-        host, port, sni = _derived_identity(server, binding)
-    except EndpointInputError:
-        return False
-    return (host, port, sni or host) == (endpoint.host, endpoint.port, endpoint.sni or endpoint.host)
+def _claims(db: Session, ports: set[int], ignored: int | None) -> dict[tuple[str, int, str], list[_Claim]]:
+    """Active bindings of active servers by the endpoint identity they derive, lowest server id first, then binding id."""
+    query = (
+        select(Binding, Server)
+        .join(Server, Server.id == Binding.server_id)
+        .where(Binding.is_active.is_(True), Server.is_active.is_(True), Binding.port.in_(ports))
+        .order_by(Server.id, Binding.id)
+    )
+    if ignored is not None:
+        query = query.where(Binding.id != ignored)
+    claims: dict[tuple[str, int, str], list[_Claim]] = {}
+    for binding, server in db.execute(query):
+        try:
+            host, port, sni = _derived_identity(server, binding)
+        except EndpointInputError:
+            continue  # an address that cannot be scanned derives nothing
+        claims.setdefault((host, port, sni or host), []).append((binding, server))
+    return claims
 
 
-def _hand_over(db: Session, endpoint: Endpoint, leaving: Binding, heir: Binding, actor: Actor) -> None:
-    """Link an endpoint to the binding inheriting it.
+def _transfer(db: Session, endpoint: Endpoint, owner: Binding, actor: Actor, job_id: str | None) -> None:
+    previous_server, previous_binding = endpoint.server_id, endpoint.binding_id
+    endpoint.server_id, endpoint.binding_id = owner.server_id, owner.id
+    if previous_server is not None and previous_server != owner.server_id:
+        _discovery_change(
+            db, endpoint, "server_id", previous_server, owner.server_id, actor,
+            binding_id=owner.id, previous_server_id=previous_server, new_server_id=owner.server_id,
+            reason="alias_ownership_transfer", job_id=job_id,
+        )  # fmt: skip
+    else:
+        extra: dict[str, JSONValue] = {} if previous_server is not None else {"server_id": owner.server_id}
+        _discovery_change(db, endpoint, "binding_id", previous_binding, owner.id, actor, **extra)
 
-    A ``matched`` heir brings its certificate expectation; an ``unknown`` heir clears the leaving binding's
-    certificate from it (any other expectation, e.g. an operator's, is kept).
+
+def _follow_owner(
+    db: Session, endpoint: Endpoint, owner: Binding, leaving: Binding | None, actor: Actor
+) -> None:
+    """The expectation follows the owner: a ``matched`` one brings its certificate, an ``unknown`` one inherits none.
+
+    Taking over from another binding, an ``unknown`` owner drops that binding's certificate (any other expectation,
+    e.g. an operator's, stays). Other states leave the expectation as it is.
     """
-    _link(db, endpoint, heir, actor)
     expected = endpoint.expected_certificate_id
-    if heir.match_state == "matched":
-        expected = heir.certificate_id
-    elif heir.match_state == "unknown" and expected is not None and expected == leaving.certificate_id:
+    if owner.match_state == "matched" and owner.certificate_id is not None:
+        expected = owner.certificate_id
+    elif owner.match_state == "unknown" and leaving is not None and expected is not None and expected == leaving.certificate_id:
         expected = None
     if endpoint.expected_certificate_id != expected:
         _discovery_change(db, endpoint, "expected_certificate_id", endpoint.expected_certificate_id, expected, actor)
         endpoint.expected_certificate_id = expected
 
 
-def _retire_owned(db: Session, binding: Binding, owned: Sequence[Endpoint], actor: Actor) -> int:
-    """Hand each owned endpoint to the lowest other active binding that still derives it, else deactivate it."""
-    if not owned:
+def settle_endpoints(
+    db: Session, endpoint_ids: Collection[int], actor: Actor, *, job_id: str | None = None, ignoring_binding: int | None = None
+) -> int:
+    """Make each endpoint's owner, expectation and activity follow the active bindings that derive it.
+
+    Ownership is a derived fact (operator decision on aliases): the owner is the binding of the lowest server id
+    among the active bindings deriving the endpoint's ``(host, port, sni)`` (lowest binding id within that server),
+    whatever order documents arrived in. A change of server is audited once as ``alias_ownership_transfer``. The
+    endpoint stays active while any binding derives it, and one nobody derives any more is deactivated, once.
+
+    A deactivated endpoint that an active binding derives is activated again (``rediscovered_derived``). Nothing
+    distinguishes an operator's pause from a reconciliation deactivation, so active derivation wins: one scan too
+    many beats one too few. ``ignoring_binding`` treats that binding as no longer deriving anything. Returns the
+    number of endpoints deactivated.
+    """
+    if not endpoint_ids:
         return 0
-    server = db.get(Server, binding.server_id)
-    siblings = db.scalars(
-        select(Binding)
-        .where(Binding.server_id == binding.server_id, Binding.is_active.is_(True), Binding.id != binding.id)
-        .order_by(Binding.id)
-    ).all()
+    endpoints = db.scalars(select(Endpoint).where(Endpoint.id.in_(endpoint_ids)).order_by(Endpoint.id).with_for_update()).all()
+    claims = _claims(db, {endpoint.port for endpoint in endpoints}, ignoring_binding)
     deactivated = 0
-    for endpoint in owned:
-        heir = next((item for item in siblings if server is not None and _derives(server, item, endpoint)), None)
-        if heir is not None:
-            _hand_over(db, endpoint, binding, heir, actor)
+    for endpoint in endpoints:
+        claimants = claims.get((endpoint.host, endpoint.port, endpoint.sni or endpoint.host), [])
+        if not claimants:
+            if endpoint.is_active:
+                endpoint.is_active = False
+                _discovery_change(db, endpoint, "is_active", True, False, actor, job_id=job_id)
+                deactivated += 1
             continue
-        endpoint.is_active = False
-        _discovery_change(db, endpoint, "is_active", True, False, actor)
-        deactivated += 1
+        owner = claimants[0][0]
+        if endpoint.binding_id != owner.id or endpoint.server_id != owner.server_id:
+            leaving = db.get(Binding, endpoint.binding_id) if endpoint.binding_id not in (None, owner.id) else None
+            _transfer(db, endpoint, owner, actor, job_id)
+            _follow_owner(db, endpoint, owner, leaving, actor)
+        elif owner.match_state == "matched":
+            _follow_owner(db, endpoint, owner, None, actor)
+        if not endpoint.is_active:
+            endpoint.is_active = True
+            _discovery_change(db, endpoint, "is_active", False, True, actor, reason="rediscovered_derived", job_id=job_id)
     return deactivated
 
 
-def _owned_active(db: Session, binding_id: int, *, besides: int | None = None) -> Sequence[Endpoint]:
-    query = select(Endpoint).where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(True))
-    if besides is not None:
-        query = query.where(Endpoint.id != besides)
-    return db.scalars(query.order_by(Endpoint.id).with_for_update()).all()
+def deactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor, *, job_id: str | None = None) -> int:
+    """Settle the active endpoints a binding owns as if it derived nothing any more.
 
-
-def deactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor) -> int:
-    """Deactivate the active endpoints a binding owns, except those another active binding still derives.
-
-    A shared endpoint moves to the lowest such binding (and expects its certificate when that binding is
-    ``matched``) instead. Returns the number deactivated; nothing is deleted.
+    One that another active binding (of any server) still derives is handed over and stays active; the others are
+    deactivated. Returns the number deactivated; nothing is deleted.
     """
-    binding = db.get(Binding, binding_id)
-    if binding is None:
-        return 0
-    return _retire_owned(db, binding, _owned_active(db, binding_id), actor)
-
-
-def retire_stale_endpoints(db: Session, binding: Binding, current: Endpoint | None, actor: Actor) -> int:
-    """After a binding's endpoint identity changed, retire the active endpoints it owns but no longer derives.
-
-    ``current`` is the endpoint the binding derives now (``None`` when its address cannot be scanned). Shared
-    endpoints move to the binding that still derives them; paused endpoints are left alone. Returns the number deactivated.
-    """
-    return _retire_owned(db, binding, _owned_active(db, binding.id, besides=current.id if current else None), actor)
+    owned = db.scalars(select(Endpoint.id).where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(True))).all()
+    return settle_endpoints(db, owned, actor, job_id=job_id, ignoring_binding=binding_id)

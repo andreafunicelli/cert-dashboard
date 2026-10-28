@@ -377,8 +377,10 @@ def test_one_certificate_query_per_host(db, actor, now, keyed_certificate):
     finally:
         event.remove(connection, "before_cursor_execute", capture)
     certificate_reads = [s for s in statements if "FROM certificate" in s]
-    binding_reads = [s for s in statements if "FROM binding" in s and "binding.server_id" in s]
+    binding_reads = [s for s in statements if "FROM binding" in s and "WHERE binding.server_id =" in s]
+    derivation_reads = [s for s in statements if "FROM binding JOIN server" in s]
     assert len(certificate_reads) == 2 and len(binding_reads) == 2  # one of each per host run
+    assert len(derivation_reads) == 2  # settling the endpoints is one query per run, not one per endpoint
 
 
 def test_reconcile_host_owns_no_commit_and_locks_the_server_row(db, actor, now):
@@ -561,3 +563,155 @@ def test_an_operator_expectation_on_an_unknown_bindings_endpoint_survives_redisc
     run(db, server, actor, now + timedelta(hours=1), entry)
     db.refresh(endpoint)
     assert endpoint.expected_certificate_id == keyed_certificate.id
+
+
+# --- aliases: one endpoint identity derived by several inventory servers (operator decision, review round 4) ---
+
+ALIAS = "192.0.2.50"
+ALIAS_SNI = "www.example.internal"
+
+
+def alias_servers(db):
+    first = add_server(db, "alias-a.example.internal", connection_address=ALIAS)
+    second = add_server(db, "alias-b.example.internal", connection_address=ALIAS)
+    return first, second
+
+
+def alias_endpoint(db):
+    return db.scalars(select(Endpoint).where(Endpoint.host == ALIAS)).one()
+
+
+def endpoint_events(db, endpoint, reason=None, field=None):
+    rows = db.scalars(
+        select(AuditLog).where(AuditLog.action == "endpoint.update", AuditLog.target_id == str(endpoint.id)).order_by(AuditLog.id)
+    )
+    return [
+        row.details for row in rows
+        if (reason is None or row.details.get("reason") == reason) and (field is None or row.details.get("field") == field)
+    ]
+
+
+def leave_inventory(db, actor, at, *remaining):
+    hosts = [InventoryHost(server.hostname, (), ALIAS, None) for server in remaining]
+    return sync_inventory_servers(db, hosts, "fixture", actor, at)
+
+
+def test_removing_the_owning_server_hands_a_still_derived_endpoint_to_the_other_server(db, actor, now):
+    first, second = alias_servers(db)
+    doc = binding_doc(ALIAS_SNI)
+    run(db, first, actor, now, doc)
+    run(db, second, actor, now, doc)
+    endpoint = alias_endpoint(db)
+    assert (endpoint.server_id, endpoint.is_active) == (first.id, True)
+    leave_inventory(db, actor, now + timedelta(days=1), second)
+    db.refresh(endpoint)
+    (heir,) = bindings_of(db, second.id)
+    assert (endpoint.is_active, endpoint.server_id, endpoint.binding_id) == (True, second.id, heir.id)
+    (transfer,) = endpoint_events(db, endpoint, reason="alias_ownership_transfer")
+    assert (transfer["previous_server_id"], transfer["new_server_id"]) == (first.id, second.id)
+    assert "job_id" in transfer
+    assert endpoint_events(db, endpoint, field="is_active") == []
+    run(db, second, actor, now + timedelta(days=2), doc)  # stable afterwards: no second transfer
+    assert len(endpoint_events(db, endpoint, reason="alias_ownership_transfer")) == 1
+
+
+def test_an_unknown_heir_of_a_removed_owner_leaves_the_endpoint_active_without_an_expectation(db, actor, now, ca, keyed_certificate):
+    stranger = issue_leaf(ca, now)  # never imported
+    first, second = alias_servers(db)
+    run(db, first, actor, now, binding_doc(ALIAS_SNI, fp=keyed_certificate.sha256_fingerprint, key=keyed_certificate.spki))
+    run(db, second, actor, now, binding_doc(ALIAS_SNI, fp=stranger.fingerprint, key=stranger.spki))
+    endpoint = alias_endpoint(db)
+    assert (endpoint.server_id, endpoint.expected_certificate_id) == (first.id, keyed_certificate.id)
+    leave_inventory(db, actor, now + timedelta(days=1), second)
+    db.refresh(endpoint)
+    assert (endpoint.is_active, endpoint.server_id, endpoint.expected_certificate_id) == (True, second.id, None)
+    assert expectation_changes(db, endpoint) == [(keyed_certificate.id, None)]
+    assert len(endpoint_events(db, endpoint, reason="alias_ownership_transfer")) == 1
+
+
+def test_removing_every_deriving_binding_deactivates_the_endpoint_once(db, actor, now):
+    first, second = alias_servers(db)
+    doc = binding_doc(ALIAS_SNI)
+    run(db, first, actor, now, doc)
+    run(db, second, actor, now, doc)
+    endpoint = alias_endpoint(db)
+    leave_inventory(db, actor, now + timedelta(days=1))
+    db.refresh(endpoint)
+    assert endpoint.is_active is False
+    assert [(e["from"], e["to"]) for e in endpoint_events(db, endpoint, field="is_active")] == [(True, False)]
+    assert endpoint_events(db, endpoint, reason="alias_ownership_transfer") == []
+
+
+def test_the_last_binding_of_the_remaining_server_going_away_deactivates_the_endpoint_once(db, actor, now):
+    first, second = alias_servers(db)
+    doc = binding_doc(ALIAS_SNI)
+    run(db, first, actor, now, doc)
+    run(db, second, actor, now, doc)
+    endpoint = alias_endpoint(db)
+    leave_inventory(db, actor, now + timedelta(days=1), second)
+    run(db, second, actor, now + timedelta(days=2), binding_doc("other.example.internal"))
+    db.refresh(endpoint)
+    assert endpoint.is_active is False
+    assert [(e["from"], e["to"]) for e in endpoint_events(db, endpoint, field="is_active")] == [(True, False)]
+    assert len(endpoint_events(db, endpoint, reason="alias_ownership_transfer")) == 1
+
+
+def test_a_retired_endpoint_derived_again_by_an_active_binding_is_reactivated_with_an_audit(db, actor, now):
+    server = add_server(db, HOST, connection_address="192.0.2.10")
+    doc = binding_doc("www.example.internal")
+    run(db, server, actor, now, doc)
+    (old,) = endpoints_of(db, server.id)
+    server.connection_address = "192.0.2.11"
+    db.flush()
+    run(db, server, actor, now + timedelta(hours=1), doc)
+    db.refresh(old)
+    assert old.is_active is False
+    server.connection_address = "192.0.2.10"  # the binding stays active throughout and derives the old identity again
+    db.flush()
+    run(db, server, actor, now + timedelta(hours=2), doc)
+    db.refresh(old)
+    (binding,) = bindings_of(db, server.id)
+    assert (old.is_active, old.binding_id) == (True, binding.id)
+    (back,) = endpoint_events(db, old, reason="rediscovered_derived")
+    assert (back["field"], back["from"], back["to"], back["job_id"]) == ("is_active", False, True, str(JOB_ID))
+    run(db, server, actor, now + timedelta(hours=3), doc)
+    assert len(endpoint_events(db, old, reason="rediscovered_derived")) == 1
+
+
+def test_active_derivation_wins_over_an_indistinguishable_operator_pause(db, actor, now):
+    # There is no field telling a pause from a reconciliation deactivation: scanning once too often beats once too few.
+    server = add_server(db, HOST)
+    doc = binding_doc("www.example.internal")
+    run(db, server, actor, now, doc)
+    (endpoint,) = endpoints_of(db, server.id)
+    set_endpoint_active(db, endpoint.id, False, actor)
+    run(db, server, actor, now + timedelta(hours=1), doc)
+    db.refresh(endpoint)
+    assert endpoint.is_active is True
+    assert len(endpoint_events(db, endpoint, reason="rediscovered_derived")) == 1
+
+
+@pytest.mark.parametrize("order", ["lower_server_first", "lower_server_last"])
+def test_the_owner_is_the_lowest_server_id_whatever_the_order_documents_arrive_in(db, actor, now, ca, keyring, keyed_certificate, order):
+    other = import_leaf(db, issue_leaf(ca, now), keyring, actor, now)
+    first, second = alias_servers(db)
+    low = binding_doc(ALIAS_SNI, fp=other.sha256_fingerprint, key=other.spki)
+    high = binding_doc(ALIAS_SNI, fp=keyed_certificate.sha256_fingerprint, key=keyed_certificate.spki)
+    sequence = [(first, low), (second, high)] if order == "lower_server_first" else [(second, high), (first, low)]
+    for index, (server, entry) in enumerate(sequence):
+        run(db, server, actor, now + timedelta(minutes=index), entry)
+    endpoint = alias_endpoint(db)
+    (low_binding,) = bindings_of(db, first.id)
+    assert (endpoint.is_active, endpoint.server_id, endpoint.binding_id) == (True, first.id, low_binding.id)
+    assert endpoint.expected_certificate_id == other.id  # the owner's certificate, never the other server's
+    transfers = endpoint_events(db, endpoint, reason="alias_ownership_transfer")
+    if order == "lower_server_first":
+        assert transfers == []
+    else:
+        (transfer,) = transfers
+        assert (transfer["previous_server_id"], transfer["new_server_id"], transfer["job_id"]) == (second.id, first.id, str(JOB_ID))
+    run(db, second, actor, now + timedelta(hours=1), high)  # re-running either side changes nothing
+    run(db, first, actor, now + timedelta(hours=1), low)
+    db.refresh(endpoint)
+    assert (endpoint.server_id, endpoint.expected_certificate_id) == (first.id, other.id)
+    assert len(endpoint_events(db, endpoint, reason="alias_ownership_transfer")) == len(transfers)
