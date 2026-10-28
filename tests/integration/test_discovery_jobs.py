@@ -410,6 +410,39 @@ def test_stub_host_removed_from_inventory_is_deactivated_and_not_discovered(stub
     assert [a.target_id for a in audits(world.factory, "server.deactivate")] == [str(removed.id)]
 
 
+def test_stub_an_empty_inventory_fails_as_transient_network_and_is_audited(stub_world):
+    world = stub_world
+    publish_inventory(world.repo, {})
+    world.clock.advance(minutes=5)  # past the 60 s no-op window of the checkout
+    job_id = enqueue_discovery(world.factory, {})
+    world.worker.run_queued(timeout=120)
+    job = job_of(world.factory, job_id)
+    assert (job.status, job.error_class, job.attempt) == (JobStatus.FAILED, "transient_network", 1)
+    assert world.stub.calls == [] and rows_of(world.factory, job_id) == {}
+    [run] = audits(world.factory, "discovery.run", job_id)
+    assert run.details["hosts"] == 0 and run.details["ok"] == 0
+
+
+def test_stub_an_inventory_hostname_starting_with_a_dash_never_reaches_the_run_limit(stub_world):
+    world = stub_world
+    unsafe = "-oProxyCommand"
+    hosts = {**world.hosts, unsafe: {}}
+    publish_inventory(world.repo, hosts, {"ring_a": [WEB02, unsafe]})
+    world.stub.outcomes[unsafe] = lambda host, now: ok_host(host, now, binding_doc(WWW))
+    world.clock.advance(minutes=5)
+
+    whole = enqueue_discovery(world.factory, {})
+    world.worker.run_queued(timeout=120)
+    assert world.stub.calls[-1].hosts == [WEB01, WEB02, WEB03]
+    assert unsafe not in rows_of(world.factory, whole)
+    assert job_state(world.factory, whole) == (JobStatus.SUCCEEDED, None)
+
+    enqueue_discovery(world.factory, {"groups": ["ring_a"]})
+    world.worker.run_queued(timeout=120)
+    assert world.stub.calls[-1].hosts == [WEB02]
+    assert all(not name.startswith("-") for call in world.stub.calls for name in call.hosts)
+
+
 def test_stub_a_crashing_run_leaves_no_running_row_behind(stub_world, monkeypatch):
     world = stub_world
 

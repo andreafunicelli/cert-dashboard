@@ -16,7 +16,6 @@ only *selects* inventory hosts (by exact name or group membership), so a name ca
 """
 
 import logging
-import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -24,7 +23,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.ansible.discovery import HostDiscovery, discover_hosts
+from app.ansible.discovery import HostDiscovery, discover_hosts, is_safe_name
 from app.ansible.runner import build_env
 from app.jobs.handlers.ansible_context import AnsibleJob, LockBusy, ansible_job
 from app.jobs.queue import RETRY_POLICY, SYSTEM_ACTOR, JobFailure, JobRequeued, enqueue
@@ -50,7 +49,6 @@ MAX_GROUPS = 50
 LOCK_RETRY_DELAY = timedelta(seconds=30)
 RUN_ACTION = "discovery.run"
 
-_NAME = re.compile(r"[A-Za-z0-9_.-]{1,253}")
 _KEYS = frozenset({"hosts", "groups"})
 _EXCERPT_LIMIT = 4000
 
@@ -80,7 +78,7 @@ def _names(value: object, limit: int) -> list[JSONValue]:
     if not isinstance(value, list) or not 1 <= len(value) <= limit:
         raise ValueError(f"expected 1-{limit} names")
     for name in value:
-        if not isinstance(name, str) or not _NAME.fullmatch(name) or name.startswith("-") or name in {".", ".."}:
+        if not is_safe_name(name):
             raise ValueError("invalid name")
     if len(set(value)) != len(value):
         raise ValueError("duplicate names")
@@ -174,10 +172,10 @@ def _discover(context: JobContext, payload: Mapping[str, JSONValue], job: Ansibl
         raise JobFailure(
             "transient_network", f"{summary.unreachable} of {summary.total} hosts unreachable; retrying them", retryable=True
         )
-    if summary.total and not summary.ok:
+    if not summary.ok:  # nothing discovered, an empty (or wholly unusable) inventory included
         if summary.auth:
             raise JobFailure("auth", f"{_AUTH_TEXT} ({summary.auth} of {summary.total} hosts)")
-        raise JobFailure("transient_network", f"no host could be discovered ({summary.total} failed)")
+        raise JobFailure("transient_network", f"no host could be discovered ({summary.total} in scope)")
     return {**revision_result(job.revision), **totals}
 
 
@@ -188,7 +186,9 @@ def _scope(
     context: JobContext, payload: Mapping[str, JSONValue], inventory: Sequence[InventoryHost], *, retry_only: bool
 ) -> list[InventoryHost]:
     """Inventory hosts to discover, in inventory order; on a retry only this job's still-unreachable rows."""
-    usable = [host for host in inventory if _NAME.fullmatch(host.hostname) and host.hostname not in {".", ".."}]
+    # Only names that pass the payload's own predicate may reach ``--limit``; any other inventory host (a leading
+    # ``-`` could be read as an option) is still synced as a server but is never discovered.
+    usable = [host for host in inventory if is_safe_name(host.hostname)]
     if retry_only:
         with context.factory() as db:
             wanted = set(
