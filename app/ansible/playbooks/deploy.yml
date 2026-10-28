@@ -10,6 +10,7 @@
 #
 # Extra-vars (paths and a JSON document only, never key content — Contract decisions 6 and 17):
 #   job_id, backup_root, backup_retention_days, space_required_bytes,
+#   openssl_bin / sha256sum_bin (the two preflight binaries, resolved on the controller),
 #   cert_pem_path / chain_pem_path / fullchain_pem_path (public, artifact dir), key_pem_path (tmpfs staging),
 #   webservers (host -> nginx|apache), files ([{path, kind, source}]), targets ([{binding_id, cert_path,
 #   chain_path, key_path, expected_fingerprint, new_fingerprint, port, sni}]).

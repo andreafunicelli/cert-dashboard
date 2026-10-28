@@ -4,6 +4,11 @@ This module is the worker-side half of ``deploy.yml``. It stages the new materia
 artifact directory, the decrypted private key only in the tmpfs staging area (Contract decision 6) — runs
 the playbook once per host and maps the run to Contract decision 18.
 
+The two binaries the leaf/key preflight hashes with are resolved here, with ``shutil.which``, and handed to
+the playbook as absolute paths: a deploy preflight must not depend on whatever ``PATH`` a worker inherits,
+and a missing binary is an ``internal``/``preflight_tool_missing`` outcome *before* any run — never a
+``key_mismatch_preflight``.
+
 The mapping is deliberately strict: ``succeeded`` needs ``step == "verified"`` evidence carrying the new
 fingerprint for *every* target binding. Task 14's playbook stops after the backup, so a run of it ends
 ``failed``/``internal`` ("deploy playbook ended before verification") with nothing changed outside
@@ -14,6 +19,7 @@ from __future__ import annotations
 
 import os
 import posixpath
+import shutil
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,6 +58,11 @@ INTERNAL_TEXT = "deploy playbook ended before verification"
 # A killed run cannot be inspected: it may have replaced any file it had reached (Contract decision 18).
 TIMEOUT_ROLLBACK_ERROR = "run timed out; files may be partially written"
 LOG_EXCERPT_LIMIT = 8000
+# The two binaries the leaf/key preflight pipeline needs. They are resolved here, on the controller, and
+# handed to the playbook as paths: a deploy preflight must not depend on whatever PATH a worker happens to
+# inherit, and a missing binary must read as `internal`, never as "the key does not match" (D2 contract).
+PREFLIGHT_TOOLS = ("openssl", "sha256sum")
+TOOL_MISSING_PREFIX = "preflight_tool_missing"
 
 # ``<reason>: <fixed text>`` is the stored ``job_host.error_message`` (§4.11, Contract decision 18). The
 # texts are fixed here — never taken from the host — so an operator-facing message cannot carry target
@@ -104,6 +115,32 @@ def failure(reason: str, *, detail: str | None = None, step: str = "") -> HostOu
     )
 
 
+def _which(name: str) -> str | None:
+    """Resolve one preflight binary on the controller; the unit tests replace this seam."""
+    return shutil.which(name)
+
+
+def _tool_missing(name: str) -> HostOutcome:
+    """A missing preflight binary: an environment failure, never a key mismatch, and no Ansible run."""
+    return HostOutcome(
+        "failed",
+        "internal",
+        f"{TOOL_MISSING_PREFIX}: {name}",
+        precheck={"step": "preflight", "reason": "internal", "missing_tool": name},
+    )
+
+
+def _preflight_tools() -> tuple[dict[str, str], HostOutcome | None]:
+    """Resolve every binary the preflight hashes with, or say which one is absent."""
+    tools: dict[str, str] = {}
+    for name in PREFLIGHT_TOOLS:
+        path = _which(name)
+        if path is None:
+            return tools, _tool_missing(name)
+        tools[name] = path
+    return tools, None
+
+
 def _message(reason: str) -> str:
     return f"{reason}: {REASON_TEXT[reason]}"
 
@@ -130,6 +167,29 @@ def _targets(published: Mapping[str, JSONValue], targets: Sequence[DeployTarget]
 def _verify(published: Mapping[str, JSONValue]) -> dict[str, JSONValue] | None:
     value = published.get("verify")
     return dict(value) if isinstance(value, Mapping) else None
+
+
+def _hash_rc(published: Mapping[str, JSONValue]) -> list[int]:
+    """The two pipeline exit codes the playbook publishes, as integers (empty when unreadable)."""
+    value = published.get("hash_rc")
+    if not isinstance(value, (list, tuple)) or len(value) != 2:
+        return []
+    codes: list[int] = []
+    for item in value:
+        if isinstance(item, bool) or not isinstance(item, (int, str)):
+            return []
+        try:
+            codes.append(int(item))
+        except ValueError:
+            return []
+    return codes
+
+
+def _hash_diagnosis(published: Mapping[str, JSONValue]) -> str:
+    """``internal`` text for a hash pipeline that never produced a comparable pair (public side only)."""
+    stderr = published.get("hash_stderr")
+    detail = f" ({stderr})" if isinstance(stderr, str) and stderr else ""
+    return f"preflight hash pipeline failed: hash_rc={_hash_rc(published)}{detail}"
 
 
 def _excerpt(*texts: str) -> str:
@@ -162,11 +222,12 @@ class _Evidence:
         *,
         rolled_back: bool = False,
         rollback_error: str | None = None,
+        message: str | None = None,
     ) -> HostOutcome:
         return HostOutcome(
             status=status,
             reason=reason,
-            message=_message(reason) if reason else None,
+            message=message if message is not None else (_message(reason) if reason else None),
             rolled_back=rolled_back,
             rollback_error=rollback_error,
             targets=self.targets,
@@ -206,6 +267,11 @@ def parse_host_result(hostname: str, outcome: RunOutcome, targets: Sequence[Depl
     if rollback_error is not None:
         # A failed rollback is never a clean restore, whatever else the host published.
         return evidence.outcome("failed", code, rollback_error=rollback_error)
+    if code == "key_mismatch_preflight" and _hash_rc(published) != [0, 0]:
+        # A pipeline that did not run compared nothing: this is an environment failure, never a mismatch.
+        return evidence.outcome(
+            "failed", "internal", message=f"internal: {_hash_diagnosis(published)}"
+        )
     if reason is not None:
         restored = bool(published.get("rolled_back")) and step != "rollback_failed"
         if restored:
@@ -303,6 +369,7 @@ def _extravars(
     webserver: WebserverType,
     targets: Sequence[DeployTarget],
     material: StagedMaterial,
+    tools: Mapping[str, str],
     *,
     job_id: UUID,
     retention_days: int,
@@ -326,6 +393,8 @@ def _extravars(
         "backup_root": BACKUP_ROOT,
         "backup_retention_days": retention_days,
         "space_required_bytes": 2 * written + SPACE_MARGIN,
+        "openssl_bin": tools["openssl"],
+        "sha256sum_bin": tools["sha256sum"],
         "cert_pem_path": str(material.cert_pem),
         "chain_pem_path": str(material.chain_pem),
         "fullchain_pem_path": str(material.fullchain_pem),
@@ -356,9 +425,13 @@ def run_host_deploy(
     for item in targets:
         if not all(_safe(path) for path in (item.cert_path, item.chain_path, item.key_path)):
             return failure("internal", detail="invalid target path")
+    tools, missing = _preflight_tools()
+    if missing is not None:
+        # An absent binary costs no run and no backup directory: it is an environment failure.
+        return missing
     try:
         extravars = _extravars(
-            hostname, webserver, targets, material, job_id=job_id, retention_days=retention_days
+            hostname, webserver, targets, material, tools, job_id=job_id, retention_days=retention_days
         )
     except FileConflict:
         return failure("file_conflict")

@@ -158,11 +158,15 @@
   when: deploy_reason == '' and baseline_config.rc | default(1) | int != 0
 
 - name: Hash the public key of the new leaf
-  ansible.builtin.shell: "set -o pipefail; openssl x509 -in {{ cert_pem_path | quote }} -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum"
+  ansible.builtin.shell: >-
+    set -o pipefail; {{ openssl_bin | default('openssl') }} x509 -in {{ cert_pem_path | quote }}
+    -pubkey -noout | {{ openssl_bin | default('openssl') }} pkey -pubin -outform DER
+    | {{ sha256sum_bin | default('sha256sum') }}
   args:
     executable: /bin/bash
   environment:
-    # Never inherit whatever PATH the worker happens to have: the preflight needs the system tools.
+    # Belt and braces: the two binaries themselves are resolved by run_host_deploy and passed as
+    # absolute paths (`openssl_bin` / `sha256sum_bin`), so the pipeline never depends on this PATH.
     PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   connection: local
   become: false
@@ -174,7 +178,9 @@
   when: deploy_reason == ''
 
 - name: Hash the public key of the new private key
-  ansible.builtin.shell: "set -o pipefail; openssl pkey -in {{ key_pem_path | quote }} -passin pass: -pubout -outform DER | sha256sum"
+  ansible.builtin.shell: >-
+    set -o pipefail; {{ openssl_bin | default('openssl') }} pkey -in {{ key_pem_path | quote }}
+    -passin pass: -pubout -outform DER | {{ sha256sum_bin | default('sha256sum') }}
   args:
     executable: /bin/bash
   environment:

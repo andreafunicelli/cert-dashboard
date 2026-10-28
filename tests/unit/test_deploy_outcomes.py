@@ -8,6 +8,7 @@ new fingerprint for *every* target binding is a success, so a playbook that stop
 task's) can never be recorded as one.
 """
 
+import shutil
 from uuid import UUID
 
 import pytest
@@ -80,10 +81,45 @@ def test_every_preflight_and_backup_reason_is_reported_verbatim():
         "key_mismatch_preflight",
         "backup_failed",
     ):
-        outcome = parse_host_result(HOST, recorded({"step": "preflight", "reason": reason}), [target()])
+        # A key mismatch is only evidence when both DER pipelines actually ran and produced hex (D2).
+        published = {"step": "preflight", "reason": reason, "hash_rc": [0, 0]}
+        outcome = parse_host_result(HOST, recorded(published), [target()])
         assert (outcome.status, outcome.reason) == ("failed", reason)
         assert outcome.message == f"{reason}: {REASON_TEXT[reason]}"
         assert outcome.rolled_back is False and outcome.rollback_error is None
+
+
+def test_a_key_mismatch_needs_both_pipelines_to_have_succeeded():
+    published = {
+        "step": "preflight",
+        "reason": "key_mismatch_preflight",
+        "hash_rc": [0, 0],
+        "hash_stderr": "",
+    }
+    outcome = parse_host_result(HOST, recorded(published), [target()])
+
+    assert (outcome.status, outcome.reason) == ("failed", "key_mismatch_preflight")
+    assert outcome.message == f"key_mismatch_preflight: {REASON_TEXT['key_mismatch_preflight']}"
+
+
+def test_a_failed_hash_pipeline_is_internal_and_carries_its_diagnostics():
+    # rc 127 is "command not found": the pipelines never compared two hashes, so this must never be
+    # reported as a key mismatch. The message keeps the exit codes and the public-side stderr so the
+    # operator does not need a second run to read the cause.
+    published = {
+        "step": "preflight",
+        "reason": "key_mismatch_preflight",
+        "hash_rc": [127, 127],
+        "hash_stderr": "openssl: command not found",
+    }
+    outcome = parse_host_result(HOST, recorded(published), [target()])
+
+    assert (outcome.status, outcome.reason) == ("failed", "internal")
+    message = outcome.message or ""
+    assert "hash_rc=[127, 127]" in message
+    assert "openssl: command not found" in message
+    assert outcome.precheck["reason"] == "key_mismatch_preflight"  # kept as evidence
+
 
 
 def test_every_write_step_reason_is_reported_verbatim_when_the_rollback_did_not_run():
@@ -190,7 +226,8 @@ def test_an_unknown_reason_never_leaks_into_the_outcome():
 @pytest.mark.parametrize("reason", sorted(REASON_TEXT))
 def test_every_reason_of_the_contract_round_trips_as_reason_colon_fixed_text(reason):
     # Contract decision 18 fixes the vocabulary and the "<reason>: <fixed text>" shape of error_message.
-    outcome = parse_host_result(HOST, recorded({"step": "preflight", "reason": reason}), [target()])
+    published = {"step": "preflight", "reason": reason, "hash_rc": [0, 0]}
+    outcome = parse_host_result(HOST, recorded(published), [target()])
     assert (outcome.status, outcome.reason) == ("failed", reason)
     assert outcome.message == f"{reason}: {REASON_TEXT[reason]}"
     assert outcome.message.split(": ", 1)[1] == REASON_TEXT[reason]
@@ -417,6 +454,8 @@ def test_run_host_deploy_passes_paths_and_json_targets_only(tmp_path, monkeypatc
         "fullchain_pem_path",
         "job_id",
         "key_pem_path",
+        "openssl_bin",
+        "sha256sum_bin",
         "space_required_bytes",
         "targets",
         "webservers",
@@ -440,6 +479,9 @@ def test_run_host_deploy_passes_paths_and_json_targets_only(tmp_path, monkeypatc
         "sni": "www.example.internal",
     }
     assert extra["space_required_bytes"] == 2 * written + 10 * 1024 * 1024
+    # the preflight binaries are resolved on the controller, never left to an inherited PATH
+    assert extra["openssl_bin"] == shutil.which("openssl")
+    assert extra["sha256sum_bin"] == shutil.which("sha256sum")
     # nothing secret in the extra-vars
     assert "PRIVATE KEY" not in repr(extra)
     assert context.artifact_dir == tmp_path / "artifacts"
@@ -471,3 +513,33 @@ def test_run_host_deploy_refuses_a_target_path_outside_a_normalized_absolute_pat
     assert (outcome.status, outcome.reason) == ("failed", "internal")
     assert outcome.message == "internal: invalid target path"
     assert calls == []
+
+
+@pytest.mark.parametrize("missing", ["openssl", "sha256sum"])
+def test_run_host_deploy_reports_a_missing_preflight_tool_without_running_ansible(
+    tmp_path, monkeypatch, missing
+):
+    # An absent binary is an environment failure, never a key mismatch: the run does not start and no
+    # backup directory is created (the architect's contract for the D2 preflight).
+    from app.ansible import deploy as deploy_module
+
+    calls = []
+    monkeypatch.setattr("app.ansible.deploy.run_playbook", lambda *a, **k: calls.append(a))
+    real = deploy_module._which
+    monkeypatch.setattr(
+        "app.ansible.deploy._which", lambda name: None if name == missing else real(name)
+    )
+    staging, staged = fake_material(tmp_path)
+    try:
+        outcome = run_host_deploy(
+            runner_context(tmp_path), HOST, "nginx", [target()], staged, job_id=JOB_ID,
+            retention_days=30, timeout_seconds=600,
+        )  # fmt: skip
+    finally:
+        staging.__exit__(None, None, None)
+
+    assert (outcome.status, outcome.reason) == ("failed", "internal")
+    assert outcome.message == f"preflight_tool_missing: {missing}"
+    assert outcome.precheck["step"] == "preflight"
+    assert calls == []
+    assert not (tmp_path / "run").exists()

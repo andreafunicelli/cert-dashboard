@@ -26,7 +26,8 @@ def describe(outcome) -> str:
     return (
         f"status={outcome.status} reason={outcome.reason} message={outcome.message} "
         f"step={outcome.precheck.get('step')} failed_task={outcome.precheck.get('failed_task')} "
-        f"hash_rc={outcome.precheck.get('hash_rc')} backup_dir={outcome.backup_dir}\n"
+        f"hash_rc={outcome.precheck.get('hash_rc')} "
+        f"hash_stderr={outcome.precheck.get('hash_stderr')!r} backup_dir={outcome.backup_dir}\n"
         f"{outcome.log_excerpt[-2500:]}"
     )
 

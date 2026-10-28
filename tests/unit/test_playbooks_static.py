@@ -311,24 +311,37 @@ def test_deploy_only_ever_marks_the_steps_it_performs(deploy_tasks):
     assert set(assignments) == {"preflight", "backed_up"}
 
 
-def test_deploy_preflight_hashes_both_sides_of_the_key_match_in_der(deploy_tasks):
-    hashes = [task for task in deploy_tasks if "-outform DER" in yaml.safe_dump(task)]
-    assert len(hashes) == 2
-    [cert_task] = [t for t in hashes if "openssl x509" in yaml.safe_dump(t)]
-    [key_task] = [t for t in hashes if "openssl x509" not in yaml.safe_dump(t)]
+# The two preflight binaries are resolved on the controller (run_host_deploy's `shutil.which`) and passed
+# as extra-vars: the playbook must never depend on an inherited PATH, and a manual run keeps the defaults.
+OPENSSL_BIN = "{{ openssl_bin | default('openssl') }}"
+SHA256SUM_BIN = "{{ sha256sum_bin | default('sha256sum') }}"
 
+
+def with_resolved_tools(command: str) -> str:
+    """Task 8A's pipeline with its two binaries replaced by the resolved extra-vars."""
+    return command.replace("openssl", OPENSSL_BIN).replace("sha256sum", SHA256SUM_BIN)
+
+
+def test_deploy_preflight_hashes_both_sides_of_the_key_match_in_der(deploy_tasks):
     def command_of(task):
         raw = task["ansible.builtin.shell"]
         return (raw if isinstance(raw, str) else raw["cmd"]).strip()
 
-    # one source of truth: each line is Task 8A's D2 template with the staged path in place of {path}
-    assert command_of(cert_task) == "set -o pipefail; " + CERT_KEY_HASH_COMMAND.format(
-        path="{{ cert_pem_path | quote }}"
+    hashes = [task for task in deploy_tasks if "-outform DER" in yaml.safe_dump(task)]
+    assert len(hashes) == 2
+    [cert_task] = [t for t in hashes if " x509 " in command_of(t)]
+    [key_task] = [t for t in hashes if " x509 " not in command_of(t)]
+
+    # one source of truth: each line is Task 8A's D2 template with the staged path in place of {path} and
+    # the two binaries resolved instead of inherited from PATH
+    assert command_of(cert_task) == with_resolved_tools(
+        "set -o pipefail; " + CERT_KEY_HASH_COMMAND.format(path="{{ cert_pem_path | quote }}")
     )
-    assert command_of(key_task) == "set -o pipefail; " + KEY_HASH_COMMAND.format(
-        path="{{ key_pem_path | quote }}"
+    assert command_of(key_task) == with_resolved_tools(
+        "set -o pipefail; " + KEY_HASH_COMMAND.format(path="{{ key_pem_path | quote }}")
     )
     for task in hashes:
+        command = command_of(task)
         # the staged material lives on the worker: the hashes are computed there, without delegate_to
         assert task["connection"] == "local", f"{label(task)} must run on the controller"
         assert task["become"] is False, f"{label(task)} must not become root on the controller"
@@ -336,6 +349,14 @@ def test_deploy_preflight_hashes_both_sides_of_the_key_match_in_der(deploy_tasks
         assert task["timeout"] == 60 and task.get("no_log") is True, f"{label(task)} must be bounded and censored"
         assert task.get("changed_when") is False and task.get("failed_when") is False
         assert task["register"] in {"new_leaf_key_hash", "new_key_key_hash"}
+        # D2: the identity is SHA-256 of the DER SubjectPublicKeyInfo on both sides
+        assert "-outform DER" in command
+        # neither binary may be invoked bare, and no other binary may be named
+        assert OPENSSL_BIN in command and SHA256SUM_BIN in command
+        assert "openssl" not in command.replace(OPENSSL_BIN, "").replace(SHA256SUM_BIN, "")
+    # the private key is unencrypted in the tmpfs staging area, and its hash task stays censored
+    assert "-passin pass:" in command_of(key_task)
+    assert key_task["no_log"] is True and cert_task["no_log"] is True
 
 
 def test_deploy_compares_the_two_hashes_as_lowercase_hex(deploy_tasks):
