@@ -21,6 +21,7 @@
   </details>{% endif %}
 </header>
 {% block status_banner %}{% if status_banner %}<aside role="status">{{ status_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}{% if request is defined and request.state.worker_stale %}<aside role="status" class="banner-critical" data-banner="worker">Worker is not running (last heartbeat > 5 minutes) <a href="/settings?tab=status">Details</a></aside>{% endif %}{% endblock %}
+{% block capability_banner %}{% if capability_banner is defined and capability_banner %}<aside role="alert" class="banner-critical" data-banner="capability">{{ capability_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}{% endblock %}
 {% if flash is defined and flash %}<aside role="status" class="notice" data-banner="flash"><p>Notes on the last action:</p><ul>{% for note in flash %}<li>{{ note }}</li>{% endfor %}</ul></aside>{% endif %}
 <main>{% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}

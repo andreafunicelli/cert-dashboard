@@ -11,6 +11,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from sqlalchemy import select
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
@@ -18,7 +19,7 @@ from app.auth.local import PasswordChangeError, reauthenticate
 from app.crypto.chain import ChainError, fullchain_pem
 from app.crypto.parse import MAX_INPUT_BYTES
 from app.jobs.queue import enqueue
-from app.models import Certificate, Job, PrivateKey
+from app.models import Binding, Certificate, Job, PrivateKey, Server
 from app.models.enums import CertificateStatus, JobStatus, JobType, RenewalState
 from app.services.certificates import (
     EXPIRY_BUCKETS,
@@ -166,6 +167,37 @@ def _page(request: Request, status: int = 200, *, block: str = "upload_panel", *
     scope = {"request": request, "user": request.state.user, **context}
     html = "".join(template.blocks[block](template.new_context(scope)))
     return HTMLResponse(html, status, headers={"Cache-Control": "no-store"})
+
+
+def _binding_hint(request: Request) -> dict:
+    """Context for ``?from_binding=<id>``: the binding the operator wants to import the certificate of.
+
+    Only the owner notes are pre-filled (matching happens at the next discovery); an unknown, retired or
+    malformed id is ignored and the plain form is shown.
+    """
+    raw = request.query_params.get("from_binding", "")
+    if not (raw.isascii() and raw.isdigit() and 0 < int(raw) < 2**31):
+        return {}
+    with request.app.state.factory() as db:
+        row = db.execute(
+            select(Binding, Server.hostname)
+            .join(Server, Server.id == Binding.server_id)
+            .where(Binding.id == int(raw), Binding.is_active)
+        ).first()
+    if row is None:
+        return {}
+    binding, hostname = row
+    hint = {
+        "server": hostname,
+        "vhost": binding.vhost_name,
+        "port": binding.port,
+        "fingerprint": binding.on_disk_fingerprint,
+    }
+    notes = f"Found on {hostname} ({binding.vhost_name}:{binding.port})"
+    if binding.on_disk_fingerprint:
+        notes += f"; on-disk SHA-256 {binding.on_disk_fingerprint}"
+    form = {"format": "pem", **dict.fromkeys(_METADATA_FIELDS, ""), "notes": notes}
+    return {"form": form, "from_binding": hint}
 
 
 def _failure(
@@ -942,7 +974,7 @@ def register_certificate_routes(app: FastAPI) -> None:
         # The Scans mismatch page links here with the endpoint's host, port and SNI prefilled.
         target = {name: request.query_params.get(name, "")[:300] for name in ("host", "port", "sni")}
         if not target["host"]:
-            return _page(request)
+            return _page(request, **_binding_hint(request))
         blank = dict.fromkeys(_METADATA_FIELDS, "")
         return _page(request, pull_form={**blank, **target, "port": target["port"] or "443"})
 

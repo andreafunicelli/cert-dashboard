@@ -22,18 +22,25 @@
   <h2>Actions</h2>
   {% if discovery_reason %}
   <button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
-  <button type="button" disabled title="{{ discovery_reason }}">Last raw dump summary</button>
   <p class="hint">{{ discovery_reason }}</p>
-  {% else %}
-  {% if server.is_active %}<form class="inline" method="post" action="/servers/{{ server.id }}/discover">
+  {% elif server.is_active %}
+  <form class="inline" method="post" action="/servers/{{ server.id }}/discover">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit">Run discovery</button>
   </form>
-  {% else %}<button type="button" disabled title="Inactive servers are not discovered">Run discovery</button>{% endif %}
-  <button type="button" disabled title="The raw dump summary arrives with the discovery screens">Last raw dump summary</button>
+  {% else %}
+  <button type="button" disabled title="Inactive servers are not discovered">Run discovery</button>
   {% endif %}
+  <p><a href="/servers/{{ server.id }}/dump">Last raw dump summary</a></p>
   <p><a href="/scans?server_id={{ server.id }}">Open endpoint scan</a></p>
 </section>
+
+{% if detail.dump_summary and detail.dump_summary.parse_suspected %}
+<section class="panel wide" data-warning="parse-suspected" role="alert" aria-label="Review needed">
+  <h2>Review needed: no bindings found</h2>
+  <p>This host had bindings before, but its last discovery found none, so its bindings were kept and not deactivated. The web server configuration may have moved or could not be read. Check the host, <a href="/servers/{{ server.id }}/dump">review the raw dump summary</a> and run discovery again.</p>
+</section>
+{% endif %}
 
 <section class="panel wide" id="bindings-panel">
   <h2>Bindings</h2>
@@ -54,7 +61,10 @@
       <td><span class="badge {{ 'badge-revoked' if b.match_state in ('key_mismatch', 'missing_file') else ('badge-ok' if b.match_state == 'matched' else 'badge-superseded') }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</span>
         {% if b.match_state == "key_mismatch" %}<br><small>The key at the configured path does not belong to this certificate. <a href="/bindings/help">How to fix it</a></small>
         {% elif b.match_state == "missing_file" %}<br><small>The certificate file is missing or unreadable. <a href="/bindings/help">How to fix it</a></small>{% endif %}
-        <br><small>seen {{ time_tag(b.last_seen_at, tz) }}</small></td>
+        <br><small>seen {{ time_tag(b.last_seen_at, tz) }}</small>
+        {% if b.stale %}<br><span class="chip chip-warning" data-stale="true" title="The last discovery of this server did not succeed">stale since {{ time_tag(b.last_seen_at, tz) }}</span>{% endif %}
+        {% if b.notes %}<br><small class="binding-note">{{ b.notes }}</small>{% endif %}
+        {% if b.match_state == "unknown" and b.is_active %}<br><a href="/certificates/import?from_binding={{ b.id }}">Import as certificate</a>{% endif %}</td>
     </tr>
     {% endfor %}
     </tbody>

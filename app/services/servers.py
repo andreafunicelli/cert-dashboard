@@ -22,6 +22,10 @@ EXPORT_LIMIT = 5000
 HISTORY_LIMIT = 20
 ATTENTION_STATES = ("key_mismatch", "missing_file")
 _ERROR_CHARS = 300
+_NOTE_CHARS = 500
+_SUMMARY_FILES = 200
+_SUMMARY_TEXT_CHARS = 500
+UNKNOWN_LIMIT = 10
 
 _bindings = (
     select(
@@ -116,6 +120,8 @@ class BindingRow:
     match_state: str
     last_seen_at: datetime
     is_active: bool
+    notes: str | None = None  # fixed discovery texts (chain diagnostics, missing files); never in the export
+    stale: bool = False  # derived (spec 6.3): active, and its server's last discovery did not end ``ok``
 
 
 # Public metadata only: no free-text notes, no key material (only the key's public hash is stored).
@@ -167,6 +173,21 @@ class DiscoveryRun:
 
 
 @dataclass(frozen=True)
+class DumpSummary:
+    """The facts a discovery recorded about one raw dump (spec 6.2); never the dump text itself."""
+
+    job_id: str
+    collected_at: datetime | None
+    webserver: str | None
+    config_files: tuple[str, ...]
+    bindings: int
+    warnings: tuple[str, ...]
+    parse_suspected: bool
+    dump_bytes: int | None
+    dump_sha256: str | None
+
+
+@dataclass(frozen=True)
 class ServerDetail:
     server: ServerRow
     connection_address: str | None
@@ -175,6 +196,7 @@ class ServerDetail:
     bindings: list[BindingRow]
     discovery_history: list[DiscoveryRun]
     endpoint_count: int
+    dump_summary: DumpSummary | None = None
 
 
 def _query(filters: ServerFilters):
@@ -241,13 +263,15 @@ def _octal(mode: int | None) -> str | None:
 def binding_query():
     """Bindings with their server name and matched certificate; shared by the cross-server view."""
     return (
-        select(Binding, Server.hostname, Certificate.common_name)
+        select(Binding, Server.hostname, Certificate.common_name, Server.last_discovery_status)
         .join(Server, Server.id == Binding.server_id)
         .outerjoin(Certificate, Certificate.id == Binding.certificate_id)
     )
 
 
-def binding_row(binding: Binding, server: str, certificate_common_name: str | None) -> BindingRow:
+def binding_row(
+    binding: Binding, server: str, certificate_common_name: str | None, discovery_status: str | None = "ok"
+) -> BindingRow:
     return BindingRow(
         id=binding.id,
         server_id=binding.server_id,
@@ -273,6 +297,8 @@ def binding_row(binding: Binding, server: str, certificate_common_name: str | No
         match_state=binding.match_state,
         last_seen_at=binding.last_seen_at,
         is_active=bool(binding.is_active),
+        notes=str(redact(binding.notes))[:_NOTE_CHARS] if binding.notes else None,
+        stale=bool(binding.is_active) and discovery_status != "ok",
     )
 
 
@@ -363,6 +389,63 @@ def _history(db: Session, server_id: int) -> list[DiscoveryRun]:
     ]
 
 
+def _text_items(value: object, limit: int) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(str(redact(item))[:_SUMMARY_TEXT_CHARS] for item in value[:limit] if isinstance(item, str))
+
+
+def _int_or_none(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def last_dump_summary(db: Session, server_id: int) -> DumpSummary | None:
+    """The newest discover ``job_host.precheck`` of the server that recorded a captured dump, as a summary.
+
+    The raw dump lives under the worker's artifact directory, which the web process never mounts or reads;
+    ``precheck`` holds only the facts about it (files, counts, size, SHA-256).
+    """
+    row = db.execute(
+        select(JobHost.job_id, JobHost.precheck, func.coalesce(JobHost.finished_at, JobHost.started_at))
+        .join(Job, Job.id == JobHost.job_id)
+        .where(
+            JobHost.server_id == server_id,
+            JobHost.binding_id.is_(None),
+            Job.type == JobType.DISCOVER,
+            JobHost.precheck["dump_sha256"].astext.is_not(None),
+        )
+        .order_by(func.coalesce(JobHost.finished_at, JobHost.started_at, JobHost.created_at).desc(), JobHost.id.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    job_id, precheck, collected_at = row
+    sha = precheck.get("dump_sha256")
+    webserver = precheck.get("webserver")
+    return DumpSummary(
+        job_id=str(job_id),
+        collected_at=collected_at,
+        webserver=str(redact(webserver))[:_SUMMARY_TEXT_CHARS] if isinstance(webserver, str) else None,
+        config_files=_text_items(precheck.get("config_files"), _SUMMARY_FILES),
+        bindings=_int_or_none(precheck.get("bindings")) or 0,
+        warnings=_text_items(precheck.get("warnings"), _SUMMARY_FILES),
+        parse_suspected=precheck.get("parse_suspected") is True,
+        dump_bytes=_int_or_none(precheck.get("dump_bytes")),
+        dump_sha256=sha[:64] if isinstance(sha, str) else None,
+    )
+
+
+def unknown_bindings(db: Session, limit: int = UNKNOWN_LIMIT) -> list[BindingRow]:
+    """The newest active bindings whose on-disk certificate is not in the inventory (one statement)."""
+    rows = db.execute(
+        binding_query()
+        .where(Binding.is_active, Server.is_active, Binding.match_state == "unknown")
+        .order_by(Binding.last_seen_at.desc(), Binding.id.desc())
+        .limit(limit)
+    )
+    return [binding_row(*row) for row in rows]
+
+
 def server_detail(db: Session, server_id: int) -> ServerDetail:
     found = db.execute(_query(ServerFilters(active=None)).where(Server.id == server_id)).mappings().first()
     if found is None:
@@ -383,6 +466,7 @@ def server_detail(db: Session, server_id: int) -> ServerDetail:
         bindings=[binding_row(*row) for row in bindings],
         discovery_history=_history(db, server_id),
         endpoint_count=endpoints or 0,
+        dump_summary=last_dump_summary(db, server_id),
     )
 
 

@@ -24,6 +24,7 @@ from app.services.servers import (
     ServerNotFound,
     export_bindings,
     export_servers,
+    last_dump_summary,
     list_bindings,
     list_servers,
     server_detail,
@@ -32,8 +33,10 @@ from app.web.certificates import LIST_DEFAULT_PAGE_SIZE, LIST_MAX_PAGE_SIZE, _qu
 from app.web.common import (
     _render,
     _transact,
+    ansible_unavailable_reason,
     display_timezone,
     install_template_helpers,
+    inventory_unconfigured_reason,
     set_flash,
     unsupported_reason,
 )
@@ -179,11 +182,14 @@ def _register_binding_routes(app: FastAPI) -> None:
         return _render(request, "bindings/help.html.j2")
 
 
-def _discovery_context(request: Request) -> dict[str, Any]:
-    return {
-        "discovery_reason": unsupported_reason(request.app.state.job_registry, "Plan 3", _DISCOVERY),
-        "csrf_token": request.state.session.csrf_token,
-    }
+def _discovery_context(request: Request, db) -> dict[str, Any]:
+    """Why the discovery buttons are disabled (first applicable reason), or "" when they work."""
+    reason = (
+        unsupported_reason(request.app.state.job_registry, "Plan 3", _DISCOVERY)
+        or ansible_unavailable_reason(db, request.app.state.clock())
+        or inventory_unconfigured_reason(db)
+    )
+    return {"discovery_reason": reason, "csrf_token": request.state.session.csrf_token}
 
 
 def _queued(request: Request, location: str) -> RedirectResponse:
@@ -290,6 +296,7 @@ def register_server_routes(app: FastAPI) -> None:
             page = list_servers(db, query.filters, query.page, query.page_size, query.sort)
             timezone_name = display_timezone(db)
             groups = _group_names(db)
+            discovery = _discovery_context(request, db)
         pages = max(1, math.ceil(page.total / page.page_size))
         paging = {k: v for k, v in query.params.items() if k != "page"}
         return _render(
@@ -301,7 +308,7 @@ def register_server_routes(app: FastAPI) -> None:
             values=query.params,
             sort_state=query.sort,
             tz=timezone_name,
-            **_discovery_context(request),
+            **discovery,
             page_url=lambda number: _url(
                 "/servers", {**paging, "page": str(number)} if number > 1 else paging
             ),
@@ -333,11 +340,18 @@ def register_server_routes(app: FastAPI) -> None:
             except ServerNotFound:
                 raise HTTPException(404) from None
             timezone_name = display_timezone(db)
+            discovery = _discovery_context(request, db)
         return _render(
-            request,
-            "servers/detail.html.j2",
-            detail=detail,
-            server=detail.server,
-            tz=timezone_name,
-            **_discovery_context(request),
+            request, "servers/detail.html.j2", detail=detail, server=detail.server, tz=timezone_name, **discovery
         )
+
+    @app.get("/servers/{server_id:int}/dump")
+    def server_dump(request: Request, server_id: int):
+        """The summary of the last raw dump: facts only, the dump text never reaches the web process."""
+        with request.app.state.factory() as db:
+            server = db.get(Server, server_id) if server_id < 2**31 else None
+            if server is None:
+                raise HTTPException(404)
+            summary = last_dump_summary(db, server_id)
+            timezone_name = display_timezone(db)
+        return _render(request, "servers/dump_summary.html.j2", server=server, summary=summary, tz=timezone_name)

@@ -1,0 +1,39 @@
+{% extends "base.html.j2" %}
+{% block title %}Raw dump summary · {{ server.hostname }} · Cert Dashboard{% endblock %}
+{% block content %}
+<p><a href="/servers/{{ server.id }}">← {{ server.hostname }}</a></p>
+<h1>Last raw dump summary</h1>
+{% if summary %}
+<section class="panel wide" id="dump-summary" aria-label="Raw dump summary">
+  <dl>
+    <dt>Server</dt><dd>{{ server.hostname }}</dd>
+    <dt>Collected</dt><dd>{{ time_tag(summary.collected_at, tz) }}</dd>
+    <dt>Discovery job</dt><dd><code>{{ summary.job_id }}</code></dd>
+    <dt>Web server</dt><dd>{{ summary.webserver or "—" }}</dd>
+    <dt>Bindings found</dt><dd>{{ summary.bindings }} binding{{ "" if summary.bindings == 1 else "s" }}</dd>
+    <dt>Parse suspected</dt><dd>{% if summary.parse_suspected %}<span class="chip chip-warning" data-warning="parse-suspected">yes</span> — the host had bindings before and this dump yielded none; its bindings were kept, not deactivated.{% else %}no{% endif %}</dd>
+    <dt>Dump size</dt><dd>{% if summary.dump_bytes is not none %}{{ summary.dump_bytes }} bytes{% else %}—{% endif %}</dd>
+    <dt>Dump SHA-256</dt><dd>{% if summary.dump_sha256 %}<code>{{ summary.dump_sha256 }}</code>{% else %}—{% endif %}</dd>
+  </dl>
+  <p class="hint">The dump itself stays on the worker and is never shown here; this page lists only what discovery recorded about it.</p>
+</section>
+
+<section class="panel wide" id="dump-files">
+  <h2>Configuration files read</h2>
+  {% if summary.config_files %}
+  <ul>{% for path in summary.config_files %}<li><code>{{ path }}</code></li>{% endfor %}</ul>
+  {% else %}<p>No configuration file was recorded.</p>{% endif %}
+</section>
+
+<section class="panel wide" id="dump-warnings">
+  <h2>Warnings</h2>
+  {% if summary.warnings %}
+  <ul>{% for warning in summary.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+  {% else %}<p>The parser raised no warnings.</p>{% endif %}
+</section>
+{% else %}
+<section class="panel wide" id="dump-summary">
+  <p>No raw dump has been captured for <strong>{{ server.hostname }}</strong> yet. Run discovery from the server page; unreachable or failed runs capture nothing.</p>
+</section>
+{% endif %}
+{% endblock %}

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.auth.base import UserRecord
 from app.auth.local import PasswordChangeError, allow_login_attempt
 from app.auth.sessions import issue_login_csrf
+from app.jobs.worker import worker_capabilities
 from app.models.enums import JobType
 from app.services.audit import Actor
 from app.services.settings import get_setting
@@ -169,6 +170,42 @@ def unsupported_reason(registry, plan: str, *required: tuple[JobType, str]) -> s
     return f"handler {', '.join(missing)} not registered ({plan})" if missing else ""
 
 
+NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+NO_KNOWN_HOSTS = "Discovery and deploy are unavailable: the worker has no known_hosts file"
+NO_INVENTORY = "No inventory repository is configured: set the repository URL first."
+# The only screens that carry the capability banner (spec 9.2): where discovery and deploy are started or configured.
+_CAPABILITY_SCREENS = ("/servers", "/bindings", "/deploy", "/settings")
+
+
+def ansible_unavailable_reason(db: Session, now: datetime) -> str:
+    """Why discovery and deploy cannot run, or "" when a live worker holds the SSH key and ``known_hosts``.
+
+    A worker that has not reported (none alive, or one that started before it wrote its start row) is a
+    hint rather than a reason: a dead worker already raises its own banner, and the jobs simply wait.
+    """
+    capabilities = worker_capabilities(db, now)
+    if capabilities is None:
+        return ""
+    if not capabilities.ssh_key_present:
+        return NO_SSH_KEY
+    if not capabilities.known_hosts_present:
+        return NO_KNOWN_HOSTS
+    return ""
+
+
+def inventory_unconfigured_reason(db: Session) -> str:
+    """"" when an inventory repository URL is set; discovery and test pull cannot work without one."""
+    return "" if get_setting(db, "inventory.repo_url") else NO_INVENTORY
+
+
+def _capability_banner(request: Request) -> str:
+    path = request.url.path
+    if not any(path == screen or path.startswith(screen + "/") for screen in _CAPABILITY_SCREENS):
+        return ""
+    with request.app.state.factory() as db:
+        return ansible_unavailable_reason(db, request.app.state.clock())
+
+
 def _actor(request: Request, user_id: int | None = None, label: str | None = None) -> Actor:
     session = request.state.session
     if user_id is None and session is not None:
@@ -189,6 +226,7 @@ def _render(request: Request, name: str, status: int = 200, **context) -> HTMLRe
             "navigation": app.state.navigation,
             "status_banner": app.state.status_banner,
             "flash": read_flash(request),
+            "capability_banner": _capability_banner(request),
             **context,
         },
     )
