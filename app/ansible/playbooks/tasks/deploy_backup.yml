@@ -1,0 +1,131 @@
+---
+# Back up every affected file (spec 6.4 step 2) before anything may be written.
+#
+# `/var/backups/cert-dashboard` is re-asserted `root:root 0700` on every run, the job directory and every
+# parent directory of a target path are created `0700`, and each distinct path is copied **once** with its
+# original owner and group: keys stay `0600`, certificate and chain files keep the stricter of their current
+# mode and `0644` (Contract decision 17). The `manifest.json` records the SHA-256, fingerprint and metadata of
+# every original file, and the last task refuses to go on when a backup is missing or does not match it —
+# "refuse to proceed if any backup is missing" (§6.4). A failure in this file changes nothing outside
+# `/var/backups/cert-dashboard/<job_id>` and is reported as `backup_failed`.
+
+- name: Start the backup phase
+  ansible.builtin.set_fact:
+    deploy_phase: backup
+    backup_dir: "{{ backup_root }}/{{ job_id }}"
+
+- name: Re-assert the backup root
+  ansible.builtin.file:
+    path: "{{ backup_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+- name: Create the backup directory of this job
+  ansible.builtin.file:
+    path: "{{ backup_root }}/{{ job_id }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  become: true
+
+- name: Create the backup directory of every affected path
+  ansible.builtin.file:
+    path: "{{ backup_root }}/{{ job_id }}{{ item | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  loop: "{{ file_paths }}"
+  become: true
+  no_log: true
+
+- name: Back up the key files
+  when: key_stat.results | length > 0
+  ansible.builtin.copy:
+    src: "{{ item.item }}"
+    dest: "{{ backup_root }}/{{ job_id }}{{ item.item }}"
+    remote_src: true
+    owner: "{{ item.stat.pw_name }}"
+    group: "{{ item.stat.gr_name }}"
+    mode: "0600"
+  loop: "{{ key_stat.results }}"
+  become: true
+  no_log: true
+
+- name: Back up the certificate files
+  when: certificate_stat.results | length > 0
+  ansible.builtin.copy:
+    src: "{{ item.item }}"
+    dest: "{{ backup_root }}/{{ job_id }}{{ item.item }}"
+    remote_src: true
+    owner: "{{ item.stat.pw_name }}"
+    group: "{{ item.stat.gr_name }}"
+    mode: "{{ backup_mode }}"
+  loop: "{{ certificate_stat.results }}"
+  become: true
+  vars:
+    # "no more permissive than 0644" (Contract decision 17) without a bitwise operator — Jinja has none — so
+    # each digit is clamped to what 0644 allows: user <= 6, group and other <= 4. 0640 and 0600 stay as they
+    # are, 0664 becomes 0644, and an executable bit is never copied onto a certificate.
+    old_mode: "{{ '%04o' % (item.stat.mode | int(base=8)) }}"
+    backup_mode: >-
+      {{ old_mode[0] }}{{ [old_mode[1] | int, 6] | min }}{{ [old_mode[2] | int, 4] | min
+         }}{{ [old_mode[3] | int, 4] | min }}
+
+- name: Prepare the backup manifest
+  ansible.builtin.set_fact:
+    manifest_files: {}
+
+- name: Record every backed-up file in the manifest
+  ansible.builtin.set_fact:
+    manifest_files: >-
+      {{ manifest_files | combine({item.item: {
+           'sha256': item.stat.checksum | default(''),
+           'fingerprint': (path_fingerprints | default({})).get(item.item, ''),
+           'owner': item.stat.pw_name | default(''),
+           'group': item.stat.gr_name | default(''),
+           'mode': item.stat.mode | default(''),
+           'size': item.stat.size | default(0)}}) }}
+  loop: "{{ certificate_stat.results + key_stat.results }}"
+  no_log: true
+
+- name: Write the backup manifest
+  ansible.builtin.copy:
+    content: "{{ manifest_document | to_nice_json }}"
+    dest: "{{ backup_root }}/{{ job_id }}/manifest.json"
+    owner: root
+    group: root
+    mode: "0600"
+  become: true
+  vars:
+    manifest_document:
+      job_id: "{{ job_id }}"
+      created_at: "{{ now(utc=true).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+      files: "{{ manifest_files }}"
+
+- name: Stat every backed-up file
+  ansible.builtin.stat:
+    path: "{{ backup_root }}/{{ job_id }}{{ item }}"
+    follow: true
+    get_checksum: true
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  loop: "{{ file_paths }}"
+  become: true
+  no_log: true
+  register: backup_stat
+
+- name: Refuse to go on when a backup is missing or does not match its manifest
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists | default(false)
+      - item.stat.checksum | default('') == (manifest_files | default({})).get(item.item, {}).get('sha256', '')
+    fail_msg: "a backup is missing or differs from its manifest entry"
+    quiet: true
+  loop: "{{ backup_stat.results }}"
+  no_log: true
