@@ -4,6 +4,7 @@ Every query joins what it shows (server, expected certificate, latest scan resul
 never changes the statement count; nothing here writes.
 """
 
+from collections.abc import Collection
 from dataclasses import dataclass, fields
 from datetime import UTC, datetime
 
@@ -11,9 +12,10 @@ from sqlalchemy import Text, any_, case, func, literal, select, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Certificate, Endpoint, JSONValue, ScanResult, Server
+from app.models import Binding, Certificate, Endpoint, JSONValue, ScanResult, Server
 from app.models.enums import CertificateStatus, EndpointSource, ScanStatus
 from app.services.audit import Actor, record
+from app.services.bindings import verify_sni
 from app.services.scans import EndpointInputError, validate_endpoint_target
 
 EXPORT_LIMIT = 5000
@@ -346,3 +348,209 @@ def set_endpoint_active(db: Session, endpoint_id: int, active: bool, actor: Acto
     endpoint = _locked(db, endpoint_id)
     _change(db, endpoint, "is_active", active, actor)
     return endpoint
+
+
+# --- binding-derived endpoints (spec 4.9, Plan 3 Contract decision 11) -----------------------------
+# Called by discovery reconciliation inside its per-server transaction: stage and audit, never commit.
+
+
+def _derived_identity(server: Server, binding: Binding) -> tuple[str, int, str | None]:
+    """Canonical ``(host, port, sni)`` of the endpoint a binding derives: the address the worker reaches."""
+    host = server.connection_address or server.hostname
+    sni = verify_sni(binding.vhost_name, binding.vhost_names)
+    try:
+        return validate_endpoint_target(host, binding.port, sni)
+    except EndpointInputError as error:
+        if sni is not None and set(error.errors) == {"sni"}:
+            return validate_endpoint_target(host, binding.port, None)  # a name the SNI rules refuse: probe by host
+        raise
+
+
+def _by_identity(db: Session, host: str, port: int, sni: str | None) -> Endpoint | None:
+    return db.scalar(
+        select(Endpoint)
+        .where(Endpoint.host == host, Endpoint.port == port, func.coalesce(Endpoint.sni, Endpoint.host) == (sni or host))
+        .with_for_update()
+    )
+
+
+def _discovery_change(
+    db: Session,
+    endpoint: Endpoint,
+    field: str,
+    previous: int | bool | None,
+    value: int | bool | None,
+    actor: Actor,
+    **extra: JSONValue,
+) -> None:
+    details: dict[str, JSONValue] = {"field": field, "from": previous, "to": value, "source": "discovery", **extra}
+    record(db, actor, "endpoint.update", "endpoint", str(endpoint.id), details)
+
+
+def ensure_binding_endpoint(db: Session, binding: Binding, server: Server, actor: Actor) -> tuple[Endpoint, bool]:
+    """The endpoint of a binding's ``vhost_name:port`` and whether this call created it.
+
+    Bindings of one or several servers resolving to one identity share one endpoint, which an existing manual
+    endpoint may already be (it keeps its source). A new endpoint starts owned by the binding and expecting its
+    certificate when it is ``matched``; who owns a shared endpoint is decided by ``settle_endpoints``, which the
+    caller runs once every binding of the document is final. Raises ``EndpointInputError`` when the host or port
+    cannot be an endpoint.
+    """
+    host, port, sni = _derived_identity(server, binding)
+    existing = _by_identity(db, host, port, sni)
+    if existing is not None:
+        return existing, False
+    endpoint = Endpoint(
+        host=host,
+        port=port,
+        sni=sni,
+        source=EndpointSource.DISCOVERY,
+        server_id=server.id,
+        binding_id=binding.id,
+        expected_certificate_id=binding.certificate_id if binding.match_state == "matched" else None,
+        is_active=True,
+    )
+    try:
+        with db.begin_nested():
+            db.add(endpoint)
+            db.flush()
+    except IntegrityError:
+        racer = _by_identity(db, host, port, sni)
+        if racer is None:
+            raise
+        return racer, False
+    created: dict[str, JSONValue] = {
+        "host": host,
+        "port": port,
+        "sni": sni,
+        "expected_certificate_id": endpoint.expected_certificate_id,
+    }
+    details: dict[str, JSONValue] = {
+        "field": "endpoint",
+        "from": None,
+        "to": created,
+        "source": "discovery",
+        "binding_id": binding.id,
+    }
+    record(db, actor, "endpoint.create", "endpoint", str(endpoint.id), details)
+    return endpoint, True
+
+
+def expect_for_binding(db: Session, binding_id: int, certificate_id: int | None, actor: Actor) -> int:
+    """Make the endpoints owned by a binding expect its certificate (none for an ``unknown`` binding); the number changed."""
+    owned = db.scalars(
+        select(Endpoint)
+        .where(Endpoint.binding_id == binding_id, Endpoint.expected_certificate_id.is_distinct_from(certificate_id))
+        .order_by(Endpoint.id)
+        .with_for_update()
+    ).all()
+    for endpoint in owned:
+        _discovery_change(db, endpoint, "expected_certificate_id", endpoint.expected_certificate_id, certificate_id, actor)
+        endpoint.expected_certificate_id = certificate_id
+    return len(owned)
+
+
+type _Claim = tuple[Binding, Server]
+
+
+def _claims(db: Session, ports: set[int], ignored: int | None) -> dict[tuple[str, int, str], list[_Claim]]:
+    """Active bindings of active servers by the endpoint identity they derive, lowest server id first, then binding id."""
+    query = (
+        select(Binding, Server)
+        .join(Server, Server.id == Binding.server_id)
+        .where(Binding.is_active.is_(True), Server.is_active.is_(True), Binding.port.in_(ports))
+        .order_by(Server.id, Binding.id)
+    )
+    if ignored is not None:
+        query = query.where(Binding.id != ignored)
+    claims: dict[tuple[str, int, str], list[_Claim]] = {}
+    for binding, server in db.execute(query):
+        try:
+            host, port, sni = _derived_identity(server, binding)
+        except EndpointInputError:
+            continue  # an address that cannot be scanned derives nothing
+        claims.setdefault((host, port, sni or host), []).append((binding, server))
+    return claims
+
+
+def _transfer(db: Session, endpoint: Endpoint, owner: Binding, actor: Actor, job_id: str | None) -> None:
+    previous_server, previous_binding = endpoint.server_id, endpoint.binding_id
+    endpoint.server_id, endpoint.binding_id = owner.server_id, owner.id
+    if previous_server is not None and previous_server != owner.server_id:
+        _discovery_change(
+            db, endpoint, "server_id", previous_server, owner.server_id, actor,
+            binding_id=owner.id, previous_server_id=previous_server, new_server_id=owner.server_id,
+            reason="alias_ownership_transfer", job_id=job_id,
+        )  # fmt: skip
+    else:
+        extra: dict[str, JSONValue] = {} if previous_server is not None else {"server_id": owner.server_id}
+        _discovery_change(db, endpoint, "binding_id", previous_binding, owner.id, actor, **extra)
+
+
+def _follow_owner(
+    db: Session, endpoint: Endpoint, owner: Binding, leaving: Binding | None, actor: Actor
+) -> None:
+    """The expectation follows the owner: a ``matched`` one brings its certificate, an ``unknown`` one inherits none.
+
+    Taking over from another binding, an ``unknown`` owner drops that binding's certificate (any other expectation,
+    e.g. an operator's, stays). Other states leave the expectation as it is.
+    """
+    expected = endpoint.expected_certificate_id
+    if owner.match_state == "matched" and owner.certificate_id is not None:
+        expected = owner.certificate_id
+    elif owner.match_state == "unknown" and leaving is not None and expected is not None and expected == leaving.certificate_id:
+        expected = None
+    if endpoint.expected_certificate_id != expected:
+        _discovery_change(db, endpoint, "expected_certificate_id", endpoint.expected_certificate_id, expected, actor)
+        endpoint.expected_certificate_id = expected
+
+
+def settle_endpoints(
+    db: Session, endpoint_ids: Collection[int], actor: Actor, *, job_id: str | None = None, ignoring_binding: int | None = None
+) -> int:
+    """Make each endpoint's owner, expectation and activity follow the active bindings that derive it.
+
+    Ownership is a derived fact (operator decision on aliases): the owner is the binding of the lowest server id
+    among the active bindings deriving the endpoint's ``(host, port, sni)`` (lowest binding id within that server),
+    whatever order documents arrived in. A change of server is audited once as ``alias_ownership_transfer``. The
+    endpoint stays active while any binding derives it, and one nobody derives any more is deactivated, once.
+
+    A deactivated endpoint that an active binding derives is activated again (``rediscovered_derived``). Nothing
+    distinguishes an operator's pause from a reconciliation deactivation, so active derivation wins: one scan too
+    many beats one too few. ``ignoring_binding`` treats that binding as no longer deriving anything. Returns the
+    number of endpoints deactivated.
+    """
+    if not endpoint_ids:
+        return 0
+    endpoints = db.scalars(select(Endpoint).where(Endpoint.id.in_(endpoint_ids)).order_by(Endpoint.id).with_for_update()).all()
+    claims = _claims(db, {endpoint.port for endpoint in endpoints}, ignoring_binding)
+    deactivated = 0
+    for endpoint in endpoints:
+        claimants = claims.get((endpoint.host, endpoint.port, endpoint.sni or endpoint.host), [])
+        if not claimants:
+            if endpoint.is_active:
+                endpoint.is_active = False
+                _discovery_change(db, endpoint, "is_active", True, False, actor, job_id=job_id)
+                deactivated += 1
+            continue
+        owner = claimants[0][0]
+        if endpoint.binding_id != owner.id or endpoint.server_id != owner.server_id:
+            leaving = db.get(Binding, endpoint.binding_id) if endpoint.binding_id not in (None, owner.id) else None
+            _transfer(db, endpoint, owner, actor, job_id)
+            _follow_owner(db, endpoint, owner, leaving, actor)
+        elif owner.match_state == "matched":
+            _follow_owner(db, endpoint, owner, None, actor)
+        if not endpoint.is_active:
+            endpoint.is_active = True
+            _discovery_change(db, endpoint, "is_active", False, True, actor, reason="rediscovered_derived", job_id=job_id)
+    return deactivated
+
+
+def deactivate_binding_endpoints(db: Session, binding_id: int, actor: Actor, *, job_id: str | None = None) -> int:
+    """Settle the active endpoints a binding owns as if it derived nothing any more.
+
+    One that another active binding (of any server) still derives is handed over and stays active; the others are
+    deactivated. Returns the number deactivated; nothing is deleted.
+    """
+    owned = db.scalars(select(Endpoint.id).where(Endpoint.binding_id == binding_id, Endpoint.is_active.is_(True))).all()
+    return settle_endpoints(db, owned, actor, job_id=job_id, ignoring_binding=binding_id)
