@@ -354,6 +354,8 @@ def test_deploy_preflight_hashes_both_sides_of_the_key_match_in_der(deploy_tasks
         # neither binary may be invoked bare, and no other binary may be named
         assert OPENSSL_BIN in command and SHA256SUM_BIN in command
         assert "openssl" not in command.replace(OPENSSL_BIN, "").replace(SHA256SUM_BIN, "")
+        # the module of a controller-side task runs on the worker: no interpreter discovery from PATH
+        assert task["vars"]["ansible_python_interpreter"] == "{{ ansible_playbook_python }}"
     # the private key is unencrypted in the tmpfs staging area, and its hash task stays censored
     assert "-passin pass:" in command_of(key_task)
     assert key_task["no_log"] is True and cert_task["no_log"] is True

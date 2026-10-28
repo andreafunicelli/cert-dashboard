@@ -63,5 +63,8 @@
                    'failed_task': failed_task_name | default(''),
                    'hash_rc': [(new_leaf_key_hash.rc | default(-1)) | int,
                                (new_key_key_hash.rc | default(-1)) | int],
-                   'hash_stderr': (new_leaf_key_hash.stderr | default('') | truncate(200))}}} }}
+                   'hash_stderr': (new_leaf_key_hash.stderr | default('') | truncate(200)),
+                   'hash_msg': (new_leaf_key_hash.msg | default('') | truncate(200)),
+                   'hash_module_stderr': (new_leaf_key_hash.module_stderr | default('') | truncate(200)),
+                   'hash_failed': (new_leaf_key_hash.failed | default(false))}}} }}
           no_log: true

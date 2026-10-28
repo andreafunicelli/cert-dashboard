@@ -23,11 +23,13 @@ BACKUP_ROOT = "/var/backups/cert-dashboard"
 
 def describe(outcome) -> str:
     """Everything a failing assertion needs: the outcome, the published diagnostics and the log tail."""
+    precheck = outcome.precheck
     return (
         f"status={outcome.status} reason={outcome.reason} message={outcome.message} "
-        f"step={outcome.precheck.get('step')} failed_task={outcome.precheck.get('failed_task')} "
-        f"hash_rc={outcome.precheck.get('hash_rc')} "
-        f"hash_stderr={outcome.precheck.get('hash_stderr')!r} backup_dir={outcome.backup_dir}\n"
+        f"step={precheck.get('step')} failed_task={precheck.get('failed_task')} "
+        f"hash_rc={precheck.get('hash_rc')} hash_stderr={precheck.get('hash_stderr')!r} "
+        f"hash_msg={precheck.get('hash_msg')!r} hash_module_stderr={precheck.get('hash_module_stderr')!r} "
+        f"hash_failed={precheck.get('hash_failed')!r} backup_dir={outcome.backup_dir}\n"
         f"{outcome.log_excerpt[-2500:]}"
     )
 

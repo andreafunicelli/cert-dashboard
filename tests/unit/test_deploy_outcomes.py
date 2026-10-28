@@ -121,6 +121,25 @@ def test_a_failed_hash_pipeline_is_internal_and_carries_its_diagnostics():
     assert outcome.precheck["reason"] == "key_mismatch_preflight"  # kept as evidence
 
 
+def test_a_module_that_never_ran_is_internal_with_its_module_diagnostics():
+    # rc 127 with no command stderr means the module itself never executed (interpreter discovery): the
+    # result then carries msg/module_stderr instead of stderr. Still an environment failure, not a mismatch.
+    published = {
+        "step": "preflight",
+        "reason": "key_mismatch_preflight",
+        "hash_rc": [127, 127],
+        "hash_stderr": "",
+        "hash_msg": "MODULE FAILURE",
+        "hash_module_stderr": "/usr/bin/python3: not found",
+    }
+    outcome = parse_host_result(HOST, recorded(published), [target()])
+
+    assert (outcome.status, outcome.reason) == ("failed", "internal")
+    message = outcome.message or ""
+    assert "hash_rc=[127, 127]" in message
+    assert "MODULE FAILURE" in message and "/usr/bin/python3: not found" in message
+
+
 
 def test_every_write_step_reason_is_reported_verbatim_when_the_rollback_did_not_run():
     # A failure published *before* the rescue could roll back (or with rollback disabled) is still a

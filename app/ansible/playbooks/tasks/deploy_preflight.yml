@@ -164,6 +164,10 @@
     | {{ sha256sum_bin | default('sha256sum') }}
   args:
     executable: /bin/bash
+  vars:
+    # The module of a controller-side task runs on the worker: pin it to the interpreter that runs the
+    # playbook instead of discovering one from PATH (which differs between a worker and a test harness).
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   environment:
     # Belt and braces: the two binaries themselves are resolved by run_host_deploy and passed as
     # absolute paths (`openssl_bin` / `sha256sum_bin`), so the pipeline never depends on this PATH.
@@ -183,6 +187,8 @@
     -passin pass: -pubout -outform DER | {{ sha256sum_bin | default('sha256sum') }}
   args:
     executable: /bin/bash
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
   environment:
     PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   connection: local

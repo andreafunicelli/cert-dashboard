@@ -187,9 +187,13 @@ def _hash_rc(published: Mapping[str, JSONValue]) -> list[int]:
 
 def _hash_diagnosis(published: Mapping[str, JSONValue]) -> str:
     """``internal`` text for a hash pipeline that never produced a comparable pair (public side only)."""
-    stderr = published.get("hash_stderr")
-    detail = f" ({stderr})" if isinstance(stderr, str) and stderr else ""
-    return f"preflight hash pipeline failed: hash_rc={_hash_rc(published)}{detail}"
+    details: list[str] = []
+    for key in ("hash_stderr", "hash_msg", "hash_module_stderr"):
+        text = published.get(key)
+        if isinstance(text, str) and text:
+            details.append(text)
+    suffix = f" ({'; '.join(details)})" if details else ""
+    return f"preflight hash pipeline failed: hash_rc={_hash_rc(published)}{suffix}"
 
 
 def _excerpt(*texts: str) -> str:
