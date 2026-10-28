@@ -25,7 +25,7 @@ RETRY = {"mode": "retry_failed"}
 @pytest.fixture(autouse=True)
 def isolated(queue_factory):
     """Only the sweep (a tick step) and the jobs a test queues itself may run."""
-    disable_schedules(queue_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup")
+    disable_schedules(queue_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup", "discovery")
 
 
 def run_expiry(factory, worker, now, payload=None):

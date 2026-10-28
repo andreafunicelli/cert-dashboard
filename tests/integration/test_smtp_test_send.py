@@ -21,7 +21,7 @@ ECHO = {"AUTH": f"535 5.7.8 {CANARY} incorrect credential {{password}}"}
 @pytest.fixture(autouse=True)
 def isolated(web_factory):
     """The web database is shared by the module: no jobs, and no schedule can enqueue one."""
-    disable_schedules(web_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup")
+    disable_schedules(web_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup", "discovery")
     with web_factory.begin() as db:
         db.query(Job).delete()
 

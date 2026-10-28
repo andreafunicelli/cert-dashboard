@@ -63,11 +63,13 @@ def test_build_registry_supports_cleanup_pull_import_and_the_default_scan():
     assert build_registry() is not build_registry()
 
 
-def test_registry_supports_the_test_pull_but_not_yet_the_default_discovery():
+def test_registry_supports_the_test_pull_and_the_default_discovery():
     registry = build_registry()
     assert TEST_PULL_ACTION == "test_pull"
     assert registry.supports(JobType.DISCOVER, "test_pull")
-    assert not registry.supports(JobType.DISCOVER)  # discover/default arrives with Plan 3 Task 10
+    assert registry.supports(JobType.DISCOVER)  # discover/default (Plan 3 Task 10)
+    assert registry.supports(JobType.DISCOVER, "default")
+    assert not registry.supports(JobType.DEPLOY)  # arrives with Plan 3 Task 16
 
 
 def test_test_pull_payload_is_exactly_its_action():
@@ -259,8 +261,9 @@ def test_latest_occurrence_normalizes_to_utc():
     assert worker.latest_occurrence(local, (4, 0)) == datetime(2026, 10, 19, 4, 0, tzinfo=UTC)
 
 
-def test_default_schedule_table_has_cleanup_scan_expiry_check_and_digest():
-    assert set(worker.SCHEDULES) == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest"}
+def test_default_schedule_table_has_cleanup_scan_expiry_check_digest_and_discovery():
+    assert set(worker.SCHEDULES) == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest", "discovery"}
+    assert worker.SCHEDULES["discovery"] == worker.Schedule("discovery", JobType.DISCOVER, "default")
     assert worker.SCHEDULES["digest"] == worker.Schedule("digest", JobType.DIGEST, "default")
     assert (worker.SCHEDULES["expiry_check"].job_type, worker.SCHEDULES["expiry_check"].action) == (
         JobType.ALERT_EXPIRY,

@@ -32,7 +32,7 @@ COUNT_KEYS = {
 
 @pytest.fixture(autouse=True)
 def isolated(queue_factory):
-    disable_schedules(queue_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup")
+    disable_schedules(queue_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup", "discovery")
 
 
 def run_digest(factory, worker, now):
