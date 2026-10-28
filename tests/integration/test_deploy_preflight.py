@@ -169,6 +169,31 @@ def test_apache_backup_covers_leaf_chain_and_key(ssh_targets, fresh_targets, dep
         assert ssh_targets.stat("ssh-apache", backup + path)[1:3] == ("root", "root")
 
 
+def test_backup_mode_is_the_bitmask_of_the_original(ssh_targets, fresh_targets, deploy_material, tmp_path):
+    """Contract decision 17 / Task 14: the copy keeps exactly ``original & 0o644``.
+
+    Only the mode of the live certificate changes (its bytes stay the discovery snapshot), so each run is a
+    normal happy-path preflight. Digit clamping instead of the bitmask would copy 0500 and 0620 unchanged.
+    """
+    targets = web01_targets(deploy_material, ssh_targets.old.fingerprint)
+    for original in (0o500, 0o620, 0o711):
+        ssh_targets.put("ssh-nginx-1", WWW_CRT, ssh_targets.old.fullchain_pem, mode=original)
+        job = uuid4()
+        outcome = run_host_deploy(
+            deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX, targets,
+            deploy_material.staged, job_id=job, retention_days=30, timeout_seconds=600,
+        )  # fmt: skip
+        assert outcome.precheck["step"] == "backed_up", describe(outcome)
+        backup = f"{BACKUP_ROOT}/{job}"
+        copied = ssh_targets.stat("ssh-nginx-1", backup + WWW_CRT)
+        assert copied.mode == original & 0o644, f"{original:04o} -> {copied.mode:04o}"
+        assert copied[1:3] == ("root", "root")
+        # the manifest records what was there (the original mode), not what was copied
+        manifest = json.loads(ssh_targets.read("ssh-nginx-1", backup + "/manifest.json"))
+        assert manifest["files"][WWW_CRT]["mode"] == f"{original:04o}"
+        assert manifest["files"][WWW_CRT]["size"] == len(ssh_targets.old.fullchain_pem)
+
+
 def test_file_conflict_never_runs_ansible(ssh_targets, fresh_targets, deploy_material, tmp_path):
     conflict = [
         deploy_material.target(

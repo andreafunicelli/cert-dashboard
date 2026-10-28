@@ -7,8 +7,10 @@ uses the standard library only and never imports the dashboard. ``prune_plan`` i
 Rules (§6.4):
   * ``retention_days == 0`` keeps everything (0 means "keep forever"); negative values are treated the same.
   * a directory is a candidate only when its ``manifest.json`` parses into ``created_at`` and a ``files``
-    mapping of absolute paths -- anything malformed is left untouched, because the safe reading of an
-    unreadable backup index is "unknown age, unknown content, keep it";
+    mapping of absolute paths, each carrying the metadata object the playbook writes
+    (``sha256``/``fingerprint``/``owner``/``group``/``mode``/``size``) -- anything malformed is left
+    untouched, because the safe reading of an unreadable backup index is "unknown age, unknown content,
+    keep it";
   * the newest backup of *every* path is always kept, so a rollback target is never pruned away. A
     directory therefore survives when at least one of its paths has no newer backup elsewhere.
 """
@@ -25,6 +27,8 @@ from pathlib import Path
 
 BACKUP_ROOT = "/var/backups/cert-dashboard"
 MANIFEST_NAME = "manifest.json"
+# The per-file metadata object ``deploy_backup.yml`` writes into ``manifest.json`` (spec 6.4 step 2).
+METADATA_FIELDS = ("sha256", "fingerprint", "owner", "group", "mode", "size")
 EXIT_OK = 0
 EXIT_REFUSED = 2
 
@@ -42,12 +46,32 @@ def _created_at(document: Mapping[str, object]) -> datetime | None:
     return parsed.replace(tzinfo=UTC) if parsed.tzinfo is None else parsed.astimezone(UTC)
 
 
+def _metadata_ok(entry: object) -> bool:
+    """True when one ``files`` value has the metadata object shape ``deploy_backup.yml`` writes.
+
+    A path name alone does not describe what a backup directory holds, so a manifest whose ``files`` values
+    are not the ``{sha256, fingerprint, owner, group, mode, size}`` object is not a usable index and its
+    directory is never a removal candidate (same safe reading as an unreadable manifest).
+    """
+    if not isinstance(entry, Mapping) or any(field not in entry for field in METADATA_FIELDS):
+        return False
+    if not all(isinstance(entry[field], str) for field in ("sha256", "owner", "group", "mode")):
+        return False
+    fingerprint = entry["fingerprint"]
+    if fingerprint is not None and not isinstance(fingerprint, str):
+        return False
+    size = entry["size"]
+    return isinstance(size, int) and not isinstance(size, bool) and size >= 0
+
+
 def _paths(document: Mapping[str, object]) -> tuple[str, ...] | None:
     """The manifest's file paths, or ``None`` when the document is not a usable manifest."""
     files = document.get("files")
     if not isinstance(files, Mapping) or not files:
         return None
     if not all(isinstance(path, str) and path.startswith("/") for path in files):
+        return None
+    if not all(_metadata_ok(entry) for entry in files.values()):
         return None
     return tuple(files)
 

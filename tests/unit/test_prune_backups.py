@@ -93,6 +93,31 @@ def test_malformed_manifests_are_never_removed():
     assert script.prune_plan(manifests, NOW, 30) == []
 
 
+def test_a_manifest_whose_file_metadata_is_malformed_is_never_removed():
+    """Task 14: only a manifest with the full per-file metadata shape may authorise a removal.
+
+    A manifest whose ``files`` mapping carries path *names* but not the metadata object the playbook writes
+    is not a usable index: its age says nothing about what the directory actually holds, so it is kept.
+    """
+    script = load_script()
+    old = manifest("/etc/ssl/www.crt", days_ago=90)
+    manifests = {
+        "entry-is-a-string": {**old, "job_id": "string-entry", "files": {"/etc/ssl/www.crt": "not metadata"}},
+        "entry-is-null": {**old, "job_id": "null-entry", "files": {"/etc/ssl/www.crt": None}},
+        "metadata-keys-missing": {
+            **old, "job_id": "short-entry",
+            "files": {"/etc/ssl/www.crt": {"sha256": "a" * 64, "owner": "root"}},
+        },
+        "metadata-types-wrong": {
+            **old, "job_id": "typed-entry",
+            "files": {"/etc/ssl/www.crt": {
+                "sha256": 1, "fingerprint": "", "owner": "root", "group": "root", "mode": "0644", "size": 10}},
+        },
+        "fresh": manifest("/etc/ssl/www.crt", days_ago=1),
+    }
+    assert script.prune_plan(manifests, NOW, 30) == []
+
+
 def test_a_naive_created_at_is_read_as_utc():
     script = load_script()
     manifests = {

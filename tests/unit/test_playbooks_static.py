@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 import yaml
+from jinja2 import Environment
 
 from app.ansible.discovery import CERT_KEY_HASH_COMMAND, KEY_HASH_COMMAND
 from app.ansible.runner import PLAYBOOK_DIR
@@ -273,6 +274,24 @@ def test_deploy_writes_only_inside_the_backup_tree(deploy_tasks):
         target = args.get("dest") or args.get("path")
         assert isinstance(target, str), f"{label(task)} has no dest/path"
         assert target.startswith(BACKUP_PREFIX), f"{label(task)} writes outside {BACKUP_PREFIX}: {target}"
+
+
+def test_deploy_certificate_backup_mode_is_the_bitwise_mask_of_the_original(deploy_tasks):
+    """Contract decision 17 / Task 14: the copy keeps exactly ``original & 0o644``.
+
+    Jinja has no bitwise operator, so the committed expression is rendered here: an executable bit (0500), a
+    group-write bit (0620) and a full 0711 all lose what 0644 does not allow, while the modes that already fit
+    it (0640, 0600, 0644) survive unchanged. Digit clamping would let 0500 and 0620 through untouched.
+    """
+    [task] = [t for t in deploy_tasks if t.get("name") == "Back up the certificate files"]
+    assert str(task["ansible.builtin.copy"]["mode"]) == "{{ backup_mode }}"
+    template = Environment().from_string(task["vars"]["backup_mode"])
+    for original, expected in {
+        0o500: 0o400, 0o620: 0o600, 0o711: 0o600, 0o777: 0o644, 0o664: 0o644,
+        0o640: 0o640, 0o600: 0o600, 0o644: 0o644, 0o000: 0o000,
+    }.items():  # fmt: skip
+        rendered = template.render(old_mode=f"{original:04o}").strip()
+        assert int(rendered, 8) == expected == original & 0o644, f"{original:04o} -> {rendered}"
 
 
 def test_deploy_never_moves_copies_labels_or_reloads_through_a_command(deploy_tasks):

@@ -68,13 +68,18 @@
   loop: "{{ certificate_stat.results }}"
   become: true
   vars:
-    # "no more permissive than 0644" (Contract decision 17) without a bitwise operator — Jinja has none — so
-    # each digit is clamped to what 0644 allows: user <= 6, group and other <= 4. 0640 and 0600 stay as they
-    # are, 0664 becomes 0644, and an executable bit is never copied onto a certificate.
+    # Contract decision 17 ("no more permissive than 0644") is the actual bitmask `old_mode & 0o644`: the
+    # copy keeps the user read/write (0o400|0o200) and group/other read (0o040|0o004) bits of the original and
+    # drops everything else. Jinja has no bitwise operator, so each mask bit is tested arithmetically — bit b
+    # of x is `(x // b) % 2` — and the surviving bits are summed back: 0500 -> 0400, 0620 -> 0600,
+    # 0664 -> 0644, 0640 -> 0640. An execute bit or a group/other write bit never reaches the backup; the
+    # manifest keeps the original mode, only the copy is masked.
     old_mode: "{{ '%04o' % (item.stat.mode | int(base=8)) }}"
     backup_mode: >-
-      {{ old_mode[0] }}{{ [old_mode[1] | int, 6] | min }}{{ [old_mode[2] | int, 4] | min
-         }}{{ [old_mode[3] | int, 4] | min }}
+      {{ '%04o' % ((((old_mode | int(base=8)) // 0o400) % 2) * 0o400
+                   + (((old_mode | int(base=8)) // 0o200) % 2) * 0o200
+                   + (((old_mode | int(base=8)) // 0o040) % 2) * 0o040
+                   + (((old_mode | int(base=8)) // 0o004) % 2) * 0o004) }}
 
 - name: Prepare the backup manifest
   ansible.builtin.set_fact:
