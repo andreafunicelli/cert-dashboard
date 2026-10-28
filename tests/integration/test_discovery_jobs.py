@@ -8,7 +8,10 @@ database. They run anywhere there is a PostgreSQL.
 
 import json
 import re
+import shutil
+import tempfile
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -556,10 +559,29 @@ def test_the_buttons_are_disabled_when_the_handler_is_not_registered(signed_in, 
 
 
 @pytest.fixture
-def targets_world(queue_factory, ansible_worker, inventory_repo, ssh_targets, fresh_targets, clock):
+def short_artifacts():
+    """A short ``artifacts_root``: ssh refuses a multiplexing socket path of 108+ bytes, and pytest's ``tmp_path``
+    is too deep for ``<artifacts>/<job_id>/run/cp/<40-hex hash>`` (production's ``/srv/artifacts`` is not)."""
+    root = Path(tempfile.mkdtemp(prefix="cd-", dir="/tmp"))
+    yield root
+    shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.fixture
+def targets_world(queue_factory, ansible_worker, inventory_repo, ssh_targets, fresh_targets, clock, short_artifacts):
     repo = inventory_repo(queue_factory, hosts=ssh_targets.inventory_hosts())
-    worker = ansible_worker(queue_factory, ansible_ssh_key=ssh_targets.client_key, known_hosts_file=ssh_targets.known_hosts)
-    return SimpleNamespace(factory=queue_factory, worker=worker, repo=repo, targets=ssh_targets, clock=clock)
+
+    def build_worker(**overrides):
+        settings = {
+            "ansible_ssh_key": ssh_targets.client_key,
+            "known_hosts_file": ssh_targets.known_hosts,
+            "artifacts_root": short_artifacts,
+        }
+        return ansible_worker(queue_factory, **{**settings, **overrides})
+
+    return SimpleNamespace(
+        factory=queue_factory, worker=build_worker(), build_worker=build_worker, repo=repo, targets=ssh_targets, clock=clock
+    )
 
 
 def test_discover_unknown_then_import_then_matched(targets_world, now):
@@ -634,11 +656,11 @@ def test_unreachable_host_is_retried_alone(targets_world):
     assert binding_by(world.factory, WEB02, WWW).is_active
 
 
-def test_auth_failure_is_never_retried(targets_world, tmp_path, ansible_worker):
+def test_auth_failure_is_never_retried(targets_world, tmp_path):
     world, targets = targets_world, targets_world.targets
     forged = tmp_path / "known_hosts_forged"
     forged.write_text("".join(f"[127.0.0.1]:{h.ssh_port} {new_ed25519().public_line}\n" for h in targets.hosts.values()))
-    worker = ansible_worker(world.factory, ansible_ssh_key=targets.client_key, known_hosts_file=forged)
+    worker = world.build_worker(known_hosts_file=forged)
     job_id = enqueue_discovery(world.factory, {})
     worker.run_queued(timeout=300)
     retry_to_the_end(worker, world.clock)
