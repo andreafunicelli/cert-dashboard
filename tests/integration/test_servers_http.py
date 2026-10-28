@@ -112,7 +112,21 @@ def test_discovery_history_comes_from_discover_job_hosts(signed_in, server_map, 
     assert re.findall(r"rev(\d\d)", crowded) == [f"{index:02d}" for index in range(20)]
 
 
-def test_discovery_actions_are_disabled_with_the_plan3_reason(signed_in, server_map):
+def test_discovery_actions_are_enabled_now_that_the_handler_is_registered(signed_in, server_map):
+    web01 = server_map.server(WEB01)
+    text = signed_in.get(f"/servers/{web01.id}").text
+    actions = text.split('id="actions"', 1)[1].split("</section>", 1)[0]
+    assert "discover/default not registered" not in text
+    assert f'<form class="inline" method="post" action="/servers/{web01.id}/discover">' in actions
+    assert '<button type="submit">Run discovery</button>' in actions
+    assert re.search(r'<button type="button" disabled title="[^"]+">Last raw dump summary</button>', actions)  # Task 11
+    assert f'<a href="/scans?server_id={web01.id}">Open endpoint scan</a>' in actions
+
+
+def test_discovery_actions_are_disabled_with_the_reason_when_the_handler_is_missing(signed_in, server_map):
+    from app.jobs.worker import JobRegistry
+
+    signed_in.app.state.job_registry = JobRegistry()
     web01 = server_map.server(WEB01)
     text = signed_in.get(f"/servers/{web01.id}").text
     reason = "handler discover/default not registered (Plan 3)"

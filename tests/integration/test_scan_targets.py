@@ -119,7 +119,7 @@ def test_real_webserver_scan_reports_ok_then_mismatch_then_unreachable(
 def test_compose_smtp_target_receives_the_test_email(
     signed_in, worker_harness, web_factory, web_user, compose_targets
 ):
-    disable_schedules(web_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup")
+    disable_schedules(web_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup", "discovery")
     with web_factory.begin() as db:
         db.query(Job).delete()
     _, port = compose_targets.address("smtp")

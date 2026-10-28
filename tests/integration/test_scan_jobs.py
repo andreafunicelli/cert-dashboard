@@ -19,7 +19,7 @@ from tests.integration.conftest import closed_port, disable_schedules, set_setti
 @pytest.fixture(autouse=True)
 def isolated(web_factory):
     """The web database is shared by the module: start each test with no endpoints, results or jobs."""
-    disable_schedules(web_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup")
+    disable_schedules(web_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup", "discovery")
     set_setting(web_factory, "scan.timeout_seconds", 10)
     with web_factory.begin() as db:
         db.execute(delete(ScanResult))

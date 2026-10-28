@@ -24,6 +24,13 @@
   <button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
   <button type="button" disabled title="{{ discovery_reason }}">Last raw dump summary</button>
   <p class="hint">{{ discovery_reason }}</p>
+  {% else %}
+  {% if server.is_active %}<form class="inline" method="post" action="/servers/{{ server.id }}/discover">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Run discovery</button>
+  </form>
+  {% else %}<button type="button" disabled title="Inactive servers are not discovered">Run discovery</button>{% endif %}
+  <button type="button" disabled title="The raw dump summary arrives with the discovery screens">Last raw dump summary</button>
   {% endif %}
   <p><a href="/scans?server_id={{ server.id }}">Open endpoint scan</a></p>
 </section>

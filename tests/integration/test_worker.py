@@ -164,9 +164,10 @@ def test_two_schedulers_ticking_simultaneously_enqueue_one_cleanup(queue_factory
         list(pool.map(tick, range(6)))
     assert len(jobs_of(queue_factory)) == 1
     assert len(jobs_of(queue_factory, JobType.SCAN)) == 2  # the daily scan and trust recheck, each deduplicated
+    assert len(jobs_of(queue_factory, JobType.DISCOVER)) == 1  # the nightly discovery, deduplicated too
     with queue_factory() as db:
         states = set(db.scalars(select(SchedulerState.key)))
-        assert states == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest"}  # one row each
+        assert states == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest", "discovery"}  # one row each
 
 
 def test_a_scheduler_waits_on_the_state_row_lock_and_then_sees_the_winners_run(queue_factory):
@@ -240,16 +241,16 @@ def test_a_run_missed_by_twelve_hours_is_skipped_and_logged(queue_factory, caplo
     assert len(jobs_of(queue_factory)) == 1
 
 
-def test_no_unregistered_schedule_is_enqueued(queue_factory, monkeypatch):
-    monkeypatch.setattr(worker, "SCHEDULES", dict(worker.SCHEDULES))
-    worker.register_schedule("discovery", JobType.DISCOVER)
-    scheduler_tick(queue_factory, build_registry(), datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
+def test_no_unregistered_schedule_is_enqueued(queue_factory):
+    registry = worker.JobRegistry()  # cleanup and scan/default only: every other schedule has no handler here
+    registry.register(JobType.CLEANUP, cleanup, validator=validate_cleanup_payload)
+    registry.register(JobType.SCAN, lambda context, payload: {}, validator=payload_validator)
+    scheduler_tick(queue_factory, registry, datetime(2026, 10, 19, 12, 0, tzinfo=UTC))
     with queue_factory() as db:
         types = set(db.scalars(select(Job.type)))
         states = set(db.scalars(select(SchedulerState.key)))
-    # scan/default, alert_expiry/default (Task 8) and digest/default (Task 10) are registered; discover is not.
-    assert types == {JobType.CLEANUP, JobType.SCAN, JobType.ALERT_EXPIRY, JobType.DIGEST}
-    assert states == {"cleanup", "scan", "trust_recheck", "expiry_check", "digest"}
+    assert types == {JobType.CLEANUP, JobType.SCAN}
+    assert states == {"cleanup", "scan"}  # discovery, digest, expiry_check and trust_recheck were never considered
 
 
 def test_registered_non_default_action_schedule_uses_its_settings_and_payload(queue_factory, monkeypatch):
@@ -588,7 +589,7 @@ def test_cleanup_runs_end_to_end_through_dispatch_and_the_claimed_job_row(
 ):
     with queue_factory.begin() as db:
         add_job(db, JobStatus.SUCCEEDED, finished_days_ago=100, now=now)
-    disable_schedules(queue_factory, "scan")  # the claim below must pick the cleanup job
+    disable_schedules(queue_factory, "scan", "discovery")  # the claim below must pick the cleanup job
     scheduler_tick(queue_factory, build_registry(), FOUR_AM)
     with queue_factory.begin() as db:
         job = claim(db, "w1", now, worker.timeout_for)
@@ -713,6 +714,7 @@ def test_heartbeat_and_cleanup(worker_harness, client, clock):
     clock.advance(minutes=5, seconds=1)
     assert client.get("/healthz").json()["worker"] == "stale"
     assert worker_harness.registry.supports(JobType.CLEANUP)
+    assert worker_harness.registry.supports(JobType.DISCOVER)  # discover/default, Plan 3 Task 10
     assert not worker_harness.registry.supports(JobType.DEPLOY)
 
 
@@ -816,12 +818,20 @@ def test_at_most_worker_concurrency_jobs_run_at_once(queue_factory, make_worker,
 
 
 def test_types_without_a_registered_handler_are_never_claimed(queue_factory, make_worker, clock):
-    runtime = make_worker(queue_factory)  # digest/default is registered since Task 10; deploy and discover have no handler
-    ignored = [queue_job(queue_factory, JobType.DEPLOY, clock()), queue_job(queue_factory, JobType.DISCOVER, clock())]
+    runtime = make_worker(queue_factory)  # every type but deploy has a handler since Plan 3 Task 10
+    ignored = [queue_job(queue_factory, JobType.DEPLOY, clock())]
     wanted = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
     assert runtime.run_queued() == 1
-    assert statuses(queue_factory, ignored) == [JobStatus.QUEUED] * 2
+    assert statuses(queue_factory, ignored) == [JobStatus.QUEUED]
     assert job_state(queue_factory, wanted)[0] == JobStatus.SUCCEEDED
+
+
+def test_the_registered_discovery_is_not_claimed_by_a_worker_without_the_ssh_key(queue_factory, make_worker, clock):
+    runtime = make_worker(queue_factory)
+    assert runtime.registry.supports(JobType.DISCOVER) and not runtime.settings.ssh_available
+    discovery = queue_job(queue_factory, JobType.DISCOVER, clock(), {})
+    assert runtime.run_queued() == 0
+    assert statuses(queue_factory, [discovery]) == [JobStatus.QUEUED]
 
 
 def test_without_ssh_credentials_scans_run_but_discover_and_deploy_stay_queued(

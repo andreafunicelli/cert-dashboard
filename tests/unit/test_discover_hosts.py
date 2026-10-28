@@ -330,7 +330,7 @@ def test_a_host_missing_from_the_inventory_fails_with_a_fixed_text(tmp_path, tls
     assert (found["nowhere.example.internal"].status, found["nowhere.example.internal"].reason) == ("failed", "internal")
 
 
-@pytest.mark.parametrize("name", ["", "a b", "x:y", "../up", "..", "web*", "a" * 254, "web;rm"])
+@pytest.mark.parametrize("name", ["", "a b", "x:y", "../up", "..", "web*", "a" * 254, "web;rm", "-web", "--limit=all", "-"])
 def test_invalid_hostnames_are_refused_before_any_run(tmp_path, name):
     run = context(tmp_path, {WEB: local_host(tmp_path)})
     with pytest.raises(ValueError, match="hostname"):

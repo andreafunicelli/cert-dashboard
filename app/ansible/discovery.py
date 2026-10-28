@@ -35,6 +35,7 @@ __all__ = [
     "PathFacts",
     "assemble_bindings",
     "discover_hosts",
+    "is_safe_name",
 ]
 
 # D2: the key identity is SHA-256 of the DER SubjectPublicKeyInfo, i.e. ``public_key_sha256`` in
@@ -276,6 +277,15 @@ MAX_SUMMARY_FILES = 200
 PLAYBOOK = PLAYBOOK_DIR / "discover.yml"
 
 _HOSTNAME = re.compile(r"[A-Za-z0-9_.-]{1,253}")
+
+
+def is_safe_name(name: object) -> bool:
+    """True for a name that may be joined into Ansible's ``--limit``: ``[A-Za-z0-9_.-]{1,253}``, no leading ``-``.
+
+    The one predicate shared by the discovery payload, the inventory-selected hosts and ``discover_hosts``.
+    """
+    return isinstance(name, str) and bool(_HOSTNAME.fullmatch(name)) and not name.startswith("-") and name not in {".", ".."}
+
 _EMPTY_INPUT_SHA256 = hashlib.sha256(b"").hexdigest()
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 _FINGERPRINT = re.compile(r"Fingerprint=([0-9A-Fa-f:]+)")
@@ -318,7 +328,7 @@ class _Collected:
 def _check_hostnames(hostnames: Sequence[str]) -> list[str]:
     names: list[str] = []
     for name in hostnames:
-        if not _HOSTNAME.fullmatch(name) or name in {".", ".."}:
+        if not is_safe_name(name):
             raise ValueError("invalid hostname")
         if name not in names:
             names.append(name)

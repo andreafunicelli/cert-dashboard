@@ -2,6 +2,8 @@
 
 from app.jobs.handlers.cleanup import cleanup, validate_cleanup_payload
 from app.jobs.handlers.digest import send_digest, validate_digest_payload
+from app.jobs.handlers.discover import discover as run_discovery
+from app.jobs.handlers.discover import validate_discover_payload
 from app.jobs.handlers.expiry import expiry_check, validate_expiry_payload
 from app.jobs.handlers.import_pull import import_pull as pull_import
 from app.jobs.handlers.scan import scan_endpoints
@@ -32,5 +34,6 @@ def build_registry() -> JobRegistry:
     registry.register(
         JobType.ALERT_EXPIRY, smtp_test, action=SMTP_TEST_ACTION, validator=validate_smtp_test_payload
     )
+    registry.register(JobType.DISCOVER, run_discovery, validator=validate_discover_payload)
     registry.register(JobType.DISCOVER, pull_test, action=TEST_PULL_ACTION, validator=validate_test_pull_payload)
     return registry

@@ -23,6 +23,31 @@
   · <a href="{{ export_url }}" download="servers.json">Export list as JSON</a>
   · <a href="/bindings">Where is a certificate used?</a></div>
 
+<section class="panel wide" id="discovery-actions" aria-label="Discovery">
+  <h2>Discovery</h2>
+  {% if discovery_reason %}
+  <button type="button" disabled title="{{ discovery_reason }}">Discover all</button>
+  <button type="button" disabled title="{{ discovery_reason }}">Discover group</button>
+  <p class="hint">{{ discovery_reason }}</p>
+  {% else %}
+  <form class="inline" method="post" action="/servers/discover">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="scope" value="all">
+    <button type="submit">Discover all</button>
+  </form>
+  {% if groups %}
+  <form class="inline" method="post" action="/servers/discover">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="scope" value="group">
+    <label>Group <select name="group">
+      {% for name in groups %}<option value="{{ name }}"{% if name == values.group %} selected{% endif %}>{{ name }}</option>{% endfor %}
+    </select></label>
+    <button type="submit">Discover group</button>
+  </form>
+  {% else %}<button type="button" disabled title="No server has an inventory group yet">Discover group</button>{% endif %}
+  {% endif %}
+</section>
+
 {% if page.items %}
 <div class="table-wrap">
 <table class="servers">
@@ -49,7 +74,7 @@
 </table>
 </div>
 {% else %}
-<p class="panel wide">No servers match these filters. <a href="/servers">Clear the filters</a>. Servers appear once discovery has run (a later plan).</p>
+<p class="panel wide">No servers match these filters. <a href="/servers">Clear the filters</a>. Servers appear once discovery has run: use “Discover all” above.</p>
 {% endif %}
 
 <nav class="pager" aria-label="Pages">
