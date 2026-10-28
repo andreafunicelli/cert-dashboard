@@ -340,6 +340,10 @@ def reconcile_host(
             reactivate_binding_endpoints(db, binding.id, actor)
         if state == "matched" and binding.certificate_id is not None:
             expect_for_binding(db, binding.id, binding.certificate_id, actor)
+        elif state == "unknown" and previous is not None and previous.match_state != "unknown":
+            # the certificate is no longer inventoried: the endpoint reports mismatch until one is set (§4.10).
+            # Only on the transition, so an expectation an operator set on an unknown binding's endpoint survives.
+            expect_for_binding(db, binding.id, None, actor)
     deactivated = 0
     for identity, binding in existing.items():
         if identity in present or not binding.is_active:

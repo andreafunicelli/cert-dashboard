@@ -375,7 +375,7 @@ def _by_identity(db: Session, host: str, port: int, sni: str | None) -> Endpoint
 
 
 def _discovery_change(
-    db: Session, endpoint: Endpoint, field: str, previous: int | bool | None, value: int | bool, actor: Actor
+    db: Session, endpoint: Endpoint, field: str, previous: int | bool | None, value: int | bool | None, actor: Actor
 ) -> None:
     details: dict[str, JSONValue] = {"field": field, "from": previous, "to": value, "source": "discovery"}
     record(db, actor, "endpoint.update", "endpoint", str(endpoint.id), details)
@@ -439,8 +439,8 @@ def ensure_binding_endpoint(db: Session, binding: Binding, server: Server, actor
     return endpoint, True
 
 
-def expect_for_binding(db: Session, binding_id: int, certificate_id: int, actor: Actor) -> int:
-    """Make the endpoints owned by a binding expect its certificate; the number of endpoints changed."""
+def expect_for_binding(db: Session, binding_id: int, certificate_id: int | None, actor: Actor) -> int:
+    """Make the endpoints owned by a binding expect its certificate (none for an ``unknown`` binding); the number changed."""
     owned = db.scalars(
         select(Endpoint)
         .where(Endpoint.binding_id == binding_id, Endpoint.expected_certificate_id.is_distinct_from(certificate_id))
@@ -472,12 +472,21 @@ def _derives(server: Server, binding: Binding, endpoint: Endpoint) -> bool:
     return (host, port, sni or host) == (endpoint.host, endpoint.port, endpoint.sni or endpoint.host)
 
 
-def _hand_over(db: Session, endpoint: Endpoint, heir: Binding, actor: Actor) -> None:
-    """Link an endpoint to the binding inheriting it; a ``matched`` heir also brings its certificate expectation."""
+def _hand_over(db: Session, endpoint: Endpoint, leaving: Binding, heir: Binding, actor: Actor) -> None:
+    """Link an endpoint to the binding inheriting it.
+
+    A ``matched`` heir brings its certificate expectation; an ``unknown`` heir clears the leaving binding's
+    certificate from it (any other expectation, e.g. an operator's, is kept).
+    """
     _link(db, endpoint, heir, actor)
-    if heir.match_state == "matched" and heir.certificate_id is not None and endpoint.expected_certificate_id != heir.certificate_id:
-        _discovery_change(db, endpoint, "expected_certificate_id", endpoint.expected_certificate_id, heir.certificate_id, actor)
-        endpoint.expected_certificate_id = heir.certificate_id
+    expected = endpoint.expected_certificate_id
+    if heir.match_state == "matched":
+        expected = heir.certificate_id
+    elif heir.match_state == "unknown" and expected is not None and expected == leaving.certificate_id:
+        expected = None
+    if endpoint.expected_certificate_id != expected:
+        _discovery_change(db, endpoint, "expected_certificate_id", endpoint.expected_certificate_id, expected, actor)
+        endpoint.expected_certificate_id = expected
 
 
 def _retire_owned(db: Session, binding: Binding, owned: Sequence[Endpoint], actor: Actor) -> int:
@@ -494,7 +503,7 @@ def _retire_owned(db: Session, binding: Binding, owned: Sequence[Endpoint], acto
     for endpoint in owned:
         heir = next((item for item in siblings if server is not None and _derives(server, item, endpoint)), None)
         if heir is not None:
-            _hand_over(db, endpoint, heir, actor)
+            _hand_over(db, endpoint, binding, heir, actor)
             continue
         endpoint.is_active = False
         _discovery_change(db, endpoint, "is_active", True, False, actor)

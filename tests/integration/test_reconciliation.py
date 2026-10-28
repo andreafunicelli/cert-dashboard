@@ -500,3 +500,64 @@ def test_moving_a_directive_into_an_include_moves_the_expectation_to_the_new_cer
     (endpoint,) = endpoints_of(db, server.id)
     _, new = bindings_of(db, server.id)
     assert (endpoint.is_active, endpoint.binding_id, endpoint.expected_certificate_id) == (True, new.id, other.id)
+
+
+def expectation_changes(db, endpoint):
+    return [
+        (row.details["from"], row.details["to"])
+        for row in db.scalars(
+            select(AuditLog)
+            .where(
+                AuditLog.action == "endpoint.update",
+                AuditLog.target_id == str(endpoint.id),
+                AuditLog.details["field"].astext == "expected_certificate_id",
+            )
+            .order_by(AuditLog.id)
+        )
+    ]
+
+
+def test_a_matched_binding_turning_unknown_clears_its_endpoint_expectation(db, actor, now, ca, keyed_certificate):
+    stranger = issue_leaf(ca, now)  # never imported
+    server = add_server(db, HOST)
+    known = binding_doc("www.example.internal", fp=keyed_certificate.sha256_fingerprint, key=keyed_certificate.spki)
+    run(db, server, actor, now, known)
+    (endpoint,) = endpoints_of(db, server.id)
+    assert endpoint.expected_certificate_id == keyed_certificate.id
+    swapped = binding_doc("www.example.internal", fp=stranger.fingerprint, key=stranger.spki)
+    run(db, server, actor, now + timedelta(hours=1), swapped)
+    (binding,) = bindings_of(db, server.id)
+    db.refresh(endpoint)
+    assert (binding.match_state, binding.certificate_id) == ("unknown", None)
+    assert endpoint.is_active is True
+    assert endpoint.expected_certificate_id is None
+    assert expectation_changes(db, endpoint) == [(keyed_certificate.id, None)]
+
+
+def test_a_shared_endpoint_handed_to_an_unknown_binding_loses_the_removed_expectation(db, actor, now, ca, keyed_certificate):
+    stranger = issue_leaf(ca, now)  # never imported
+    server = add_server(db, HOST)
+    known = binding_doc("www.example.internal", cert_path="/etc/ssl/rsa.pem", fp=keyed_certificate.sha256_fingerprint, key=keyed_certificate.spki)
+    unknown = binding_doc("www.example.internal", cert_path="/etc/ssl/ecdsa.pem", fp=stranger.fingerprint, key=stranger.spki)
+    run(db, server, actor, now, known, unknown)
+    (endpoint,) = endpoints_of(db, server.id)
+    assert endpoint.expected_certificate_id == keyed_certificate.id
+    run(db, server, actor, now + timedelta(hours=1), unknown)
+    db.refresh(endpoint)
+    _, heir = bindings_of(db, server.id)
+    assert heir.match_state == "unknown"
+    assert (endpoint.is_active, endpoint.binding_id, endpoint.expected_certificate_id) == (True, heir.id, None)
+    assert expectation_changes(db, endpoint) == [(keyed_certificate.id, None)]
+
+
+def test_an_operator_expectation_on_an_unknown_bindings_endpoint_survives_rediscovery(db, actor, now, ca, keyed_certificate):
+    stranger = issue_leaf(ca, now)  # never imported
+    server = add_server(db, HOST)
+    entry = binding_doc("www.example.internal", fp=stranger.fingerprint, key=stranger.spki)
+    run(db, server, actor, now, entry)
+    (endpoint,) = endpoints_of(db, server.id)
+    endpoint.expected_certificate_id = keyed_certificate.id  # set by an operator
+    db.flush()
+    run(db, server, actor, now + timedelta(hours=1), entry)
+    db.refresh(endpoint)
+    assert endpoint.expected_certificate_id == keyed_certificate.id
