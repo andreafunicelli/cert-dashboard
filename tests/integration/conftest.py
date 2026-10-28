@@ -1516,3 +1516,180 @@ def import_leaf(db, issued, keyring, actor, now):
 def keyed_certificate(db, ca, keyring, actor, now):
     """An active certificate with a stored key issued by the session ``ca``; ``.spki`` = its SPKI SHA-256."""
     return import_leaf(db, issue_leaf(ca, now), keyring, actor, now)
+
+
+# --- Deploy world (Plan 3 Task 13) -------------------------------------------------------------
+
+
+def _world_certificate(db, ca, keyring, actor, now, *, days_before, days_after, renews_id=None):
+    """A keyed leaf the session ``ca`` issues for the deploy names, imported with its key."""
+    from datetime import timedelta
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    from app.crypto.chain import order_chain
+    from app.crypto.parse import parse_certificates
+    from app.services.certificates import CertificateMetadata, save_certificate, store_key
+
+    names = ("www.example.internal", "legacy.example.internal")
+    key = ec.generate_private_key(ec.SECP256R1())
+    pem = ca.issue(
+        public_key=key.public_key(),
+        common_name=names[0],
+        sans=list(names),
+        not_before=now - timedelta(days=days_before),
+        not_after=now + timedelta(days=days_after),
+    )
+    leaf = parse_certificates(pem)[0]
+    chain = order_chain(leaf.cert, [x509.load_pem_x509_certificate(ca.chain_pem)])
+    key_row = store_key(db, keyring, key, "generated", actor)
+    saved = save_certificate(
+        db,
+        leaf,
+        chain,
+        CertificateMetadata(owner_name="Ada", owner_email="ada@example.test", team="web"),
+        actor,
+        source="upload_pem",
+        key_id=key_row.id,
+        renews_id=renews_id,
+        validation_time=now,
+    )
+    return saved.certificate, key_row
+
+
+@pytest.fixture
+def deploy_world_factory(ca, keyring, now):
+    """``build(db, actor)``: the database-only deploy world of Plan 3 Task 13.
+
+    Three servers (``canary_ring``/``ring_a``/``ring_a``), four active ``matched`` bindings of the
+    previous certificate -- ``web01`` www + legacy sharing ``/etc/nginx/ssl/www.crt``, ``web02`` www,
+    ``web03`` www with a chain file -- an issued renewal whose new (keyed) certificate replaces it, and
+    the fixture root uploaded as a trust anchor so both chains are ``trusted``.
+    """
+
+    def build(db, actor):
+        from datetime import timedelta
+        from types import SimpleNamespace
+
+        from app.models import Binding, Renewal, Server
+        from app.models.enums import RenewalState, WebserverType
+        from app.services.deploy import configure_keyring
+        from app.services.trust_anchors import add_anchor
+
+        configure_keyring(keyring)
+        anchor = add_anchor(db, ca.root_pem, "deploy fixture root", actor, now)
+        old, old_key = _world_certificate(db, ca, keyring, actor, now, days_before=400, days_after=400)
+        new_certificate, new_key = _world_certificate(
+            db, ca, keyring, actor, now, days_before=380, days_after=200, renews_id=old.id
+        )
+        renewal = Renewal(
+            certificate_id=new_certificate.id,
+            previous_certificate_id=old.id,
+            state=RenewalState.ISSUED,
+            common_name="www.example.internal",
+            sans=["www.example.internal", "legacy.example.internal"],
+            key_id=new_key.id,
+            state_changed_at=now,
+        )
+        db.add(renewal)
+        servers = {}
+        for hostname, group, webserver in (
+            ("web01.example.internal", "canary_ring", WebserverType.NGINX),
+            ("web02.example.internal", "ring_a", WebserverType.NGINX),
+            ("web03.example.internal", "ring_a", WebserverType.APACHE),
+        ):
+            servers[hostname] = Server(
+                hostname=hostname,
+                ansible_groups=[group],
+                webserver=webserver,
+                inventory_source="main:inventory/hosts.yml@cafebabe",
+                last_discovery_at=now - timedelta(hours=1),
+                last_discovery_status="ok",
+            )
+            db.add(servers[hostname])
+        db.flush()
+
+        def binding(hostname, vhost, *, cert_path, key_path, config_file, chain_path=None):
+            server = servers[hostname]
+            row = Binding(
+                server_id=server.id,
+                webserver=server.webserver,
+                vhost_name=vhost,
+                vhost_names=[vhost],
+                port=443,
+                config_file=config_file,
+                cert_path=cert_path,
+                chain_path=chain_path,
+                key_path=key_path,
+                cert_owner="root",
+                cert_group="root",
+                cert_mode=0o644,
+                key_owner="root",
+                key_group="root",
+                key_mode=0o600,
+                on_disk_fingerprint=old.sha256_fingerprint,
+                on_disk_key_public_sha256=old_key.public_key_sha256,
+                certificate_id=old.id,
+                match_state="matched",
+                last_seen_at=now - timedelta(hours=1),
+            )
+            db.add(row)
+            db.flush()
+            return row
+
+        target_bindings = (
+            binding(
+                "web01.example.internal",
+                "www.example.internal",
+                cert_path="/etc/nginx/ssl/www.crt",
+                key_path="/etc/nginx/ssl/www.key",
+                config_file="/etc/nginx/conf.d/www.conf",
+            ),
+            binding(
+                "web01.example.internal",
+                "legacy.example.internal",
+                cert_path="/etc/nginx/ssl/www.crt",
+                key_path="/etc/nginx/ssl/legacy.key",
+                config_file="/etc/nginx/conf.d/legacy.conf",
+            ),
+            binding(
+                "web02.example.internal",
+                "www.example.internal",
+                cert_path="/etc/nginx/ssl/www.crt",
+                key_path="/etc/nginx/ssl/www.key",
+                config_file="/etc/nginx/conf.d/www.conf",
+            ),
+            binding(
+                "web03.example.internal",
+                "www.example.internal",
+                cert_path="/etc/apache2/ssl/www.crt",
+                key_path="/etc/apache2/ssl/www.key",
+                chain_path="/etc/apache2/ssl/www.chain.pem",
+                config_file="/etc/apache2/sites-enabled/www.conf",
+            ),
+        )
+        db.flush()
+        return SimpleNamespace(
+            old=old,
+            old_key=old_key,
+            new_certificate=new_certificate,
+            new_key=new_key,
+            renewal=renewal,
+            anchor=anchor,
+            servers=servers,
+            target_bindings=target_bindings,
+            batch_of={
+                servers["web01.example.internal"].id: 0,
+                servers["web02.example.internal"].id: 1,
+                servers["web03.example.internal"].id: 2,
+            },
+        )
+
+    return build
+
+
+@pytest.fixture
+def deploy_world(db, actor, deploy_world_factory):
+    """The Plan 3 Task 13 deploy world inside the per-test rollback transaction."""
+    return deploy_world_factory(db, actor)

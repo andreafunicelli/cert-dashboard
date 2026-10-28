@@ -208,6 +208,59 @@ def remove_anchor(db: Session, anchor_id: int, actor: Actor, validation_time: da
     recheck_chain_statuses(db, validation_time, (removed,) if removed is not None else ())
 
 
+def _row_assessment(
+    row: Certificate,
+    anchors: Sequence[x509.Certificate],
+    validation_time: datetime,
+    diagnostic_roots: Sequence[x509.Certificate] = (),
+) -> ChainAssessment:
+    """Assess one stored certificate against ``anchors`` at ``validation_time`` (no persistence)."""
+    try:
+        leaf = parse_certificates(row.pem.encode("ascii"))[0].cert
+    except (ParseError, UnicodeError):
+        return ChainAssessment(ChainStatus.INCOMPLETE, ("unparseable_certificate",), validation_time)
+    intermediates: list[x509.Certificate] = []
+    if row.chain_pem.strip():
+        try:
+            intermediates = [item.cert for item in parse_certificates(row.chain_pem.encode("ascii"))]
+        except (ParseError, UnicodeError):
+            intermediates = []
+    return assess_chain(leaf, intermediates, anchors, validation_time, diagnostic_roots)
+
+
+def _persist_assessment(
+    db: Session, row: Certificate, assessment: ChainAssessment, validation_time: datetime
+) -> None:
+    """Persist a changed status once, with the usual metadata-only ``certificate.chain_check`` audit."""
+    if row.chain_status != assessment.status:
+        row.chain_status = assessment.status
+        record(
+            db,
+            Actor(None, "system"),
+            "certificate.chain_check",
+            "certificate",
+            str(row.id),
+            {
+                "status": assessment.status.value,
+                "validation_time": validation_time.isoformat(),
+            },
+        )
+    db.flush()
+
+
+def assess_certificate(db: Session, certificate_id: int, validation_time: datetime) -> ChainAssessment:
+    """Assess one certificate at ``validation_time`` and persist a changed status exactly once (§5.8).
+
+    Runs at deploy preview, at enqueue and on every claim of a deploy job (Plan 3 Contract decision 16).
+    """
+    row = db.get(Certificate, certificate_id)
+    if row is None:
+        raise LookupError(f"certificate {certificate_id} not found")
+    assessment = _row_assessment(row, _enabled_anchors(db), validation_time)
+    _persist_assessment(db, row, assessment, validation_time)
+    return assessment
+
+
 def recheck_chain_statuses(
     db: Session,
     validation_time: datetime,
@@ -217,33 +270,8 @@ def recheck_chain_statuses(
     counts: dict[str, int] = {}
     rows = db.scalars(select(Certificate).order_by(Certificate.id).limit(_MAX_CERTIFICATES)).all()
     for row in rows:
-        try:
-            leaf = parse_certificates(row.pem.encode("ascii"))[0].cert
-        except (ParseError, UnicodeError):
-            assessment = ChainAssessment(
-                ChainStatus.INCOMPLETE, ("unparseable_certificate",), validation_time
-            )
-        else:
-            intermediates: list[x509.Certificate] = []
-            if row.chain_pem.strip():
-                try:
-                    intermediates = [item.cert for item in parse_certificates(row.chain_pem.encode("ascii"))]
-                except (ParseError, UnicodeError):
-                    intermediates = []
-            assessment = assess_chain(leaf, intermediates, anchors, validation_time, diagnostic_roots)
+        assessment = _row_assessment(row, anchors, validation_time, diagnostic_roots)
         counts[assessment.status.value] = counts.get(assessment.status.value, 0) + 1
-        if row.chain_status != assessment.status:
-            row.chain_status = assessment.status
-            record(
-                db,
-                Actor(None, "system"),
-                "certificate.chain_check",
-                "certificate",
-                str(row.id),
-                {
-                    "status": assessment.status.value,
-                    "validation_time": validation_time.isoformat(),
-                },
-            )
+        _persist_assessment(db, row, assessment, validation_time)
     db.flush()
     return counts
