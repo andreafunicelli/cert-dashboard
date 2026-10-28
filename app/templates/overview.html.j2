@@ -26,6 +26,27 @@
   {% endfor %}
 </section>
 {% endblock %}
+{% block unknown_certificates %}
+{% if unknown %}
+<h2>Unknown certificates on servers</h2>
+<div class="table-wrap">
+<table class="unknown-bindings">
+  <thead><tr><th scope="col">Server</th><th scope="col">Virtual host</th><th scope="col">On-disk fingerprint</th><th scope="col"></th></tr></thead>
+  <tbody>
+  {% for b in unknown %}
+  <tr data-binding-id="{{ b.id }}">
+    <td><a href="/servers/{{ b.server_id }}">{{ b.server }}</a></td>
+    <td>{{ b.vhost_name }}:{{ b.port }}</td>
+    <td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
+    <td><a href="/certificates/import?from_binding={{ b.id }}">Import as certificate</a></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<p class="hint">The newest {{ unknown | length }} unknown bindings; <a href="/bindings?match_state=unknown">see all</a>.</p>
+{% endif %}
+{% endblock %}
 {% block recent_jobs %}
 <h2>Recent jobs</h2>
 {% if snapshot.recent_jobs %}

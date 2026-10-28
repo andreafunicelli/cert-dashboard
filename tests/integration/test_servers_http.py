@@ -6,7 +6,7 @@ from datetime import timedelta
 from app.models import Job, JobHost, Server
 from app.models.enums import JobHostStatus, JobStatus, JobType
 from app.services.servers import SERVER_EXPORT_FIELDS
-from tests.integration.conftest import add_server
+from tests.integration.conftest import add_server, set_setting
 
 WEB01 = "web01.example.internal"
 WEB02 = "web02.example.internal"
@@ -112,14 +112,15 @@ def test_discovery_history_comes_from_discover_job_hosts(signed_in, server_map, 
     assert re.findall(r"rev(\d\d)", crowded) == [f"{index:02d}" for index in range(20)]
 
 
-def test_discovery_actions_are_enabled_now_that_the_handler_is_registered(signed_in, server_map):
+def test_discovery_actions_are_enabled_now_that_the_handler_is_registered(signed_in, server_map, web_factory):
+    set_setting(web_factory, "inventory.repo_url", "https://git.example.test/inventory.git")
     web01 = server_map.server(WEB01)
     text = signed_in.get(f"/servers/{web01.id}").text
     actions = text.split('id="actions"', 1)[1].split("</section>", 1)[0]
     assert "discover/default not registered" not in text
     assert f'<form class="inline" method="post" action="/servers/{web01.id}/discover">' in actions
     assert '<button type="submit">Run discovery</button>' in actions
-    assert re.search(r'<button type="button" disabled title="[^"]+">Last raw dump summary</button>', actions)  # Task 11
+    assert f'<a href="/servers/{web01.id}/dump">Last raw dump summary</a>' in actions  # Task 11
     assert f'<a href="/scans?server_id={web01.id}">Open endpoint scan</a>' in actions
 
 
@@ -130,10 +131,8 @@ def test_discovery_actions_are_disabled_with_the_reason_when_the_handler_is_miss
     web01 = server_map.server(WEB01)
     text = signed_in.get(f"/servers/{web01.id}").text
     reason = "handler discover/default not registered (Plan 3)"
-    for label in ("Run discovery", "Last raw dump summary"):
-        assert re.search(
-            rf'<button type="button" disabled title="{re.escape(reason)}">{label}</button>', text
-        ), label
+    assert re.search(rf'<button type="button" disabled title="{re.escape(reason)}">Run discovery</button>', text)
+    assert f'<a href="/servers/{web01.id}/dump">Last raw dump summary</a>' in text  # stored data: always readable
     assert f'<a href="/scans?server_id={web01.id}">Open endpoint scan</a>' in text
     assert "<form" not in text.split('id="actions"', 1)[1].split("</section>", 1)[0]
 

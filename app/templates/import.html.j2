@@ -5,6 +5,12 @@
 {% macro field_errors(name, errors) %}{% if errors.get(name) %}<div class="form-error" data-field="{{ name }}" role="alert">{% for message in errors[name] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}{% endmacro %}
 <section class="panel" id="import-panel">
   <h1>Import certificate</h1>
+  {% if from_binding %}
+  <div class="notice" role="status" data-from-binding="true">
+    <p>You are importing the certificate found on <strong>{{ from_binding.server }}</strong> for <code>{{ from_binding.vhost }}:{{ from_binding.port }}</code>{% if from_binding.fingerprint %}, on-disk SHA-256 <code>{{ from_binding.fingerprint }}</code>{% endif %}.</p>
+    <p>The certificate PEM must be pasted or uploaded below. Nothing is fetched from the server: discovery recorded only the fingerprint. Once the PEM is imported, the next discovery matches this binding to it.</p>
+  </div>
+  {% endif %}
   {% if duplicate %}
   <div class="notice" role="status">
     <p>Certificate already in inventory — <a href="/certificates/{{ duplicate.id }}">view existing</a>.</p>

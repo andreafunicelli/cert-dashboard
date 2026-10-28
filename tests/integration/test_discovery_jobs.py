@@ -530,6 +530,7 @@ def clean_discovery_jobs(web_factory):
     with web_factory.begin() as db:
         db.query(Job).filter(Job.type == JobType.DISCOVER).delete()
     disable_schedules(web_factory, "discovery")
+    set_setting(web_factory, "inventory.repo_url", "https://git.example.test/inventory.git")  # buttons need one
 
 
 def test_discover_buttons_enqueue_without_running_ansible(signed_in, server_map, web_factory, clean_discovery_jobs):
