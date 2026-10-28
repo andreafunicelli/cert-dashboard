@@ -84,6 +84,7 @@
 - name: Prepare the backup manifest
   ansible.builtin.set_fact:
     manifest_files: {}
+  no_log: true
 
 - name: Record every backed-up file in the manifest
   ansible.builtin.set_fact:
@@ -106,6 +107,7 @@
     group: root
     mode: "0600"
   become: true
+  no_log: true
   vars:
     manifest_document:
       job_id: "{{ job_id }}"

@@ -10,10 +10,8 @@ and a missing binary is an ``internal``/``preflight_tool_missing`` outcome *befo
 ``key_mismatch_preflight``.
 
 The mapping is deliberately strict: ``succeeded`` needs ``step == "verified"`` evidence that affirmatively
-(``matches: true``) carries the new fingerprint for *every* target binding. Task 14's playbook stops after
-the backup, so a run of it ends ``failed``/``internal`` ("deploy playbook ended before verification") with
-nothing changed outside ``/var/backups/cert-dashboard/<job_id>``; that is the fail-safe boundary of the task,
-not a bug.
+(``matches: true``) carries the new fingerprint for *every* target binding. A run that ends without that
+evidence — however it ends — is never a success (Contract decision 18).
 """
 
 from __future__ import annotations
@@ -54,6 +52,18 @@ MATERIAL_FIELD = {"leaf": "cert_pem", "chain": "chain_pem", "fullchain": "fullch
 # The steps a playbook publishes once it may have replaced a live file (Contract decision 17). A failure
 # from one of them is only a ``rolled_back`` host when the playbook also says the rollback restored it.
 WRITE_STEPS = ("writing", "written", "labelled", "config_tested", "reloaded")
+# §6.4 step 7: up to three verification attempts, two seconds apart. The playbook publishes them and the
+# static test pins the playbook to these values, so the two cannot drift apart.
+VERIFY_ATTEMPTS = 3
+VERIFY_DELAY_SECONDS = 2
+# Contract decision 17: the rollback is a single attempt. These are the fixed texts it publishes when it
+# fails, and such a host is reported as needing manual attention (Contract decision 18).
+ROLLBACK_ERRORS = (
+    "restore failed",
+    "config test failed after restore",
+    "reload failed after restore",
+    "old certificate not served after restore",
+)
 # Contract decision 18's fixed text for a run that never produced verification evidence.
 INTERNAL_TEXT = "deploy playbook ended before verification"
 # A killed run cannot be inspected: it may have replaced any file it had reached (Contract decision 18).

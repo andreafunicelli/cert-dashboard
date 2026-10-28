@@ -1,6 +1,7 @@
 import contextlib
 import functools
 import itertools
+import json
 import secrets
 import uuid
 from pathlib import Path
@@ -1718,6 +1719,21 @@ def writes_of(outcome, path: str) -> int:
     if not isinstance(entry, dict):
         return 0
     return int(entry.get("writes", 1 if entry.get("written") else 0))
+
+
+def task_starts(run_dir: Path) -> list[str]:
+    """The task names ``ansible-runner`` recorded under ``run_dir``, in execution order.
+
+    The events on disk are the only trustworthy evidence of *which* tasks ran and how often: the playbook's
+    own published facts cannot prove that a rollback did not run twice (Task 15).
+    """
+    events = sorted(Path(run_dir).rglob("job_events/*.json"), key=lambda path: int(path.name.split("-", 1)[0]))
+    names: list[str] = []
+    for path in events:
+        document = json.loads(path.read_text(encoding="utf-8"))
+        if document.get("event") == "playbook_on_task_start":
+            names.append(document["event_data"]["task"])
+    return names
 
 
 def new_deploy_leaf(ca, names=VHOSTS):

@@ -1,13 +1,16 @@
-"""Static rules for the committed playbooks (Plan 3 Task 8B; Task 14 adds ``deploy.yml``).
+"""Static rules for the committed playbooks (Plan 3 Task 8B; Tasks 14–15 add the deploy path).
 
 ``discover.yml`` is read-only on the target: only ``ansible.builtin`` modules from an allowlist, no network
 module, every task that touches a key path, certificate extraction or the configuration dump is ``no_log``,
 every command is bounded, and everything that writes is delegated to the controller.
 
-``deploy.yml`` is fail-safe by construction (Task 14): it stops after the backup, so its only writers are
-``file``/``copy`` tasks under ``{{ backup_root }}``, no ``command``/``shell`` may move, copy, install, relabel
-or reload anything, and the two leaf/key hash tasks compute the D2 DER pipelines on the controller where the
-staged material lives.
+``deploy.yml`` writes live files as of Task 15, so the Task 14 boundary rule ("nothing outside the backup
+tree is written") becomes the **rescue-coverage rule** (Contract decision 17): every task that may replace,
+relabel, test or reload a live file or service sits inside the single main ``block`` — directly or through
+``tasks/deploy_write.yml`` — and that block's ``rescue`` includes ``tasks/rollback.yml`` for every write
+step. ``rollback.yml`` is itself a block whose ``rescue`` only records ``rollback_error``, so the restore is
+attempted exactly once. Pruning runs ``files/prune_backups.py`` after the block, only for a ``verified``
+host, and touches only ``{{ backup_root }}``. Every task that handles key files is ``no_log: true``.
 """
 
 import os
@@ -20,6 +23,7 @@ import pytest
 import yaml
 from jinja2 import Environment
 
+from app.ansible.deploy import ROLLBACK_ERRORS, VERIFY_ATTEMPTS, VERIFY_DELAY_SECONDS, WRITE_STEPS
 from app.ansible.discovery import CERT_KEY_HASH_COMMAND, KEY_HASH_COMMAND
 from app.ansible.runner import PLAYBOOK_DIR
 
@@ -41,16 +45,16 @@ KEYWORDS = {
 SENSITIVE = ("key_paths", "pkey", "pkcs7", "nginx_dump", "apache_dump", "/dumps/", "/certs/")
 
 
-def walk(tasks: list[dict], base: Path = PLAYBOOK_DIR) -> list[dict]:
+def walk(tasks: list[dict], base: Path = PLAYBOOK_DIR, *, follow_includes: bool = True) -> list[dict]:
     """Every task (``block`` containers excluded), following their sections and literal ``include_tasks`` files."""
     found: list[dict] = []
     for task in tasks:
         if "block" not in task:
             found.append(task)
         for section in ("block", "rescue", "always"):
-            found.extend(walk(task.get(section) or [], base))
+            found.extend(walk(task.get(section) or [], base, follow_includes=follow_includes))
         include = task.get("ansible.builtin.include_tasks")
-        if include is not None:
+        if follow_includes and include is not None:
             name = include if isinstance(include, str) else include["file"]
             assert "{{" not in name, "include_tasks must name a literal file"
             found.extend(walk(yaml.safe_load((base / name).read_text(encoding="utf-8")), base))
@@ -195,19 +199,81 @@ def test_the_dump_is_written_to_the_controller_with_0600(discover_tasks):
         assert task["ansible.builtin.copy"]["dest"].startswith("{{ artifact_dir }}/dumps/{{ inventory_hostname }}.")
 
 
-# --- deploy.yml: preflight and backup only (Plan 3 Task 14) --------------------------------------
+# --- deploy.yml: the write path and its single-attempt rollback (Plan 3 Tasks 14–15) -------------
 
-# Any task that handles the whole file map (key paths included) or a key path directly is censored.
-DEPLOY_SENSITIVE = ("key_pem_path", "key_paths", "key_stat", "file_paths")
-# A preflight/backup-only playbook may read, stat, hash and copy files into the backup tree; it may never
-# move, copy, relabel or reload anything on the target (§6.4 steps 3–7 belong to Task 15).
-FORBIDDEN_COMMANDS = ("mv", "cp", "install", "restorecon", "reload", "graceful", "systemctl")
+# Any task that handles the whole file map (key paths included), the backup manifest or the write and
+# restore plans is censored: every one of them names key files, and most of them carry content.
+DEPLOY_SENSITIVE = (
+    "key_pem_path", "key_paths", "key_stat", "file_paths", "manifest_files", "restore_entries",
+    "write_entries", "written_files", "written_paths", "source_path",
+)  # fmt: skip
+# A command that moves a file into place, relabels it, re-tests the configuration or reloads the webserver
+# may change what the host serves: every one of them belongs inside the main block (§6.4 steps 3–7).
+LIVE_COMMANDS = ("mv", "restorecon", "reload", "graceful", "configtest")
+LIVE_TOKENS = ("'-t'",)
+# The subset that replaces or relabels a live path: only these must come after `deploy_step=writing`.
+REPLACING_COMMANDS = ("mv", "restorecon")
 BACKUP_PREFIX = "{{ backup_root }}"
+DEPLOY_WRITE = PLAYBOOK_DIR / "tasks" / "deploy_write.yml"
+ROLLBACK = PLAYBOOK_DIR / "tasks" / "rollback.yml"
+# Contract decisions 17–18: the progress a host publishes, and the rollback outcomes.
+EXPECTED_STEPS = {
+    "preflight", "backed_up", "writing", "written", "labelled", "config_tested", "reloaded",
+    "verified", "rolled_back", "rollback_failed",
+}  # fmt: skip
 
 
 @pytest.fixture(scope="module")
 def deploy_tasks() -> list[dict]:
     return tasks_of(DEPLOY)
+
+
+@pytest.fixture(scope="module")
+def deploy_play() -> dict:
+    [play] = yaml.safe_load(DEPLOY.read_text(encoding="utf-8"))
+    return play
+
+
+def include_path(task: dict) -> str | None:
+    """The literal file an ``include_tasks`` task names, or ``None`` for any other task."""
+    include = task.get("ansible.builtin.include_tasks")
+    if include is None:
+        return None
+    return include if isinstance(include, str) else include["file"]
+
+
+def changes_live_state(task: dict) -> bool:
+    """True for a task that may replace, relabel, re-test or reload a live file or service (§6.4 steps 3–7)."""
+    if writes_live_file(task):
+        return True
+    module = module_of(task)
+    if module in {"ansible.builtin.command", "ansible.builtin.shell"}:
+        text = yaml.safe_dump(task[module])
+        return any(re.search(rf"\b{word}\b", text) for word in LIVE_COMMANDS) or any(
+            token in text for token in LIVE_TOKENS
+        )
+    return False
+
+
+def writes_live_file(task: dict) -> bool:
+    """True for a task that replaces or relabels a live path (§6.4 steps 3–4), unlike a read or a test."""
+    module = module_of(task)
+    if module in {"ansible.builtin.file", "ansible.builtin.copy"}:
+        args = task[module]
+        target = args.get("dest") or args.get("path")
+        return not str(target).startswith(BACKUP_PREFIX)
+    if module in {"ansible.builtin.command", "ansible.builtin.shell"}:
+        text = yaml.safe_dump(task[module])
+        return any(re.search(rf"\b{word}\b", text) for word in REPLACING_COMMANDS)
+    return False
+
+
+def assignments_of(task: dict) -> dict:
+    """The mapping a ``set_fact`` task assigns, or an empty mapping for any other task."""
+    if module_of(task) != "ansible.builtin.set_fact":
+        return {}
+    arguments = task["ansible.builtin.set_fact"]
+    return arguments if isinstance(arguments, dict) else {}
 
 
 def test_deploy_playbook_passes_the_ansible_syntax_check(tmp_path):
@@ -252,8 +318,8 @@ def test_deploy_never_delegates_and_never_hides_a_failure(deploy_tasks):
 
 def test_deploy_tasks_touching_key_material_are_no_log(deploy_tasks):
     sensitive = [task for task in deploy_tasks if mentions(task, DEPLOY_SENSITIVE)]
-    # stat/split/hash/backup/verify of the file map at least
-    assert len(sensitive) >= 5
+    # stat/plan/mark/backup/write/restore of the file map at least
+    assert len(sensitive) >= 8
     for task in sensitive:
         assert task.get("no_log") is True, f"{label(task)} must be no_log: true"
 
@@ -265,15 +331,111 @@ def test_deploy_every_command_and_shell_task_is_bounded_to_60_seconds(deploy_tas
         assert 0 < task.get("timeout", 10**6) <= 60, f"{label(task)} needs timeout <= 60"
 
 
-def test_deploy_writes_only_inside_the_backup_tree(deploy_tasks):
-    writers = [t for t in deploy_tasks if module_of(t) in {"ansible.builtin.file", "ansible.builtin.copy"}]
-    assert writers
-    for task in writers:
-        args = task[module_of(task)]
-        assert isinstance(args, dict), f"{label(task)} must use the module's argument mapping"
-        target = args.get("dest") or args.get("path")
-        assert isinstance(target, str), f"{label(task)} has no dest/path"
-        assert target.startswith(BACKUP_PREFIX), f"{label(task)} writes outside {BACKUP_PREFIX}: {target}"
+def test_every_live_changing_task_sits_inside_the_block_whose_rescue_is_the_rollback(deploy_play):
+    """The rescue-coverage rule (Contract decision 17), replacing Task 14's backup-only boundary.
+
+    A write, label, config test or reload that escaped the block would have no rollback behind it, which is
+    exactly the state this plan forbids at every commit. Nothing before the block (preflight, backup) or
+    after it (pruning) may change a live file, and the rescue may reach a live change only through
+    ``tasks/rollback.yml``.
+    """
+    blocks = [task for task in deploy_play["tasks"] if "block" in task]
+    assert len(blocks) == 1, "deploy.yml keeps exactly one block: its rescue is the only rollback"
+    [main] = blocks
+    inside = walk(main.get("block") or [])
+    writes = [task for task in inside if changes_live_state(task)]
+    # the three write steps of every changed path, the label, the config test, the reload
+    assert len(writes) >= 7, "the write, label, config-test and reload tasks must be inside the block"
+    assert "tasks/deploy_write.yml" in [include_path(task) for task in inside]
+    for task in deploy_play["tasks"]:
+        if task is main:
+            continue
+        assert [t for t in walk([task]) if changes_live_state(t)] == [], f"{label(task)} is outside the block"
+    rescue = walk(main.get("rescue") or [], follow_includes=False)
+    assert [task for task in rescue if changes_live_state(task)] == []
+    assert [task for task in walk(main.get("always") or []) if changes_live_state(task)] == []
+
+
+def test_the_rescue_includes_the_rollback_for_every_write_step(deploy_play):
+    [main] = [task for task in deploy_play["tasks"] if "block" in task]
+    rescue = walk(main["rescue"], follow_includes=False)
+    [rollback] = [task for task in rescue if include_path(task) == "tasks/rollback.yml"]
+    when = rollback.get("when")
+    text = " ".join(when) if isinstance(when, list) else str(when)
+    assert "deploy_step" in text and "write_steps" in text
+    # one source of truth for the steps a failure may have changed a live file in
+    assert deploy_play["vars"]["write_steps"] == list(WRITE_STEPS)
+    # the failure is recorded first, the rollback is the last thing the rescue does
+    assert label(rescue[-1]) == label(rollback)
+    assert label(rescue[-2]) == "Record why this host stopped"
+
+
+def test_the_writing_step_is_published_before_the_first_write(deploy_play):
+    flat = walk(deploy_play["tasks"])
+    writing = [index for index, task in enumerate(flat) if assignments_of(task).get("deploy_step") == "writing"]
+    writes = [index for index, task in enumerate(flat) if writes_live_file(task)]
+    assert len(writing) == 1, "deploy_step=writing is set exactly once"
+    assert writes and writing[0] < writes[0], "deploy_step=writing must precede the first live write"
+
+
+def test_the_rollback_is_one_block_that_restores_every_manifest_path():
+    """A single attempt at restoring *every* manifest path, then test, reload and verify the old leaf."""
+    [task] = yaml.safe_load(ROLLBACK.read_text(encoding="utf-8"))
+    assert "block" in task and task.get("rescue")
+    assert not task.get("always")
+    rescue = walk(task["rescue"], follow_includes=False)
+    assert rescue and all(module_of(item) == "ansible.builtin.set_fact" for item in rescue)
+    dumped = yaml.safe_dump(rescue)
+    assert "include_tasks" not in dumped and "until" not in dumped, "the rescue only records, it retries nothing"
+    for text in ROLLBACK_ERRORS:
+        assert text in dumped
+    body = walk(task["block"])
+    plan = yaml.safe_dump(body)
+    assert "manifest_files" in plan and "dict2items" in plan, "every manifest path, not only the written ones"
+    assert ".cert-dashboard.restore.tmp" in plan
+    restores = [item for item in body if item.get("loop") == "{{ restore_entries }}"]
+    assert len(restores) >= 3, "create, fill and rename every restore file"
+    assert all(item.get("no_log") is True for item in restores)
+    # exactly one restore attempt: one atomic rename task in the block, and retries only on the verification
+    renames = [item for item in body if module_of(item) == "ansible.builtin.command" and "mv" in yaml.safe_dump(item)]
+    assert len(renames) == 1 and renames[0]["loop"] == "{{ restore_entries }}"
+    assert len([item for item in body if "retries" in item]) == 1
+    # the restored bytes come from the job's backup, with the original owner/group/mode
+    [copy] = [item for item in body if module_of(item) == "ansible.builtin.copy"]
+    assert copy["ansible.builtin.copy"]["remote_src"] is True
+    assert copy["ansible.builtin.copy"]["mode"] == "{{ item.mode }}"
+    assert copy["ansible.builtin.copy"]["owner"] == "{{ item.owner }}"
+    assert copy["ansible.builtin.copy"]["group"] == "{{ item.group }}"
+
+
+def test_the_rollback_attempts_the_restore_once_even_when_it_fails(deploy_tasks):
+    """A rollback failure must never trigger another restore: one rename task, no retry, one include."""
+    renames = [
+        task
+        for task in deploy_tasks
+        if module_of(task) == "ansible.builtin.command" and "mv" in yaml.safe_dump(task)
+    ]
+    assert len(renames) == 2, "one rename per write step and one per restore, never more"
+    assert not any("retries" in task for task in renames)
+    includes = [task for task in deploy_tasks if include_path(task) == "tasks/rollback.yml"]
+    assert len(includes) == 1
+
+
+def test_the_prune_runs_only_after_a_verified_host_and_only_under_the_backup_root(deploy_play):
+    tasks = deploy_play["tasks"]
+    assert len(tasks) == 2, "one block plus the prune that runs after it"
+    [main, prune] = tasks
+    assert "block" in main and module_of(prune) == "ansible.builtin.script"
+    command = prune["ansible.builtin.script"]
+    command = command if isinstance(command, str) else command["cmd"]
+    assert command.split()[0] == "files/prune_backups.py"
+    assert f"--root {BACKUP_PREFIX}" in command, "the pruner only ever walks the backup root"
+    assert "/var/backups" not in command and "{{ job_id }}" not in command
+    assert "--retention-days {{ backup_retention_days" in command
+    assert prune.get("become") is True and 0 < prune.get("timeout", 10**6) <= 60
+    text = str(prune.get("when"))
+    assert "deploy_step" in text and "verified" in text
+    assert (PLAYBOOK_DIR / "files" / "prune_backups.py").is_file()
 
 
 def test_deploy_certificate_backup_mode_is_the_bitwise_mask_of_the_original(deploy_tasks):
@@ -294,17 +456,18 @@ def test_deploy_certificate_backup_mode_is_the_bitwise_mask_of_the_original(depl
         assert int(rendered, 8) == expected == original & 0o644, f"{original:04o} -> {rendered}"
 
 
-def test_deploy_never_moves_copies_labels_or_reloads_through_a_command(deploy_tasks):
-    for task in deploy_tasks:
-        if module_of(task) not in {"ansible.builtin.command", "ansible.builtin.shell"}:
-            continue
-        text = yaml.safe_dump(task[module_of(task)])
-        for word in FORBIDDEN_COMMANDS:
-            assert not re.search(rf"\b{word}\b", text), f"{label(task)} runs {word}"
-
-
-def test_deploy_has_no_target_side_script_task(deploy_tasks):
-    assert [t for t in deploy_tasks if module_of(t) == "ansible.builtin.script"] == []
+def test_the_written_mode_is_the_bitmask_of_the_original_and_0600_for_keys(deploy_tasks):
+    """Contract decision 17: certificate and chain files get ``old_mode & 0o644``, keys exactly ``0600``."""
+    [task] = [t for t in deploy_tasks if t.get("name") == "Plan every write from the backup manifest"]
+    template = Environment().from_string(task["vars"]["certificate_mode"])
+    for original in (0o500, 0o620, 0o711, 0o777, 0o664, 0o640, 0o600, 0o644):
+        rendered = template.render(old_mode=f"{original:04o}").strip()
+        assert int(rendered, 8) == original & 0o644, f"{original:04o} -> {rendered}"
+    planned = yaml.safe_dump(task["ansible.builtin.set_fact"])
+    assert "'0600'" in planned and "item.item.kind == 'key'" in planned
+    # the owner, group and mode are the ones the current file has (recorded by the backup phase)
+    assert "manifest_entry.owner" in planned and "manifest_entry.group" in planned
+    assert "manifest_entry.mode" in yaml.safe_dump(task["vars"])
 
 
 def test_deploy_publishes_one_per_host_result(deploy_tasks):
@@ -312,22 +475,38 @@ def test_deploy_publishes_one_per_host_result(deploy_tasks):
     assert len(publishers) == 1
     text = yaml.safe_dump(publishers[0])
     assert "cert_dashboard" in text
-    for published in ("deploy_step", "deploy_reason", "backup_dir"):
+    for published in (
+        "deploy_step", "deploy_reason", "backup_dir", "rolled_back", "rollback_error", "files", "targets", "verify",
+    ):  # fmt: skip
         assert published in text
 
 
 def test_deploy_only_ever_marks_the_steps_it_performs(deploy_tasks):
-    # `parse_host_result` grants success only on `step == "verified"`; a playbook that can only ever
-    # publish `preflight` and `backed_up` therefore cannot be recorded as a successful deploy.
-    assignments = [
-        task["ansible.builtin.set_fact"]["deploy_step"]
+    # `parse_host_result` grants success only on `step == "verified"`; every other value is either progress
+    # or the rollback outcome (Contract decisions 17–18).
+    steps = {
+        arguments["deploy_step"]
         for task in deploy_tasks
-        if module_of(task) == "ansible.builtin.set_fact"
-        and isinstance(task["ansible.builtin.set_fact"], dict)
-        and "deploy_step" in task["ansible.builtin.set_fact"]
+        if (arguments := assignments_of(task)) and "deploy_step" in arguments
+    }
+    assert steps == EXPECTED_STEPS
+
+
+def test_the_verification_retries_three_times_two_seconds_apart(deploy_tasks):
+    """§6.4 step 7 / step 8: the same 3 × 2 s rule for the new leaf and for the restored old one."""
+    verifies = [
+        task
+        for task in deploy_tasks
+        if module_of(task) == "ansible.builtin.shell" and "s_client" in yaml.safe_dump(task)
     ]
-    assert assignments
-    assert set(assignments) == {"preflight", "backed_up"}
+    assert len(verifies) == 2, "one verification of the new leaf, one of the restored old leaf"
+    for task in verifies:
+        assert task["retries"] == VERIFY_ATTEMPTS - 1, "retries is attempts minus the first run"
+        assert task["delay"] == VERIFY_DELAY_SECONDS and task["timeout"] <= 60
+        assert task["loop"] == "{{ targets }}" and task.get("no_log") is True
+        assert "-showcerts" in yaml.safe_dump(task["ansible.builtin.shell"])
+    # the retry loop must never abort the play by itself: the published evidence decides
+    assert all(task.get("failed_when") is False for task in verifies)
 
 
 # The two preflight binaries are resolved on the controller (run_host_deploy's `shutil.which`) and passed

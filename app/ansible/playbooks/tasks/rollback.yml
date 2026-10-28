@@ -1,0 +1,163 @@
+---
+# Restore every file of the job's backup after a failed write, label, config test, reload or verification —
+# spec 6.4 step 8 (Plan 3 Task 15). Included from the main block's rescue of `deploy.yml` whenever the host
+# reached `deploy_step=writing`; it is never included anywhere else.
+#
+# Contract decision 17: the backup restored here is the **whole manifest**, each distinct path exactly once
+# and not only the paths this run happened to write, because a failure in the middle of step 3 leaves some
+# files replaced and some not. Every path is put back with the same three-step method as the write — an empty
+# temp file with the original owner/group/mode, the backed-up bytes, then one atomic `mv` — so the mode is set
+# before the content and the live file is never half-written.
+#
+# The rollback is itself a `block` and its `rescue` only records `rollback_error`: a rollback that fails is a
+# single attempt (§6.4 step 8, "never retries a rollback automatically beyond the single attempt"), reported as
+# `rolled_back: false` with `rollback_error` so the host is shown as needing manual attention. The fixed texts
+# are "restore failed", "config test failed after restore", "reload failed after restore" and "old certificate
+# not served after restore"; the backup directory is left on the host for manual recovery.
+
+- name: Restore every backed-up file of this host
+  block:
+    - name: Start the rollback
+      ansible.builtin.set_fact:
+        deploy_phase: rollback
+        rollback_phase: restore
+        rolled_back: false
+        rollback_error: ''
+        restore_entries: []
+        restore_mismatches: []
+      no_log: true
+
+    - name: Plan the restore of every manifest path
+      ansible.builtin.set_fact:
+        restore_entries: >-
+          {{ restore_entries + [{
+               'path': item.key,
+               'source': backup_root ~ '/' ~ job_id ~ item.key,
+               'temp': (item.key | dirname) ~ '/.' ~ (item.key | basename) ~ '.cert-dashboard.restore.tmp',
+               'owner': item.value.owner | default('root'),
+               'group': item.value.group | default('root'),
+               'mode': item.value.mode | default('0644')}] }}
+      loop: "{{ manifest_files | default({}) | dict2items }}"
+      no_log: true
+
+    - name: Create the empty restore file of every manifest path
+      ansible.builtin.file:
+        path: "{{ item.temp }}"
+        state: touch
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+      loop: "{{ restore_entries }}"
+      loop_control:
+        label: "{{ item.path }}"
+      become: true
+      no_log: true
+
+    - name: Fill every restore file with its backed-up content
+      ansible.builtin.copy:
+        src: "{{ item.source }}"
+        dest: "{{ item.temp }}"
+        remote_src: true
+        owner: "{{ item.owner }}"
+        group: "{{ item.group }}"
+        mode: "{{ item.mode }}"
+        force: true
+      loop: "{{ restore_entries }}"
+      loop_control:
+        label: "{{ item.path }}"
+      become: true
+      no_log: true
+
+    - name: Restore every manifest path atomically
+      ansible.builtin.command:
+        argv: ["mv", "-f", "--", "{{ item.temp }}", "{{ item.path }}"]
+      loop: "{{ restore_entries }}"
+      loop_control:
+        label: "{{ item.path }}"
+      become: true
+      timeout: 60
+      changed_when: true
+      no_log: true
+
+    - name: Start the configuration test of the restored files
+      ansible.builtin.set_fact:
+        rollback_phase: config_test
+
+    - name: Run the configuration test of the restored files
+      ansible.builtin.command:
+        argv: "{{ ([nginx_bin, '-t'] if webserver == 'nginx' else [apachectl_bin, 'configtest']) }}"
+      become: true
+      timeout: 60
+      changed_when: false
+
+    - name: Start the reload of the restored files
+      ansible.builtin.set_fact:
+        rollback_phase: reload
+
+    - name: Reload the webserver with the restored files
+      ansible.builtin.command:
+        argv: "{{ ([nginx_bin, '-s', 'reload'] if webserver == 'nginx' else [apachectl_bin, 'graceful']) }}"
+      become: true
+      timeout: 60
+      changed_when: true
+
+    - name: Start the verification of the restored files
+      ansible.builtin.set_fact:
+        rollback_phase: verify
+
+    - name: Check that this host serves the old certificate again
+      ansible.builtin.shell: |
+        set -o pipefail
+        chain="$({{ openssl_bin | default('openssl') }} s_client -connect 127.0.0.1:{{ item.port | int }}{% if item.sni %} -servername {{ item.sni | quote }}{% endif %} -showcerts </dev/null 2>/dev/null)"
+        printf '%s\n' "$chain" | {{ openssl_bin | default('openssl') }} x509 -noout -fingerprint -sha256
+      args:
+        executable: /bin/bash
+      loop: "{{ targets }}"
+      loop_control:
+        label: "{{ item.sni | default(item.cert_path) }}"
+      register: restore_probe
+      until: >-
+        (restore_probe.stdout_lines | default([]) | first | default('')
+         | regex_replace('^.*= *', '') | replace(':', '') | lower)
+        == ((manifest_files | default({})).get(item.cert_path, {}).get('fingerprint', ''))
+      retries: 2
+      delay: 2
+      failed_when: false
+      become: true
+      timeout: 60
+      changed_when: false
+      no_log: true
+
+    - name: Note every binding that does not serve the old certificate again
+      ansible.builtin.set_fact:
+        restore_mismatches: "{{ restore_mismatches + [item.item.binding_id] }}"
+      loop: "{{ restore_probe.results | default([]) }}"
+      vars:
+        observed_fingerprint: "{{ item.stdout_lines[0] | default('', true) | regex_replace('^.*= *', '') | replace(':', '') | lower }}"
+        old_fingerprint: "{{ (manifest_files | default({})).get(item.item.cert_path, {}).get('fingerprint', '') }}"
+      when: observed_fingerprint != old_fingerprint
+      no_log: true
+
+    - name: Stop the rollback when a binding does not serve the old certificate again
+      ansible.builtin.fail:
+        msg: "the host does not serve the old certificate after the restore"
+      when: restore_mismatches | length > 0
+
+    - name: Mark the host as rolled back
+      ansible.builtin.set_fact:
+        deploy_step: rolled_back
+        rolled_back: true
+        rollback_error: ''
+
+  rescue:
+    # One attempt only: record which part of the rollback failed and stop. Nothing is retried here.
+    - name: Record that the rollback failed and needs manual attention
+      ansible.builtin.set_fact:
+        deploy_step: rollback_failed
+        rolled_back: false
+        rollback_error: >-
+          {{ 'restore failed' if rollback_phase | default('restore') == 'restore'
+             else 'config test failed after restore' if rollback_phase | default('') == 'config_test'
+             else 'reload failed after restore' if rollback_phase | default('') == 'reload'
+             else 'old certificate not served after restore' }}
+      no_log: true
