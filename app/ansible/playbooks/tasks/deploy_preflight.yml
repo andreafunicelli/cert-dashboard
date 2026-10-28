@@ -185,9 +185,8 @@
 
 - name: Normalise the two public key hashes
   ansible.builtin.set_fact:
-    new_leaf_key_hex: "{{ new_leaf_key_hash.stdout | default('') | split | first | lower }}"
-    new_key_key_hex: "{{ new_key_key_hash.stdout | default('') | split | first | lower }}"
-  no_log: true
+    new_leaf_key_hex: "{{ new_leaf_key_hash.stdout | default('', true) | split | first | default('', true) | lower }}"
+    new_key_key_hex: "{{ new_key_key_hash.stdout | default('', true) | split | first | default('', true) | lower }}"
   when: deploy_reason == ''
 
 - name: Refuse a certificate whose private key does not match it
@@ -197,7 +196,6 @@
                 and new_leaf_key_hex | length == 64 and new_key_key_hex | length == 64
                 and new_leaf_key_hex == new_key_key_hex)
          else 'key_mismatch_preflight' }}
-  no_log: true
   when: deploy_reason == ''
 
 - name: Stop the deploy when a preflight check refused this host

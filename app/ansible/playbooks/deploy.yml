@@ -41,11 +41,14 @@
       rescue:
         # The preflight refuses through `fail` after setting `deploy_reason`; an unexpected task error has
         # none, so it is classified by the phase it happened in. Nothing live has been touched either way.
+        # `ansible_failed_task` is a *static task name* (never its result, which may hold key material), so it
+        # is safe to publish and it is the one piece of evidence that tells an operator where the run broke.
         - name: Record why this host stopped
           ansible.builtin.set_fact:
             deploy_reason: >-
               {{ deploy_reason | default('', true) or
                  ('backup_failed' if deploy_phase | default('') == 'backup' else 'internal') }}
+            failed_task_name: "{{ ansible_failed_task.name | default('') }}"
           no_log: true
 
       always:
@@ -55,5 +58,8 @@
               {{ {'cert_dashboard': {inventory_hostname: {
                    'step': deploy_step | default(''),
                    'reason': deploy_reason | default(''),
-                   'backup_dir': backup_dir | default('')}}} }}
+                   'backup_dir': backup_dir | default(''),
+                   'failed_task': failed_task_name | default(''),
+                   'hash_rc': [(new_leaf_key_hash.rc | default(-1)) | int,
+                               (new_key_key_hash.rc | default(-1)) | int]}}} }}
           no_log: true
