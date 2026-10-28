@@ -61,5 +61,6 @@
                    'backup_dir': backup_dir | default(''),
                    'failed_task': failed_task_name | default(''),
                    'hash_rc': [(new_leaf_key_hash.rc | default(-1)) | int,
-                               (new_key_key_hash.rc | default(-1)) | int]}}} }}
+                               (new_key_key_hash.rc | default(-1)) | int],
+                   'hash_stderr': (new_leaf_key_hash.stderr | default('') | truncate(200))}}} }}
           no_log: true

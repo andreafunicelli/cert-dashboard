@@ -161,6 +161,9 @@
   ansible.builtin.shell: "set -o pipefail; openssl x509 -in {{ cert_pem_path | quote }} -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum"
   args:
     executable: /bin/bash
+  environment:
+    # Never inherit whatever PATH the worker happens to have: the preflight needs the system tools.
+    PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   connection: local
   become: false
   no_log: true
@@ -174,6 +177,8 @@
   ansible.builtin.shell: "set -o pipefail; openssl pkey -in {{ key_pem_path | quote }} -passin pass: -pubout -outform DER | sha256sum"
   args:
     executable: /bin/bash
+  environment:
+    PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   connection: local
   become: false
   no_log: true
