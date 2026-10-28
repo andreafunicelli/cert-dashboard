@@ -131,11 +131,14 @@ def test_idempotent_rerun_writes_nothing_and_still_verifies(ssh_targets, fresh_t
 
 
 def test_apache_leaf_and_chain_files_and_preserved_stricter_mode(
-    ssh_targets, fresh_targets, deploy_material, tmp_path
+    ssh_targets, fresh_targets, deploy_material, ca, tmp_path
 ):
     # D1: the Apache binding has a chain_path, so the leaf goes to www.crt and the chain to www.chain.pem.
-    # A stricter mode on the leaf (0640) must survive: the write keeps `old_mode & 0o644`.
+    # A stricter mode on the leaf (0640) must survive: the write keeps `old_mode & 0o644`. The fixture issues
+    # the old and the new leaf from the same CA, so the staged chain equals the live one; a different valid
+    # chain (intermediate + root) is installed first so the chain write is exercised rather than skipped.
     ssh_targets.put("ssh-apache", APACHE_CRT, ssh_targets.old.cert_pem, mode=0o640)
+    ssh_targets.put("ssh-apache", APACHE_CHAIN, ca.chain_with_root_pem, mode=0o644)
     targets = [
         deploy_material.target(
             binding_id=9, cert_path=APACHE_CRT, chain_path=APACHE_CHAIN, key_path=APACHE_KEY,
@@ -197,24 +200,25 @@ def test_old_backups_are_pruned_but_the_newest_per_path_is_kept(ssh_targets, fre
 def test_no_secret_in_artifacts_or_excerpt_on_the_write_path(ssh_targets, fresh_targets, deploy_material, tmp_path):
     key_pem = deploy_material.staged.key_pem.read_bytes()
     body = key_pem.splitlines()[1]
-    written = run_host_deploy(
-        deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX,
-        web01_targets(deploy_material, ssh_targets.old.fingerprint), deploy_material.staged,
-        job_id=JOB_ID, retention_days=30, timeout_seconds=600,
-    )  # fmt: skip
-    assert written.status == "succeeded", describe(written)
     only_www = [
         deploy_material.target(
             binding_id=1, cert_path=WWW_CRT, key_path=WWW_KEY, port=18443, sni=WWW_VHOST,
             expected=ssh_targets.old.fingerprint,
         )
     ]  # fmt: skip
-    # the rollback restores the key from its backup: that task must be censored too
+    # a rollback restores the key from its backup: that task must be censored too. It runs first, while the
+    # host still has the old material that makes the partial deploy's config test fail.
     restored = run_host_deploy(
         deploy_material.runner(tmp_path / "rollback"), "web01.example.internal", WebserverType.NGINX,
         only_www, deploy_material.staged, job_id=uuid4(), retention_days=30, timeout_seconds=600,
     )  # fmt: skip
     assert (restored.status, restored.reason) == ("rolled_back", "config_test_failed"), describe(restored)
+    written = run_host_deploy(
+        deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX,
+        web01_targets(deploy_material, ssh_targets.old.fingerprint), deploy_material.staged,
+        job_id=JOB_ID, retention_days=30, timeout_seconds=600,
+    )  # fmt: skip
+    assert written.status == "succeeded", describe(written)
     for run in (written, restored):
         assert "PRIVATE KEY" not in run.log_excerpt and body.decode() not in run.log_excerpt
     for root in (tmp_path / "run", tmp_path / "rollback" / "run"):

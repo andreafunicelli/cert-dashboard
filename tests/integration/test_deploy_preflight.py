@@ -211,6 +211,9 @@ def test_backup_mode_is_the_bitmask_of_the_original(ssh_targets, fresh_targets, 
     """
     targets = web01_targets(deploy_material, ssh_targets.old.fingerprint)
     for original in (0o500, 0o620, 0o711):
+        # Every iteration starts from the pristine target: the previous run deployed the new key material, so
+        # writing the old certificate back without the old keys would break `nginx -t` before the backup.
+        ssh_targets.reset("ssh-nginx-1")
         ssh_targets.put("ssh-nginx-1", WWW_CRT, ssh_targets.old.fullchain_pem, mode=original)
         job = uuid4()
         outcome = run_host_deploy(
