@@ -27,6 +27,9 @@ jobs:
           if [ -f app/services/renewals.py ]; then
             uv run coverage report --fail-under=85 --include='app/services/renewals.py'
           fi
+          if [ -f app/services/deploy.py ]; then
+            uv run coverage report --fail-under=85 --include='app/services/deploy.py'
+          fi
       - run: uv run pip-audit
       - run: docker compose -f docker-compose.test.yml config --quiet
       - run: docker compose -f docker-compose.test.yml --profile targets config --quiet
