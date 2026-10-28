@@ -13,7 +13,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
 
+from app.crypto.keys import public_key_sha256
 from tests.fixtures.git_inventory import InventoryRepo, make_bare_repo, write_vaulted
+from tests.fixtures.ssh_targets import VHOSTS
 
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE = "postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4"
@@ -1693,3 +1695,176 @@ def deploy_world_factory(ca, keyring, now):
 def deploy_world(db, actor, deploy_world_factory):
     """The Plan 3 Task 13 deploy world inside the per-test rollback transaction."""
     return deploy_world_factory(db, actor)
+
+
+# --- Deploy material (Plan 3 Task 14) -----------------------------------------------------------
+
+
+def spki_of(pem: bytes | str) -> str:
+    """SHA-256 of the DER SubjectPublicKeyInfo of a private-key or certificate PEM (the D2 identity)."""
+    from cryptography import x509
+    from cryptography.hazmat.primitives import serialization
+
+    data = pem.encode() if isinstance(pem, str) else pem
+    if b"PRIVATE KEY" in data:
+        return public_key_sha256(serialization.load_pem_private_key(data, password=None).public_key())
+    return public_key_sha256(x509.load_pem_x509_certificate(data).public_key())
+
+
+def writes_of(outcome, path: str) -> int:
+    """How many write operations the host reported for ``path`` (0 when it was not written)."""
+    files = outcome.precheck.get("files")
+    entry = files.get(path) if isinstance(files, dict) else None
+    if not isinstance(entry, dict):
+        return 0
+    return int(entry.get("writes", 1 if entry.get("written") else 0))
+
+
+def new_deploy_leaf(ca, names=VHOSTS):
+    """A fresh leaf for ``names`` with its own key, the session CA's chain and the D2 identities."""
+    from types import SimpleNamespace
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import ec
+
+    key = ec.generate_private_key(ec.SECP256R1())
+    cert_pem = ca.issue(public_key=key.public_key(), common_name=names[0], sans=list(names))
+    chain_pem = ca.chain_pem
+    return SimpleNamespace(
+        key=key,
+        cert_pem=cert_pem,
+        chain_pem=chain_pem,
+        fullchain_pem=cert_pem + chain_pem,
+        key_pem=key.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+        ),
+        fingerprint=x509.load_pem_x509_certificate(cert_pem).fingerprint(hashes.SHA256()).hex(),
+        spki_sha256=public_key_sha256(key.public_key()),
+        served_chain_length=1 + len(x509.load_pem_x509_certificates(chain_pem)),
+    )
+
+
+class DeployMaterial:
+    """The staged material of one host deploy plus the helpers ``tests/integration/test_deploy_*.py`` use."""
+
+    def __init__(self, *, directory, ssh_targets, secrets, material, staged, artifact_dir, run_dir, mismatched):
+        self.directory = directory
+        self.ssh_targets = ssh_targets
+        self.secrets = secrets
+        self.material = material
+        self.staged = staged
+        self.artifact_dir = artifact_dir
+        self.run_dir = run_dir
+        self.mismatched_staged = mismatched
+        self.other = new_deploy_leaf(ca=material.ca, names=("other.example.internal",))
+
+    # the new material, as the tests assert it on the target
+    @property
+    def cert_pem(self) -> bytes:
+        return self.material.cert_pem
+
+    @property
+    def chain_pem(self) -> bytes:
+        return self.material.chain_pem
+
+    @property
+    def fullchain_pem(self) -> bytes:
+        return self.material.fullchain_pem
+
+    @property
+    def fingerprint(self) -> str:
+        return self.material.fingerprint
+
+    @property
+    def spki_sha256(self) -> str:
+        return self.material.spki_sha256
+
+    @property
+    def served_chain_length(self) -> int:
+        return self.material.served_chain_length
+
+    @property
+    def other_fullchain_pem(self) -> bytes:
+        """An unrelated certificate, for the drift and conflict cases."""
+        return self.other.fullchain_pem
+
+    def target(self, *, binding_id, cert_path, key_path, port, sni, expected, chain_path=None):
+        """One ``DeployTarget`` of this host, expected to still carry ``expected`` on disk."""
+        from app.services.deploy import DeployTarget
+
+        return DeployTarget(
+            binding_id=binding_id,
+            cert_path=cert_path,
+            chain_path=chain_path,
+            key_path=key_path,
+            expected_fingerprint=expected,
+            new_fingerprint=self.fingerprint,
+            port=port,
+            sni=sni,
+        )
+
+    def runner(self, directory):
+        """A ``RunnerContext`` whose inventory is the SSH target stack and whose run directory is fresh."""
+        from pathlib import Path
+
+        from app.ansible.runner import RunnerContext
+
+        base = Path(directory)
+        (base / "inventory").mkdir(parents=True, exist_ok=True)
+        return RunnerContext(
+            secrets=self.secrets,
+            inventory=self.ssh_targets.inventory_file(base / "inventory"),
+            run_dir=base / "run",
+            artifact_dir=self.artifact_dir,
+        )
+
+
+@pytest.fixture
+def deploy_material(ca, ssh_targets, runner_secrets, tmp_path):
+    """``deploy_material``: a new leaf for ``www``+``legacy`` and its key, staged like a real deploy.
+
+    The public PEMs live in ``<tmp>/artifacts/files`` and the key only in the ``StagingArea``
+    (``<tmp>/keys/<job_id>/tls_key.pem``), which is removed when the fixture ends. A second staging area
+    holds the same leaf with an unrelated private key (``mismatched_staged``) for the D2 refusal case.
+    """
+    from types import SimpleNamespace
+
+    from app.ansible.deploy import stage_material
+    from app.ansible.staging import StagingArea
+
+    material = new_deploy_leaf(ca)
+    material.ca = ca
+    artifact_dir = tmp_path / "artifacts"
+    artifact_dir.mkdir()
+    other = new_deploy_leaf(ca, names=("other.example.internal",))
+    staging = StagingArea(tmp_path / "keys", JOB_ID)
+    mismatched_staging = StagingArea(tmp_path / "keys", uuid.UUID(int=99))
+    staging.__enter__()
+    mismatched_staging.__enter__()
+    staged = stage_material(
+        SimpleNamespace(pem=material.cert_pem.decode(), chain_pem=material.chain_pem.decode()),
+        material.key,
+        artifact_dir,
+        staging,
+    )
+    mismatched = stage_material(
+        SimpleNamespace(pem=material.cert_pem.decode(), chain_pem=material.chain_pem.decode()),
+        other.key,
+        tmp_path / "mismatched-artifacts",
+        mismatched_staging,
+    )
+    try:
+        yield DeployMaterial(
+            directory=tmp_path,
+            ssh_targets=ssh_targets,
+            secrets=runner_secrets,
+            material=material,
+            staged=staged,
+            artifact_dir=artifact_dir,
+            run_dir=tmp_path / "run",
+            mismatched=mismatched,
+        )
+    finally:
+        mismatched_staging.__exit__(None, None, None)
+        staging.__exit__(None, None, None)

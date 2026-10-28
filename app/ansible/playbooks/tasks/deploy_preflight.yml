@@ -1,0 +1,221 @@
+---
+# Preflight of one host deploy (spec 6.4 step 1). Nothing here writes anything: every check only fills
+# `deploy_reason`, and the last task aborts the host with that reason.
+#
+#   missing_target          a target file or its directory does not exist
+#   drift_detected          the on-disk certificate is neither the discovery snapshot nor the new leaf
+#   permission_denied       a target file exists but the deploy user cannot read it
+#   insufficient_space      a target filesystem cannot hold the backup plus the write
+#   baseline_config_invalid the configuration test already fails, so a rollback would prove nothing
+#   key_mismatch_preflight  the new leaf and the new private key are not a pair (D2: DER SPKI hashes)
+#
+# The two hash tasks run on the CONTROLLER (task-level `connection: local`, `become: false`): the staged
+# material lives in the worker's artifact directory and tmpfs staging area (Contract decision 6) and is
+# never copied to the target before a backup exists. They reuse Task 8A's templates verbatim, under bash
+# `pipefail`, so a failing `openssl` is a mismatch — never a match of two empty-input hashes.
+
+- name: Start the preflight with the file map of this host
+  ansible.builtin.set_fact:
+    deploy_step: preflight
+    deploy_phase: preflight
+    deploy_reason: ''
+    missing_paths: []
+    drifted_paths: []
+    unreadable_paths: []
+    short_space: []
+    file_paths: "{{ files | map(attribute='path') | unique | list }}"
+    key_paths: "{{ files | selectattr('kind', 'equalto', 'key') | map(attribute='path') | unique | list }}"
+    certificate_paths: "{{ files | rejectattr('kind', 'equalto', 'key') | map(attribute='path') | unique | list }}"
+  no_log: true
+
+- name: Stat the key files of this host
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true
+    get_checksum: true
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  loop: "{{ key_paths }}"
+  become: true
+  no_log: true
+  failed_when: false
+  register: key_stat
+
+- name: Stat the certificate files of this host
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true
+    get_checksum: true
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  loop: "{{ certificate_paths }}"
+  become: true
+  failed_when: false
+  register: certificate_stat
+
+- name: Note every target path that does not exist
+  ansible.builtin.set_fact:
+    missing_paths: "{{ missing_paths + [item.item] }}"
+  loop: "{{ certificate_stat.results + key_stat.results }}"
+  no_log: true
+  when: not (item.stat.exists | default(false))
+
+- name: Note every target path that exists but is not readable
+  ansible.builtin.set_fact:
+    unreadable_paths: "{{ unreadable_paths + [item.item] }}"
+  loop: "{{ certificate_stat.results + key_stat.results }}"
+  no_log: true
+  when:
+    - item.stat.exists | default(false)
+    - not (item.stat.readable | default(false))
+
+- name: Fingerprint every certificate path
+  ansible.builtin.command:
+    argv: [openssl, x509, -noout, -fingerprint, -sha256, -in, "{{ item }}"]
+  loop: "{{ certificate_paths }}"
+  become: true
+  timeout: 60
+  changed_when: false
+  failed_when: false
+  register: certificate_fingerprints
+
+- name: Prepare the fingerprint map
+  ansible.builtin.set_fact:
+    path_fingerprints: {}
+
+- name: Record the fingerprint of every certificate path
+  ansible.builtin.set_fact:
+    path_fingerprints: >-
+      {{ path_fingerprints | combine({item.item:
+           item.stdout | default('') | regex_replace('^.*= *', '') | replace(':', '') | lower}) }}
+  loop: "{{ certificate_fingerprints.results }}"
+  when: item.rc | default(1) | int == 0
+
+- name: Note every certificate path that changed since discovery
+  ansible.builtin.set_fact:
+    drifted_paths: "{{ drifted_paths + [item.cert_path] }}"
+  loop: "{{ targets }}"
+  vars:
+    observed: "{{ (path_fingerprints | default({})).get(item.cert_path, '') }}"
+    accepted: "{{ [item.expected_fingerprint | default(''), item.new_fingerprint | default('')] }}"
+  when: observed != '' and observed not in accepted
+
+- name: Read the free space of every target directory
+  ansible.builtin.command:
+    argv: "{{ ['df', '-Pk', '--', item] }}"
+  loop: "{{ (certificate_stat.results + key_stat.results) | map(attribute='item') | map('dirname') | unique | list }}"
+  become: true
+  no_log: true
+  timeout: 60
+  changed_when: false
+  failed_when: false
+  register: df_results
+
+- name: Note every target filesystem without room for the backup and the write
+  ansible.builtin.set_fact:
+    short_space: "{{ short_space + [item.item | default('')] }}"
+  loop: "{{ df_results.results }}"
+  vars:
+    space_line: "{{ (item.stdout_lines | default([]) | last) | default('') }}"
+    available_kb: "{{ space_line.split()[3] if (space_line.split() | length) > 4 else 0 }}"
+  no_log: true
+  when: item.rc | default(1) | int != 0 or (available_kb | int) * 1024 < (space_required_bytes | int)
+
+- name: Run the baseline configuration test
+  ansible.builtin.command:
+    argv: "{{ ([nginx_bin, '-t'] if webserver == 'nginx' else [apachectl_bin, 'configtest']) }}"
+  become: true
+  timeout: 60
+  changed_when: false
+  failed_when: false
+  register: baseline_config
+
+- name: Refuse a host with a missing target file or directory
+  ansible.builtin.set_fact:
+    deploy_reason: missing_target
+  when: deploy_reason == '' and missing_paths | length > 0
+
+- name: Refuse a host whose certificate changed since discovery
+  ansible.builtin.set_fact:
+    deploy_reason: drift_detected
+  when: deploy_reason == '' and drifted_paths | length > 0
+
+- name: Refuse a host whose target files are not readable
+  ansible.builtin.set_fact:
+    deploy_reason: permission_denied
+  when: deploy_reason == '' and unreadable_paths | length > 0
+
+- name: Refuse a host without room for the backup and the write
+  ansible.builtin.set_fact:
+    deploy_reason: insufficient_space
+  when: deploy_reason == '' and short_space | length > 0
+
+- name: Refuse a host whose configuration test already fails
+  ansible.builtin.set_fact:
+    deploy_reason: baseline_config_invalid
+  when: deploy_reason == '' and baseline_config.rc | default(1) | int != 0
+
+- name: Hash the public key of the new leaf
+  ansible.builtin.shell: >-
+    set -o pipefail; {{ openssl_bin | default('openssl') }} x509 -in {{ cert_pem_path | quote }}
+    -pubkey -noout | {{ openssl_bin | default('openssl') }} pkey -pubin -outform DER
+    | {{ sha256sum_bin | default('sha256sum') }}
+  args:
+    executable: /bin/bash
+  vars:
+    # The module of a controller-side task runs on the worker: pin it to the interpreter that runs the
+    # playbook instead of discovering one from PATH (which differs between a worker and a test harness).
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  environment:
+    # Belt and braces: the two binaries themselves are resolved by run_host_deploy and passed as
+    # absolute paths (`openssl_bin` / `sha256sum_bin`), so the pipeline never depends on this PATH.
+    PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  connection: local
+  become: false
+  no_log: true
+  timeout: 60
+  changed_when: false
+  failed_when: false
+  register: new_leaf_key_hash
+  when: deploy_reason == ''
+
+- name: Hash the public key of the new private key
+  ansible.builtin.shell: >-
+    set -o pipefail; {{ openssl_bin | default('openssl') }} pkey -in {{ key_pem_path | quote }}
+    -passin pass: -pubout -outform DER | {{ sha256sum_bin | default('sha256sum') }}
+  args:
+    executable: /bin/bash
+  vars:
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  environment:
+    PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  connection: local
+  become: false
+  no_log: true
+  timeout: 60
+  changed_when: false
+  failed_when: false
+  register: new_key_key_hash
+  when: deploy_reason == ''
+
+- name: Normalise the two public key hashes
+  ansible.builtin.set_fact:
+    new_leaf_key_hex: "{{ new_leaf_key_hash.stdout | default('', true) | split | first | default('', true) | lower }}"
+    new_key_key_hex: "{{ new_key_key_hash.stdout | default('', true) | split | first | default('', true) | lower }}"
+  when: deploy_reason == ''
+
+- name: Refuse a certificate whose private key does not match it
+  ansible.builtin.set_fact:
+    deploy_reason: >-
+      {{ '' if (new_leaf_key_hash.rc | default(1) | int == 0 and new_key_key_hash.rc | default(1) | int == 0
+                and new_leaf_key_hex | length == 64 and new_key_key_hex | length == 64
+                and new_leaf_key_hex == new_key_key_hex)
+         else 'key_mismatch_preflight' }}
+  when: deploy_reason == ''
+
+- name: Stop the deploy when a preflight check refused this host
+  ansible.builtin.fail:
+    msg: "preflight refused this host: {{ deploy_reason }}"
+  when: deploy_reason != ''

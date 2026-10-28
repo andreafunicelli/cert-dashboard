@@ -1,0 +1,70 @@
+---
+# Deploy one host's certificate material — Plan 3 Task 14: PREFLIGHT AND BACKUP ONLY.
+#
+# This playbook performs spec 6.4 steps 1 (preflight) and 2 (backup) and then stops, publishing
+# `step: backed_up`. It contains no task that writes, labels or replaces a live file and none that reloads a
+# service: those arrive in Task 15 together with the automatic rollback, inside the same block, so no
+# intermediate state of the plan can change a served certificate without a restore behind it (Contract
+# decision 17). A static unit test enforces the boundary: every `file`/`copy` writes under `{{ backup_root }}`,
+# no `command`/`shell` moves, copies, installs, relabels or reloads anything, and there is no `script` task.
+#
+# Extra-vars (paths and a JSON document only, never key content — Contract decisions 6 and 17):
+#   job_id, backup_root, backup_retention_days, space_required_bytes,
+#   openssl_bin / sha256sum_bin (the two preflight binaries, resolved on the controller),
+#   cert_pem_path / chain_pem_path / fullchain_pem_path (public, artifact dir), key_pem_path (tmpfs staging),
+#   webservers (host -> nginx|apache), files ([{path, kind, source}]), targets ([{binding_id, cert_path,
+#   chain_path, key_path, expected_fingerprint, new_fingerprint, port, sni}]).
+#
+# The result is published through `set_stats` (Contract decision 7) for exactly the one host this run is
+# limited to; `parse_host_result` turns it into the job_host outcome, and only `step == "verified"` — which
+# this playbook never publishes — is a success (Contract decision 18).
+- name: Deploy the certificate material of one host
+  hosts: all
+  gather_facts: false
+  become: true
+
+  tasks:
+    - name: Preflight and back up this host
+      block:
+        - name: Detect the webserver
+          ansible.builtin.include_tasks: tasks/detect_webserver.yml
+
+        - name: Run the preflight checks
+          ansible.builtin.include_tasks: tasks/deploy_preflight.yml
+
+        - name: Back up every affected file
+          ansible.builtin.include_tasks: tasks/deploy_backup.yml
+
+        - name: Mark the host as backed up
+          ansible.builtin.set_fact:
+            deploy_step: backed_up
+
+      rescue:
+        # The preflight refuses through `fail` after setting `deploy_reason`; an unexpected task error has
+        # none, so it is classified by the phase it happened in. Nothing live has been touched either way.
+        # `ansible_failed_task` is a *static task name* (never its result, which may hold key material), so it
+        # is safe to publish and it is the one piece of evidence that tells an operator where the run broke.
+        - name: Record why this host stopped
+          ansible.builtin.set_fact:
+            deploy_reason: >-
+              {{ deploy_reason | default('', true) or
+                 ('backup_failed' if deploy_phase | default('') == 'backup' else 'internal') }}
+            failed_task_name: "{{ ansible_failed_task.name | default('') }}"
+          no_log: true
+
+      always:
+        - name: Publish the result of this host
+          ansible.builtin.set_stats:
+            data: >-
+              {{ {'cert_dashboard': {inventory_hostname: {
+                   'step': deploy_step | default(''),
+                   'reason': deploy_reason | default(''),
+                   'backup_dir': backup_dir | default(''),
+                   'failed_task': failed_task_name | default(''),
+                   'hash_rc': [(new_leaf_key_hash.rc | default(-1)) | int,
+                               (new_key_key_hash.rc | default(-1)) | int],
+                   'hash_stderr': (new_leaf_key_hash.stderr | default('') | truncate(200)),
+                   'hash_msg': (new_leaf_key_hash.msg | default('') | truncate(200)),
+                   'hash_module_stderr': (new_leaf_key_hash.module_stderr | default('') | truncate(200)),
+                   'hash_failed': (new_leaf_key_hash.failed | default(false))}}} }}
+          no_log: true
