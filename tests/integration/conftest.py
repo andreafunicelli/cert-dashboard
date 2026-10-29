@@ -1292,6 +1292,10 @@ class ComposeTargets:
         output = self._compose("exec", "-T", "smtp", "python", "-m", "tests.fixtures.smtp_capture", "--dump", "/spool").stdout
         return [message_from_string(raw, policy=policy.default) for raw in json.loads(output)]
 
+    def clear_messages(self) -> None:
+        """Drop every spooled message: the spool is a session-wide tmpfs shared with the other modules."""
+        self._compose("exec", "-T", "smtp", "sh", "-c", "rm -f /spool/*; true")
+
 
 def x509_load(pem: bytes):
     from cryptography import x509
@@ -2189,6 +2193,21 @@ class AcceptanceStack:
         self.ready()
         self.worker.run_queued(timeout=timeout)
 
+    def host_rows(self, job_id) -> list[tuple]:
+        """``(hostname, status, error_message, rolled_back, rollback_error)`` per ``job_host`` row."""
+        from app.models import JobHost, Server
+
+        with self.factory() as db:
+            return [
+                (hostname, str(row.status), row.error_message, row.rolled_back, row.rollback_error)
+                for hostname, row in db.execute(
+                    select(Server.hostname, JobHost)
+                    .join(Server, Server.id == JobHost.server_id)
+                    .where(JobHost.job_id == job_id)
+                    .order_by(JobHost.batch_no, Server.hostname, JobHost.binding_id)
+                ).all()
+            ]
+
     def latest_job(self, job_type, action: str | None = None):
         """The newest committed job of ``job_type`` (a ``JobType`` or its value) with ``action``."""
         from app.models import Job
@@ -2523,7 +2542,7 @@ class AcceptanceStack:
         """Preview and confirm on the real start screen; the plan hash must round-trip (§6.6, §8.7)."""
         query = [f"certificate_id={certificate_id}"]
         query += [f"binding_id={binding_id}" for binding_id in binding_ids]
-        query += [f"batch_percent={batch_percent}", "pause_after_canary=true" if pause_after_canary else "pause_after_canary=false"]
+        query += [f"batch_percent={batch_percent}", f"pause_after_canary={_checkbox(pause_after_canary)}"]
         page = self.get("/deploy?" + "&".join(query))
         assert page.status_code == 200, page.text[:800]
         plan = re.search(r'name="plan_sha256" value="([0-9a-f]{64})"', page.text)
@@ -2535,7 +2554,7 @@ class AcceptanceStack:
                 "plan_sha256": plan.group(1),
                 "confirm": "yes",
                 "batch_percent": str(batch_percent),
-                "pause_after_canary": "true" if pause_after_canary else "false",
+                "pause_after_canary": _checkbox(pause_after_canary),
                 "binding_id": [str(binding_id) for binding_id in binding_ids],
             },
         )
@@ -2543,8 +2562,12 @@ class AcceptanceStack:
         return uuid.UUID(response.headers["location"].rsplit("/", 1)[1])
 
     def continue_deploy(self, job_id) -> None:
+        job = self.job(job_id)
         response = self.post(f"/deploy/{job_id}/continue")
-        assert response.status_code == 303, response.text[:800]
+        assert response.status_code == 303, (
+            f"Continue refused for a job that is {job.status} ({job.error_class}: {job.error_message}; "
+            f"result={job.result}; hosts={self.host_rows(job_id)}): {response.text[:400]}"
+        )
         self.run_worker(timeout=1200)
 
     def report(self, job_id) -> dict:
@@ -2656,6 +2679,11 @@ def _binding_vhost(host: dict) -> str | None:
     return next((binding["vhost_name"] for binding in host["bindings"] if binding["vhost_name"]), None)
 
 
+def _checkbox(value: bool) -> str:
+    """The deploy screen's own checkbox encoding (``"1"``/``"0"``, see ``app/web/deploy.py``)."""
+    return "1" if value else "0"
+
+
 @pytest.fixture(scope="module")
 def acceptance_stack(web_factory, ssh_targets, compose_targets, ca):
     """The §10.4 acceptance environment (Plan 3 Task 20): one web app and one worker on one database.
@@ -2733,6 +2761,8 @@ def acceptance_stack(web_factory, ssh_targets, compose_targets, ca):
     finally:
         stack.close()
         worker.close(grace_seconds=0)
+        with contextlib.suppress(Exception):  # a dead compose project must not fail the teardown
+            compose_targets.clear_messages()
         shutil.rmtree(artifacts, ignore_errors=True)
         shutil.rmtree(directory, ignore_errors=True)
 

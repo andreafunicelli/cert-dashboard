@@ -48,6 +48,7 @@ APACHE_CHAIN = "/etc/apache2/ssl/www.chain.pem"
 APACHE_KEY_INCLUDE = "/etc/apache2/ssl-keys/www.key.conf"
 SHA256_LENGTH = 64
 _SCENARIO: SimpleNamespace | None = None
+_SCENARIO_ERROR: BaseException | None = None
 
 
 # --- D3: put each webserver's key directive inside an include, before discovery ------------------
@@ -215,6 +216,14 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
         pause_after_canary=True,
     )
     stack.run_worker(timeout=1200)  # the canary runs, then the job releases its claim and pauses
+    record.paused_job = stack.job(record.deploy_job)
+    if record.paused_job.status != "paused":
+        raise AssertionError(
+            "the canary did not pause the deploy: "
+            f"status={record.paused_job.status} class={record.paused_job.error_class} "
+            f"message={record.paused_job.error_message} result={record.paused_job.result} "
+            f"hosts={stack.host_rows(record.deploy_job)}"
+        )
     record.paused = stack.report(record.deploy_job)
     stack.continue_deploy(record.deploy_job)
     record.deployed = stack.report(record.deploy_job)
@@ -285,9 +294,15 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
 
 def scenario(acceptance_stack, ssh_targets, compose_targets, staging_restore) -> SimpleNamespace:
     """Run the ordered scenario once per module; the artifacts test asserts on the same run."""
-    global _SCENARIO
+    global _SCENARIO, _SCENARIO_ERROR
+    if _SCENARIO_ERROR is not None:
+        raise _SCENARIO_ERROR  # never re-run a failed scenario (the admin now exists, the targets are dirty)
     if _SCENARIO is None:
-        _SCENARIO = run_scenario(acceptance_stack, ssh_targets, compose_targets, staging_restore)
+        try:
+            _SCENARIO = run_scenario(acceptance_stack, ssh_targets, compose_targets, staging_restore)
+        except BaseException as error:
+            _SCENARIO_ERROR = error
+            raise
     return _SCENARIO
 
 
