@@ -800,15 +800,22 @@ class Worker:
         return self._finish(job_id, "failed", error_class="internal", error_message=_INTERNAL)
 
     def _finish(self, job_id: UUID, status: Literal["succeeded", "failed", "cancelled"], **details) -> str:
+        committed = status
+
         def apply(db: Session, now: datetime) -> None:
+            nonlocal committed
             outcome = status
             if status in ("succeeded", "failed"):
                 outcome = self._accepted_cancel(db, job_id, status, details)
             finish(db, job_id, self.worker_id, outcome, now, **details)
             if outcome == "succeeded":
                 self._run_success_hook(db, job_id, now)
+            committed = outcome
 
-        return self._commit_outcome(job_id, status, apply)
+        reported = self._commit_outcome(job_id, status, apply)
+        # Report what was committed, not what the handler asked for: an accepted Cancel (Contract
+        # decision 20) supersedes a success or failure, and the slot's completion log must say so.
+        return committed if reported == status else reported
 
     def _accepted_cancel(
         self,
