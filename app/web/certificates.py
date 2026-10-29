@@ -46,6 +46,7 @@ from app.services.certificates import (
     update_certificate,
     validate_upload,
 )
+from app.services.deploy_views import certificate_deploy_panel
 from app.services.scans import (
     PULL_ACTION,
     PullPayloadError,
@@ -600,6 +601,7 @@ def _detail_page(request: Request, certificate_id: int, status: int = 200, **for
             detail = certificate_detail(db, certificate_id, now)
         except InventoryError:
             raise HTTPException(404) from None
+        panel = certificate_deploy_panel(db, certificate_id, now)
         timezone_name = display_timezone(db)
     registry = request.app.state.job_registry
     diagnostics = detail.diagnostics
@@ -609,6 +611,7 @@ def _detail_page(request: Request, certificate_id: int, status: int = 200, **for
     context.update(
         detail=detail,
         c=detail.certificate,
+        panel=panel,
         tz=timezone_name,
         now=now,
         warnings=warnings,

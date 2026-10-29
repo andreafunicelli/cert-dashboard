@@ -1,0 +1,93 @@
+{# §6.6's preview and §8.7's confirmation as one fragment: htmx swaps it into #deploy-preview whenever an
+   option changes, and a refused POST re-renders it with the reason and the fresh plan hash. Every per-file
+   action is a ``PreviewFile`` row from the deploy service — the preview never infers a chain from a path, an
+   issuer or a position (D1: the operator sees exactly what will be written). #}
+<div id="deploy-preview-body" data-plan-sha256="{{ preview.plan_sha256 if preview else '' }}">
+{% for code, message in blocked.items() %}
+  <div class="form-error" data-error="{{ code }}" role="alert"><p>{{ message }}{% if code == "active_deploy" and active %} <a href="/deploy/{{ active.job_id }}">Open the active deploy</a>{% endif %}</p></div>
+{% endfor %}
+{% for code, message in errors.items() %}
+  <div class="form-error" data-error="{{ code }}" role="alert"><p>{{ message }}</p></div>
+{% endfor %}
+{% if deploy_unavailable %}<p class="hint" data-deploy-unavailable>{{ deploy_unavailable }}</p>{% endif %}
+
+{% if preview %}
+<section class="panel wide" id="deploy-preview-totals">
+  <h2>Preview</h2>
+  <dl class="fields">
+    <dt>Certificate</dt>
+    <dd><a href="/certificates/{{ preview.certificate.id }}">{{ preview.certificate.common_name }}</a> (#{{ preview.certificate.id }})
+      · chain {{ preview.chain_status }} · expires {{ time_tag(preview.certificate.not_after, tz) }}</dd>
+    <dt>Hosts</dt><dd data-total="hosts">{{ preview.totals.hosts }}</dd>
+    <dt>Bindings</dt><dd data-total="bindings">{{ preview.totals.bindings }}</dd>
+    <dt>Files</dt><dd data-total="files">{{ preview.totals.files }}</dd>
+    <dt>Groups</dt><dd data-total="groups">{{ preview.totals.groups }}</dd>
+    <dt>Batches</dt>
+    <dd data-batches>{% if preview.batches %}{% for size in preview.batches %}batch {{ loop.index0 }}{% if loop.index0 == 0 %} (canary){% endif %}: {{ size }} host{{ "" if size == 1 else "s" }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="deploy-preview-hosts">
+  <h2>What will change</h2>
+  <div class="table-wrap"><table class="deploy-preview">
+    <thead><tr><th scope="col">Host</th><th scope="col">Batch</th><th scope="col">Bindings</th><th scope="col">Files</th></tr></thead>
+    <tbody>
+    {% for host in preview.hosts %}
+    <tr data-host="{{ host.hostname }}" data-batch="{{ host.batch_no }}">
+      <td>{{ host.hostname }}{% if host.groups %}<br><small>{{ host.groups | join(", ") }}</small>{% endif %}</td>
+      <td>{{ host.batch_no + 1 }}{% if host.batch_no == 0 %} — canary{% endif %}</td>
+      <td>
+        {% for binding in host.bindings %}
+        <div data-binding="{{ binding.binding_id }}">{{ binding.vhost_name }}:{{ binding.port }} — {{ binding.match_state }}{% if notes.get(binding.binding_id) %}<div class="hint" data-chain-diagnostic>{{ notes[binding.binding_id] }}</div>{% endif %}</div>
+        {% endfor %}
+      </td>
+      <td>
+        {% for file in host.files %}
+        <div data-file="{{ file.path }}"><code>{{ file.path }}</code> <span class="badge" data-action="{{ file.action }}">{{ file.action }}</span> {{ file.owner or "—" }}:{{ file.group or "—" }} {{ file.mode or "—" }}</div>
+        {% endfor %}
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</section>
+
+{% if preview.warnings %}
+<section class="panel wide" id="deploy-preview-warnings" aria-label="Warnings">
+  <h2>Warnings</h2>
+  <ul class="warnings">{% for warning in preview.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+{% if preview.excluded %}
+<section class="panel wide" id="deploy-preview-excluded" aria-label="Excluded bindings">
+  <h2>Excluded from the plan</h2>
+  <ul>{% for binding in preview.excluded %}<li data-excluded="{{ binding.vhost_name }}:{{ binding.port }}">{{ binding.vhost_name }}:{{ binding.port }} — {{ binding.match_state }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+
+<section class="panel wide" id="deploy-confirm-panel">
+  <h2>Confirm</h2>
+  <form id="deploy-confirm" method="post" action="/deploy" hx-post="/deploy" hx-target="#deploy-preview" hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="certificate_id" value="{{ confirm.certificate_id }}">
+    <input type="hidden" name="plan_sha256" value="{{ confirm.plan_sha256 }}">
+    <input type="hidden" name="selection" value="explicit">
+    {% for binding_id in confirm.binding_ids %}<input type="hidden" name="binding_id" value="{{ binding_id }}">{% endfor %}
+    <input type="hidden" name="include_unknown" value="{{ confirm.include_unknown }}">
+    <input type="hidden" name="pause_after_canary" value="{{ confirm.pause_after_canary }}">
+    <input type="hidden" name="batch_percent" value="{{ confirm.batch_percent }}">
+    {% if confirm.canary_server_id %}<input type="hidden" name="canary_server_id" value="{{ confirm.canary_server_id }}">{% endif %}
+    {% if confirm.not_before %}<input type="hidden" name="not_before" value="{{ confirm.not_before }}">{% endif %}
+    <p data-confirmation>Deploy to {{ preview.totals.hosts }} host{{ "" if preview.totals.hosts == 1 else "s" }}, starting with canary {{ canary.hostname if canary else "—" }} first.</p>
+    <p class="hint">The plan hash is echoed back, so a plan that changes between this preview and the start is refused instead of started.</p>
+    {% if preview.needs_override %}
+    <label for="override_reason">Override reason — the chain is {{ preview.chain_status }} (1 to 500 characters, audited as <code>deploy.chain_override</code>)</label>
+    <textarea id="override_reason" name="override_reason" rows="3" cols="60" maxlength="500" required>{{ form.override_reason }}</textarea>
+    {% endif %}
+    <label class="inline"><input type="checkbox" name="confirm" value="yes"> I confirm this plan.</label>
+    <button type="submit"{% if start_reason %} disabled data-start-disabled="{{ start_reason }}"{% endif %}>Start deploy</button>
+  </form>
+</section>
+{% endif %}
+</div>

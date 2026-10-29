@@ -84,7 +84,7 @@ def last_run(factory, key="cleanup"):
 def test_registry_capabilities_for_the_web_and_worker_processes():
     registry = build_registry()
     assert registry.supports(JobType.CLEANUP)
-    assert not registry.supports(JobType.DEPLOY)
+    assert registry.supports(JobType.DEPLOY)  # deploy/default (Plan 3 Task 19)
     assert registry.supports(JobType.SCAN)  # scan/default (Plan 2 Task 2)
 
 
@@ -715,7 +715,7 @@ def test_heartbeat_and_cleanup(worker_harness, client, clock):
     assert client.get("/healthz").json()["worker"] == "stale"
     assert worker_harness.registry.supports(JobType.CLEANUP)
     assert worker_harness.registry.supports(JobType.DISCOVER)  # discover/default, Plan 3 Task 10
-    assert not worker_harness.registry.supports(JobType.DEPLOY)
+    assert worker_harness.registry.supports(JobType.DEPLOY)  # deploy/default, Plan 3 Task 19
 
 
 def test_worker_liveness_uses_the_newest_heartbeat_within_five_minutes(db, now):
@@ -818,12 +818,21 @@ def test_at_most_worker_concurrency_jobs_run_at_once(queue_factory, make_worker,
 
 
 def test_types_without_a_registered_handler_are_never_claimed(queue_factory, make_worker, clock):
-    runtime = make_worker(queue_factory)  # every type but deploy has a handler since Plan 3 Task 10
+    runtime = make_worker(queue_factory, registry=quick_registry(JobType.SCAN))  # no deploy handler
     ignored = [queue_job(queue_factory, JobType.DEPLOY, clock())]
     wanted = queue_job(queue_factory, JobType.CLEANUP, clock(), {"reason": "scheduled"}, priority=10)
     assert runtime.run_queued() == 1
     assert statuses(queue_factory, ignored) == [JobStatus.QUEUED]
     assert job_state(queue_factory, wanted)[0] == JobStatus.SUCCEEDED
+
+
+def test_the_deploy_handler_and_its_sweep_are_registered():
+    """Plan 3 Task 19: the real registry serves deploy jobs, so the sweep tick step is no longer inert."""
+    registry = build_registry()
+    assert registry.supports(JobType.DEPLOY) and registry.supports(JobType.DEPLOY, "default")
+    assert registry.success_hook(JobType.DEPLOY) is not None  # the renewal advancement hook
+    assert worker.TICK_STEPS["deploy_sweep"].requires == (JobType.DEPLOY, "default")
+    assert registry.supports(*worker.TICK_STEPS["deploy_sweep"].requires)
 
 
 def test_the_registered_discovery_is_not_claimed_by_a_worker_without_the_ssh_key(queue_factory, make_worker, clock):

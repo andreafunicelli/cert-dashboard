@@ -152,12 +152,19 @@ def recent_jobs(db: Session) -> list[RecentJob]:
         payload = row.payload if isinstance(row.payload, dict) else {}
         job_id = str(row.id)
         pulled = row.type is JobType.SCAN and payload.get("action") == "import_pull"
+        if row.type is JobType.DEPLOY:
+            # The deploy job screen is the operator's view of a rollout; the audit entry stays one click away.
+            href = f"/deploy/{job_id}"
+        elif pulled:
+            href = f"/imports/{job_id}"
+        else:
+            href = "/audit?" + urlencode({"target_type": "job", "target_id": job_id})
         duration = int((row.finished_at - row.started_at).total_seconds()) if row.finished_at and row.started_at else None
         jobs.append(
             RecentJob(
                 id=job_id, type=row.type.value, summary=job_summary(row.type, payload), status=row.status.value,
                 duration_seconds=duration, actor=row.username or "system", finished_at=row.finished_at,
-                href=f"/imports/{job_id}" if pulled else "/audit?" + urlencode({"target_type": "job", "target_id": job_id}),
+                href=href,
             )
         )
     return jobs
