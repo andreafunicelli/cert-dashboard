@@ -14,13 +14,20 @@ Execution order, fixed once (Contract decisions 4, 16–19, 21):
 4. batches run in plan order with incremental submission (``run_batch``). A host holds ``deploy:<hostname>``
    for its own run; a busy host lock is ``skipped``/``locked``, not a failure. The first ``failed`` or
    ``rolled_back`` host stops the rollout: nothing new is submitted, in-flight hosts finish, the unstarted and
-   later rows become ``skipped``/``rollout_stopped`` and the job fails with Contract decision 18's message.
+   later rows become ``skipped``/``rollout_stopped`` and the job fails with Contract decision 18's message;
+5. after a successful canary batch with ``pause_after_canary`` set and hosts still to run, the handler raises
+   ``JobPaused(1, ...)``: the worker releases the claim, so no slot, lock or timeout is held and the reaper
+   never sees the job. Continue (an operator, or the UI) requeues it at batch 1 and everything above runs
+   again — locks, inventory pull, trust gate and every host's drift preflight;
+6. an operator cancel marks the pending rows ``skipped``/``cancelled``; ``should_stop`` sees that, so nothing
+   new is submitted, the in-flight hosts finish or roll back and the job ends as ``JobCancelled``.
 
 The renewal is advanced to ``deployed`` by ``advance_renewal``, registered here as the success hook and run by
-the worker inside the transaction that marks the job ``succeeded`` (Contract decision 3).
+the worker inside the transaction that marks the job ``succeeded`` (Contract decision 3). Paused, failed and
+cancelled deploys never advance it.
 
-Pause/Continue/Cancel and single-host retry are Task 17. This handler therefore completes
-``pause_after_canary=false`` plans only and never retries: a deploy policy has exactly one attempt.
+A deploy policy has exactly one attempt: a single-host retry is a new job (``retry_host`` in the service
+module), never an automatic retry of this one.
 """
 
 from __future__ import annotations
@@ -46,16 +53,18 @@ from app.crypto.keys import public_key_sha256
 from app.crypto.parse import ParseError, parse_certificates
 from app.jobs.handlers.ansible_context import AnsibleJob, LockBusy, ansible_job
 from app.jobs.locks import DEPLOY_GLOBAL_LOCK, AdvisoryLocks, host_lock_key
-from app.jobs.queue import JobFailure, JobRequeued
+from app.jobs.queue import JobCancelled, JobFailure, JobPaused, JobRequeued
 from app.models import Binding, Certificate, Job, JobHost, JSONValue, Server
 from app.models.enums import ChainStatus, JobHostStatus, JobType, WebserverType
 from app.services.audit import Actor
 from app.services.bindings import verify_sni
 from app.services.certificates import unwrap_key
-from app.services.deploy import DeployTarget, run_batch
+from app.services.deploy import BatchRun, DeployTarget, run_batch
 from app.services.deploy_runtime import (
+    CANCELLED_BY_OPERATOR,
     ExecutionGate,
     advance_renewal,
+    cancel_accepted,
     claim_host_rows,
     deploy_totals,
     record_host_outcome,
@@ -68,6 +77,7 @@ from app.services.settings import get_setting
 if TYPE_CHECKING:
     from app.crypto.keys import PrivateKeyObject
     from app.jobs.worker import JobContext, JobRegistry
+    from app.services.inventory import InventoryRevision
 
 __all__ = ["deploy", "deploy_handler_registration", "validate_deploy_payload"]
 
@@ -182,9 +192,10 @@ def deploy_handler_registration(registry: JobRegistry) -> None:
 
 def deploy(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[str, JSONValue]:
     """Execute one confirmed deploy job batch by batch; see the module docstring for the order."""
+    pause_after_canary = payload.get("pause_after_canary") is True
     try:
         with ansible_job(context, exclusive=(DEPLOY_GLOBAL_LOCK,)) as job:
-            return _deploy(context, job)
+            return _deploy(context, job, pause_after_canary)
     except LockBusy:
         # ``deploy:global`` (another rollout) or the inventory lock (a reset) is held: nothing ran.
         raise JobRequeued(context.clock() + LOCK_RETRY_DELAY) from None
@@ -247,7 +258,7 @@ class _HostRun:
     reason: str | None
 
 
-def _deploy(context: JobContext, job: AnsibleJob) -> Mapping[str, JSONValue]:
+def _deploy(context: JobContext, job: AnsibleJob, pause_after_canary: bool) -> Mapping[str, JSONValue]:
     if job.revision is None:
         raise JobFailure("internal", "the inventory was not prepared")
     now = context.clock()
@@ -287,7 +298,14 @@ def _deploy(context: JobContext, job: AnsibleJob) -> Mapping[str, JSONValue]:
             concurrency=concurrency,
             run_one=lambda host: _host_task(context, job, material, gate.certificate, host, actor, options),
             failed=lambda outcome: outcome.status in _STOPPING_STATUSES,
+            # Contract decision 20: an operator cancel skips the pending rows, so nothing new is submitted.
+            should_stop=lambda: _cancelled(context),
         )
+        if _cancel_accepted(context):
+            # Contract decision 20: an accepted cancel is the job's outcome once the batch has settled.
+            # It outranks a host that failed after it — every host keeps its failed/rolled back evidence
+            # in its own rows — and the pending rows were already skipped ``cancelled``.
+            raise JobCancelled(CANCELLED_BY_OPERATOR, _phase_result(job.revision, context, "cancelled"))
         if run.stopped_by is not None:
             reason = _stopped_reason(run.results.get(run.stopped_by))
             with context.factory.begin() as db:
@@ -296,9 +314,72 @@ def _deploy(context: JobContext, job: AnsibleJob) -> Mapping[str, JSONValue]:
                 _ERROR_CLASS.get(reason, "config_invalid"),
                 f"rollout stopped: {run.stopped_by.hostname} failed ({reason})",
             )
+        if batch_no == 0 and pause_after_canary and _canary_succeeded(run) and _has_pending(context):
+            raise JobPaused(1, _phase_result(job.revision, context, "paused"))
+    if _cancel_accepted(context):
+        # A cancel also lands when nothing was left to submit (a resume whose rows were all skipped).
+        raise JobCancelled(CANCELLED_BY_OPERATOR, _phase_result(job.revision, context, "cancelled"))
     with context.factory() as db:
         totals = deploy_totals(db, context.job_id)
     return {**revision_result(job.revision), "phase": "done", "totals": totals}
+
+
+def _phase_result(revision: InventoryRevision, context: JobContext, phase: str) -> dict[str, JSONValue]:
+    """The result of a non-terminal outcome: the inventory revision and the totals so far."""
+    with context.factory() as db:
+        totals = deploy_totals(db, context.job_id)
+    return {**revision_result(revision), "phase": phase, "totals": totals}
+
+
+def _cancelled(context: JobContext) -> bool:
+    """True once an operator cancel has left a ``skipped``/``cancelled`` row on this job (Contract decision 20)."""
+    with context.factory() as db:
+        return (
+            db.scalar(
+                select(JobHost.id)
+                .where(
+                    JobHost.job_id == context.job_id,
+                    JobHost.status == JobHostStatus.SKIPPED,
+                    JobHost.error_message == "cancelled",
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
+
+def _cancel_accepted(context: JobContext) -> bool:
+    """True once an operator Cancel for this job is committed (Contract decision 20).
+
+    Unlike ``_cancelled`` this does not depend on a skipped row: cancelling the only in-flight host
+    leaves every row ``running`` and writes just the ``deploy.cancel`` audit.
+    """
+    with context.factory() as db:
+        return cancel_accepted(db, context.job_id)
+
+
+def _has_pending(context: JobContext) -> bool:
+    """True while any row of the job still has to run (the canary pause needs a later batch)."""
+    with context.factory() as db:
+        return (
+            db.scalar(
+                select(JobHost.id)
+                .where(JobHost.job_id == context.job_id, JobHost.status == JobHostStatus.PENDING)
+                .limit(1)
+            )
+            is not None
+        )
+
+
+def _canary_succeeded(run: BatchRun) -> bool:
+    """The canary batch deployed: every host of batch 0 reported ``succeeded``.
+
+    A host whose lock was busy is ``skipped``, not a success — nothing was written there, so there is no
+    canary result to approve and the rollout continues under the plan the operator already confirmed.
+    """
+    return bool(run.results) and all(
+        isinstance(outcome, _HostRun) and outcome.status == "succeeded" for outcome in run.results.values()
+    )
 
 
 def _stopped_reason(result: object) -> str:

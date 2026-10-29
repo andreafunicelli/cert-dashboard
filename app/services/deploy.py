@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.crypto.keyring import Keyring
 from app.jobs.locks import DEPLOY_ENQUEUE_LOCK, xact_lock
-from app.jobs.queue import enqueue
+from app.jobs.queue import InvalidJobState, cancel_idle, enqueue
 from app.models import Binding, Certificate, Job, JobHost, JSONValue, PrivateKey, Renewal, Server
 from app.models.enums import (
     CertificateStatus,
@@ -784,6 +784,193 @@ def start_deploy(
             "canary": canary.hostname,
             "batches": list(preview.batches),
         },
+    )
+    db.flush()
+    return job
+
+
+# --- operator controls (§6.5, §8.7; Contract decision 20) --------------------------------------
+#
+# Continue, Cancel and a single-host retry are the only ways an operator changes a deploy after it was
+# confirmed. They run in the caller's transaction (the web request or the scheduler sweep), so the state
+# change and its audit row commit together; nothing here touches Ansible, a lock or the network.
+
+_PAUSE_TIMEOUT_DEFAULT = 24
+_RETRYABLE_HOST_STATUSES = frozenset({JobHostStatus.FAILED, JobHostStatus.ROLLED_BACK, JobHostStatus.SKIPPED})
+_TERMINAL_DEPLOY_STATUSES = (JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)
+
+
+def _locked_job(db: Session, job_id: UUID) -> Job:
+    """The job row under ``FOR UPDATE``, so a control never races a worker or another control."""
+    job = db.execute(
+        select(Job).where(Job.id == job_id).with_for_update().execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if job is None:
+        raise InvalidJobState(f"job {job_id} does not exist")
+    return job
+
+
+def pause_deadline(job: Job, pause_timeout_hours: int) -> datetime:
+    """When the pause of ``job`` expires: ``paused_at + deploy.pause_timeout_hours`` (§6.5).
+
+    A job that is not paused has no deadline (``InvalidJobState``); the window itself must be a positive
+    number of hours, because a zero-length pause would make every Continue a refusal.
+    """
+    if type(pause_timeout_hours) is not int or pause_timeout_hours < 1:
+        raise ValueError("pause_timeout_hours must be a positive integer")
+    if job.paused_at is None:
+        raise InvalidJobState(f"job {job.id} is not paused")
+    return job.paused_at + timedelta(hours=pause_timeout_hours)
+
+
+def continue_deploy(db: Session, job_id: UUID, actor: Actor, now: datetime) -> Job:
+    """Resume a canary-paused deploy at batch 1 (§6.5; Contract decision 20).
+
+    Only a ``paused`` deploy still inside its pause window may continue. It goes back to ``queued`` with
+    ``run_after = now``, ``scheduled_reason = manual`` and ``paused_at`` cleared; the next claim re-acquires
+    every lock, re-pulls the inventory, re-runs the trust gate and every host's drift preflight — the resume
+    skips no check. The ``deploy.continue`` audit is written in this transaction.
+    """
+    job = _locked_job(db, job_id)
+    if JobType(job.type) is not JobType.DEPLOY:
+        raise InvalidJobState(f"job {job_id} is not a deploy job")
+    status = JobStatus(job.status)
+    if status is not JobStatus.PAUSED:
+        raise InvalidJobState(f"job {job_id} is {status.value}; only a paused deploy can continue")
+    deadline = pause_deadline(job, _int_setting(db, "deploy.pause_timeout_hours", _PAUSE_TIMEOUT_DEFAULT))
+    if now >= deadline:
+        raise InvalidJobState(
+            f"job {job_id} passed its pause deadline at {deadline.isoformat()}; it can no longer continue"
+        )
+    job.status = JobStatus.QUEUED
+    job.run_after = now
+    job.scheduled_reason = "manual"
+    job.paused_at = None
+    record(
+        db,
+        actor,
+        "deploy.continue",
+        "job",
+        str(job_id),
+        {"resume_from_batch": job.resume_from_batch, "pause_deadline": deadline.isoformat()},
+    )
+    db.flush()
+    return job
+
+
+def _skip_cancelled_rows(db: Session, job_id: UUID, now: datetime) -> int:
+    """Mark every ``pending`` row of the job ``skipped``/``cancelled`` (Contract decision 20).
+
+    Imported lazily: ``app.services.deploy_runtime`` imports this module, and this module must stay free of
+    ``app.ansible`` (the web process imports it too).
+    """
+    from app.services.deploy_runtime import skip_pending
+
+    return skip_pending(db, job_id, "cancelled", now=now)
+
+
+def cancel_deploy(db: Session, job_id: UUID, actor: Actor, now: datetime) -> Job:
+    """Cancel a queued, paused or running deploy (§6.5, §8.7; Contract decision 20).
+
+    A ``queued`` or ``paused`` job is cancelled here and now (``job.cancelled``); a ``running`` job keeps its
+    claim, because the handler — not this function — ends it: only its pending rows are skipped, so nothing
+    new is submitted and the in-flight hosts finish or roll back before ``JobCancelled``. Every pending row
+    becomes ``skipped``/``cancelled``, which is also what the handler's ``should_stop`` reads. Both cases
+    write ``deploy.cancel``.
+    """
+    job = _locked_job(db, job_id)
+    if JobType(job.type) is not JobType.DEPLOY:
+        raise InvalidJobState(f"job {job_id} is not a deploy job")
+    status = JobStatus(job.status)
+    if status in (JobStatus.QUEUED, JobStatus.PAUSED):
+        skipped = _skip_cancelled_rows(db, job_id, now)
+        job = cancel_idle(db, job_id, actor, now)
+    elif status is JobStatus.RUNNING:
+        skipped = _skip_cancelled_rows(db, job_id, now)
+    else:
+        raise InvalidJobState(
+            f"job {job_id} is {status.value}; only a queued, paused or running deploy can be cancelled"
+        )
+    record(db, actor, "deploy.cancel", "job", str(job_id), {"from_status": status.value, "pending_rows": skipped})
+    db.flush()
+    return job
+
+
+def retry_host(
+    db: Session,
+    job_id: UUID,
+    server_id: int,
+    reason: str,
+    actor: Actor,
+    now: datetime,
+    *,
+    override_reason: str | None = None,
+) -> Job:
+    """Retry one host of a finished deploy as a **new** job (§6.5, §8.7; Contract decision 20).
+
+    Allowed for a ``failed``, ``rolled_back`` or ``skipped`` server of a terminal deploy job. The new job
+    carries that server's binding ids only, is its own canary (batch 0, no pause) and goes through the same
+    guardrails and trust gate as any deploy — a non-trusted certificate needs its reason again. A reason of
+    1–500 characters is required and audited as ``deploy.retry_host`` beside ``deploy.start``. The original
+    job is never touched; a deploy never retries itself (spec §7.2).
+    """
+    original = _locked_job(db, job_id)
+    if JobType(original.type) is not JobType.DEPLOY:
+        raise InvalidJobState(f"job {job_id} is not a deploy job")
+    status = JobStatus(original.status)
+    if status not in _TERMINAL_DEPLOY_STATUSES:
+        raise InvalidJobState(f"job {job_id} is {status.value}; only a finished deploy can retry a host")
+    rows = list(
+        db.scalars(select(JobHost).where(JobHost.job_id == job_id, JobHost.server_id == server_id))
+    )
+    if not rows:
+        raise InvalidJobState(f"server {server_id} is not part of job {job_id}")
+    statuses = {JobHostStatus(row.status) for row in rows}
+    if not statuses <= _RETRYABLE_HOST_STATUSES:
+        raise DeployBlocked(
+            {
+                "host_not_retryable": f"server {server_id} is {min(statuses).value} in job {job_id}; "
+                "only failed, rolled back or skipped hosts can be retried"
+            }
+        )
+    text = reason.strip() if isinstance(reason, str) else ""
+    if not 1 <= len(text) <= _OVERRIDE_REASON_MAX:
+        raise DeployBlocked(
+            {"reason": f"a reason of 1 to {_OVERRIDE_REASON_MAX} characters is required to retry a host"}
+        )
+    payload = original.payload if isinstance(original.payload, dict) else {}
+    certificate_id = payload.get("certificate_id")
+    binding_ids = tuple(sorted({row.binding_id for row in rows if row.binding_id is not None}))
+    if type(certificate_id) is not int or not binding_ids:
+        raise DeployBlocked({"host_not_retryable": f"server {server_id} has no deployable binding in job {job_id}"})
+    options = DeployOptions(
+        certificate_id=certificate_id,
+        binding_ids=binding_ids,
+        include_unknown=payload.get("include_unknown") is True,
+        batch_percent=100,
+        pause_after_canary=False,
+    )
+    preview = preview_deploy(db, options, now)
+    if preview.blocked:
+        active = _active_deploy(db)
+        raise DeployBlocked(preview.blocked, active[0] if active is not None else None)
+    job = start_deploy(
+        db,
+        options,
+        plan_sha256=preview.plan_sha256,
+        confirmed=True,
+        override_reason=override_reason,
+        actor=actor,
+        now=now,
+        retry_of=job_id,
+    )
+    record(
+        db,
+        actor,
+        "deploy.retry_host",
+        "job",
+        str(job.id),
+        {"from_job": str(job_id), "server_id": server_id, "reason": text},
     )
     db.flush()
     return job

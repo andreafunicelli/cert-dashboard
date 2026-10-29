@@ -20,15 +20,27 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import exists, func, select, update
 from sqlalchemy.orm import Session
 
 from app.ansible.deploy import HostOutcome
-from app.jobs.queue import SYSTEM_ACTOR, JobFailure
-from app.models import Binding, Certificate, Job, JobHost, JSONValue, PrivateKey, Renewal, Server, User
-from app.models.enums import CertificateStatus, ChainStatus, JobHostStatus, RenewalState
+from app.jobs.queue import SYSTEM_ACTOR, JobFailure, cancel_idle
+from app.models import (
+    AuditLog,
+    Binding,
+    Certificate,
+    Job,
+    JobHost,
+    JSONValue,
+    PrivateKey,
+    Renewal,
+    Server,
+    User,
+)
+from app.models.enums import CertificateStatus, ChainStatus, JobHostStatus, JobStatus, JobType, RenewalState
 from app.services.audit import Actor, record
 from app.services.bindings import audit_binding_state, binding_state, verify_sni
+from app.services.deploy import pause_deadline
 from app.services.endpoints import expect_for_binding
 from app.services.renewals import InvalidTransition, mark_deployed
 from app.services.scans import observe_endpoint
@@ -37,20 +49,26 @@ from app.services.trust_anchors import assess_certificate
 
 __all__ = [
     "BINDING_BLOCKED",
+    "CANCELLED_BY_OPERATOR",
     "DEPLOY_TIMEOUT_MARGIN",
     "ExecutionGate",
     "advance_renewal",
+    "cancel_accepted",
     "claim_host_rows",
     "deploy_timeout_seconds",
     "deploy_totals",
     "record_host_outcome",
     "revalidate_for_execution",
     "skip_pending",
+    "sweep_deploys",
 ]
 
 _LOG = logging.getLogger(__name__)
 
 DEPLOY_TIMEOUT_MARGIN = 900
+# The exact text a cancelled deploy leaves on the job (§6.5); the row reason is the closed token
+# ``cancelled``.
+CANCELLED_BY_OPERATOR = "cancelled by operator"
 # Contract decision 16's fixed refusal: the certificate is not trusted (anymore) and the planned override
 # does not cover the status it has now.
 TRUST_CHANGED = "certificate trust changed since the deploy was planned; plan it again"
@@ -123,6 +141,34 @@ def revalidate_for_execution(db: Session, job: Job, now: datetime) -> ExecutionG
     if key_row is None:
         raise JobFailure("key_unwrap", NO_KEY)
     return ExecutionGate(certificate, key_row)
+
+
+# --- the accepted-cancel signal (Contract decision 20) ---------------------------------------------
+
+
+def cancel_accepted(db: Session, job_id: UUID) -> bool:
+    """True when an operator Cancel for this job is committed (§6.5, Contract decision 20).
+
+    ``cancel_deploy`` writes ``deploy.cancel`` in the same transaction that takes the job row's lock, so
+    the audit row is the durable signal that the cancel was accepted. Nothing else survives a running
+    cancel whose rows are all already ``running`` or finished: ``_skip_cancelled_rows`` then changes no
+    row, and a pending-row count would silently report "not cancelled".
+
+    The audit table is append-only, so the row can only appear by an accepted cancel and is never
+    withdrawn; a caller that needs to be race-free reads it after locking the job row.
+    """
+    return (
+        db.scalar(
+            select(AuditLog.id)
+            .where(
+                AuditLog.action == "deploy.cancel",
+                AuditLog.target_type == "job",
+                AuditLog.target_id == str(job_id),
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 # --- host rows ---------------------------------------------------------------------------------------
@@ -383,3 +429,64 @@ def advance_renewal(db: Session, job: Job, now: datetime) -> None:
             str(job.id),
             {"renewal_id": str(renewal_id), "reason": error.reason or error.code},
         )
+
+
+# --- the deploy sweep (Contract decision 20) ----------------------------------------------------------
+
+
+def sweep_deploys(db: Session, now: datetime) -> int:
+    """The ``deploy_sweep`` tick step: expire paused deploys, then close out terminal ones (§6.5, §7.2).
+
+    A paused deploy whose ``pause_deadline`` has passed is cancelled exactly like an operator cancel, except
+    that its remaining rows are ``skipped``/``pause_expired`` and a ``deploy.pause_expired`` audit records the
+    pause that was forgotten — the stale authorization must never resume days later against changed hosts.
+
+    A terminal deploy job that still has ``pending`` rows is only possible when something other than the
+    handler ended the job (the reaper fails ``running`` rows, never ``pending`` ones); those rows become
+    ``skipped``/``job_ended`` so the screen never shows a finished job with work outstanding.
+
+    Returns how many jobs it changed. Both halves lock their rows with ``SKIP LOCKED``, so concurrent
+    schedulers never block on each other.
+    """
+    hours = _int_setting(db, "deploy.pause_timeout_hours", 24)
+    changed = 0
+    paused = db.scalars(
+        select(Job)
+        .where(Job.type == JobType.DEPLOY, Job.status == JobStatus.PAUSED)
+        .order_by(Job.paused_at, Job.id)
+        .with_for_update(skip_locked=True)
+        .execution_options(populate_existing=True)
+    )
+    for job in paused:
+        if job.paused_at is None:
+            continue
+        deadline = pause_deadline(job, hours)
+        if deadline > now:
+            continue
+        skip_pending(db, job.id, "pause_expired", now=now)
+        cancel_idle(db, job.id, SYSTEM_ACTOR, now)
+        record(
+            db,
+            SYSTEM_ACTOR,
+            "deploy.pause_expired",
+            "job",
+            str(job.id),
+            {"paused_at": job.paused_at.isoformat(), "deadline": deadline.isoformat(), "pause_timeout_hours": hours},
+        )
+        changed += 1
+    db.flush()
+    terminal = db.scalars(
+        select(Job.id)
+        .where(
+            Job.type == JobType.DEPLOY,
+            Job.status.in_((JobStatus.SUCCEEDED, JobStatus.FAILED, JobStatus.CANCELLED)),
+            exists().where(JobHost.job_id == Job.id, JobHost.status == JobHostStatus.PENDING),
+        )
+        .order_by(Job.created_at, Job.id)
+        .with_for_update(skip_locked=True)
+    )
+    for job_id in terminal:
+        if skip_pending(db, job_id, "job_ended", now=now):
+            changed += 1
+    db.flush()
+    return changed

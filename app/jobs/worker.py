@@ -328,6 +328,21 @@ def register_tick_step(name: str, step: Callable[[Session, datetime], int], *, r
 register_tick_step("notification_retry", enqueue_notification_retry, requires=(JobType.ALERT_EXPIRY, "default"))
 
 
+def _deploy_sweep(db: Session, now: datetime) -> int:
+    """Contract decision 20's ``deploy_sweep``: pause expiry, then terminal jobs with pending rows.
+
+    Imported lazily, exactly like ``_deploy_timeout``: ``app.services.deploy_runtime`` imports
+    ``app.services.settings``, which imports this module, so a module-level import would close a cycle.
+    """
+    from app.services.deploy_runtime import sweep_deploys
+
+    return sweep_deploys(db, now)
+
+
+# Inert until the deploy handler (``deploy/default``) is registered.
+register_tick_step("deploy_sweep", _deploy_sweep, requires=(JobType.DEPLOY, "default"))
+
+
 def scheduler_tick(factory: sessionmaker[Session], registry: JobRegistry, now: datetime) -> None:
     """Enqueue due scheduled jobs, reap timed-out jobs, requeue retryable failures, run tick steps.
 
@@ -767,19 +782,14 @@ class Worker:
         if isinstance(control, JobCancelled):
             return self._finish(job_id, "cancelled", result=control.result, error_message=control.message)
         if isinstance(control, JobPaused):
+            settled = "paused"
 
             def release(db: Session, now: datetime) -> None:
-                release_claim(
-                    db,
-                    job_id,
-                    self.worker_id,
-                    now,
-                    to="paused",
-                    resume_from_batch=control.resume_from_batch,
-                    result=control.result,
-                )
+                nonlocal settled
+                settled = self._pause_unless_cancelled(db, job_id, control, now)
 
-            return self._commit_outcome(job_id, "paused", release)
+            committed = self._commit_outcome(job_id, "paused", release)
+            return settled if committed == "paused" else committed
         if isinstance(control, JobRequeued):
 
             def requeue(db: Session, now: datetime) -> None:
@@ -791,11 +801,80 @@ class Worker:
 
     def _finish(self, job_id: UUID, status: Literal["succeeded", "failed", "cancelled"], **details) -> str:
         def apply(db: Session, now: datetime) -> None:
-            finish(db, job_id, self.worker_id, status, now, **details)
-            if status == "succeeded":
+            outcome = status
+            if status in ("succeeded", "failed"):
+                outcome = self._accepted_cancel(db, job_id, status, details)
+            finish(db, job_id, self.worker_id, outcome, now, **details)
+            if outcome == "succeeded":
                 self._run_success_hook(db, job_id, now)
 
         return self._commit_outcome(job_id, status, apply)
+
+    def _accepted_cancel(
+        self,
+        db: Session,
+        job_id: UUID,
+        status: Literal["succeeded", "failed", "cancelled"],
+        details: dict[str, object],
+    ) -> Literal["succeeded", "failed", "cancelled"]:
+        """Contract decision 20: an accepted operator Cancel outranks the handler's own outcome.
+
+        Host failures keep their own row evidence; only the job's outcome becomes ``cancelled`` (and
+        the renewal success hook is not run).
+        """
+        message = self._cancel_signal(db, job_id)
+        if message is None:
+            return status
+        details["error_message"] = message
+        result = details.get("result")
+        if isinstance(result, Mapping):
+            details["result"] = {**result, "phase": "cancelled"}
+        return "cancelled"
+
+    def _pause_unless_cancelled(self, db: Session, job_id: UUID, control: JobPaused, now: datetime) -> str:
+        """Pause the job, unless an operator Cancel was accepted first (Contract decision 20, §6.5).
+
+        The pause transition takes the job row's lock for the same reason ``_finish`` does: a Cancel
+        committed before this transaction wins and the job ends ``cancelled`` — never ``paused``, so
+        it can never be swept into ``pause_expired`` — while a Cancel that arrives afterwards waits
+        for this commit and is then applied by ``cancel_deploy`` to the paused job.
+        """
+        message = self._cancel_signal(db, job_id)
+        if message is not None:
+            result = control.result
+            if isinstance(result, Mapping):
+                result = {**result, "phase": "cancelled"}
+            finish(db, job_id, self.worker_id, "cancelled", now, result=result, error_message=message)
+            return "cancelled"
+        release_claim(
+            db,
+            job_id,
+            self.worker_id,
+            now,
+            to="paused",
+            resume_from_batch=control.resume_from_batch,
+            result=control.result,
+        )
+        return "paused"
+
+    def _cancel_signal(self, db: Session, job_id: UUID) -> str | None:
+        """The operator Cancel message when one was accepted, else ``None`` (Contract decision 20).
+
+        The job row is locked before the ``deploy.cancel`` audit is read, so a Cancel that committed
+        before this transaction is visible and one that arrives later waits on the row: ``finish``
+        and ``release_claim`` then refuse it as stale, or ``cancel_deploy`` applies it to the paused
+        job. Every path that decides the job's outcome reads the signal through this fence.
+        """
+        job = db.execute(
+            select(Job).where(Job.id == job_id).with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if job is None or JobType(job.type) is not JobType.DEPLOY:
+            return None
+        # Imported lazily like ``_deploy_timeout``: ``deploy_runtime`` imports ``settings``, which imports
+        # this module.
+        from app.services.deploy_runtime import CANCELLED_BY_OPERATOR, cancel_accepted
+
+        return CANCELLED_BY_OPERATOR if cancel_accepted(db, job_id) else None
 
     def _run_success_hook(self, db: Session, job_id: UUID, now: datetime) -> None:
         """Run the registration's hook in a savepoint: a failing hook never undoes the success."""
