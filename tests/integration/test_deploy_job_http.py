@@ -750,6 +750,11 @@ def test_failure_banner_names_the_host_that_stopped_the_rollout(signed_in, deplo
             "config_invalid",
             "No host stopped the rollout: the certificate is superseded; only an active certificate can be deployed.",
         ),
+        (
+            "inventory pull failed and the last good checkout is older than 24 hours",
+            "transient_network",
+            "No host stopped the rollout: inventory pull failed and the last good checkout is older than 24 hours.",
+        ),
     ],
 )
 def test_job_level_failure_shows_its_persisted_reason(signed_in, deploy_job_world, rows, message, error_class, expected):
@@ -768,6 +773,32 @@ def test_job_level_failure_shows_its_persisted_reason(signed_in, deploy_job_worl
     assert "The first failed host is" not in banner  # no host stopped this rollout
     fragment = signed_in.get(f"/jobs/{job_id}/progress", headers={"HX-Request": "true"})
     assert fragment.status_code == 200 and expected in failure_banner(fragment.text)
+
+
+# Every fixed inventory failure the worker can persist on a deploy job (``app.services.inventory``): the
+# checkout refresh runs before any host, so the banner must show the persisted reason instead of the
+# class-only fallback. None of these texts carries git or Ansible output.
+INVENTORY_JOB_FAILURES = [
+    "inventory checkout directory is not empty and not a git checkout",
+    "inventory checkout could not be updated and is in an unknown state",
+    "inventory checkout is not available yet",
+    "inventory checkout is older than 24 hours and no pull was allowed",
+    "inventory pull failed and no checkout is available",
+    "inventory pull failed and the last good checkout is older than 24 hours",
+    "inventory checkout does not match its recorded revision",
+    "inventory could not be read",
+    "inventory listing timed out",
+]
+
+
+@pytest.mark.parametrize("message", INVENTORY_JOB_FAILURES)
+def test_job_level_inventory_failure_shows_the_persisted_reason(signed_in, deploy_job_world, message):
+    """§8.7/§9.1.3: an inventory refusal before any host runs is actionable on the job screen."""
+    job_id = deploy_job_world.job_level_failure(message=message, error_class="transient_network", rows="pending")
+    banner = failure_banner(signed_in.get(f"/deploy/{job_id}").text)
+    assert f"No host stopped the rollout: {message}." in banner
+    assert "the job itself failed" not in banner  # the class-only fallback, not the persisted reason
+    assert "The first failed host is" not in banner  # no host stopped this rollout
 
 
 @pytest.mark.parametrize(

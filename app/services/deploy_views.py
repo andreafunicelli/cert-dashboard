@@ -97,6 +97,17 @@ JOB_FAILURE_REASONS = frozenset(
         "the worker has no ansible_ssh_key",
         "inventory path is outside the checkout",
         "the job artifact directory is not a plain directory",
+        # the inventory service's fixed failures (app.services.inventory): the checkout refresh runs before
+        # any host, and each text is one this codebase writes itself — never git or ansible output
+        "inventory checkout directory is not empty and not a git checkout",
+        "inventory checkout could not be updated and is in an unknown state",
+        "inventory checkout is not available yet",
+        "inventory checkout is older than 24 hours and no pull was allowed",
+        "inventory pull failed and no checkout is available",
+        "inventory pull failed and the last good checkout is older than 24 hours",
+        "inventory checkout does not match its recorded revision",
+        "inventory could not be read",
+        "inventory listing timed out",
         # the worker's own outcomes (app.jobs.worker, app.jobs.queue)
         "invalid job payload",
         "no handler registered for this job",
