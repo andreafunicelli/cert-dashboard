@@ -18,8 +18,11 @@ from sqlalchemy.orm import Session
 
 from app.models import Binding, Certificate, Job, JobHost, PrivateKey, Renewal, Server, User
 from app.models.enums import CertificateStatus, JobHostStatus, JobStatus, JobType, RenewalState
-from app.services.deploy import pause_deadline
+from app.services.deploy import _EXCLUDED_MATCH_STATES, pause_deadline
 from app.services.settings import get_setting
+
+# ``_EXCLUDED_MATCH_STATES`` is the one authoritative definition of "never a deploy target" (Contract
+# decision 15): the panel reuses it instead of restating the states, so it cannot drift from the preview.
 
 TOTAL_KEYS = ("succeeded", "failed", "rolled_back", "skipped", "pending")
 
@@ -647,10 +650,16 @@ def active_deploy(db: Session) -> DeployJobSummary | None:
     return jobs[0] if jobs else None
 
 
-def _target_bindings(db: Session, certificate: Certificate) -> list[Binding]:
-    """The bindings a default deploy of ``certificate`` would target (§6.5, Contract decision 15)."""
+def _target_bindings(db: Session, certificate: Certificate) -> tuple[list[Binding], set[str]]:
+    """The bindings a default deploy of ``certificate`` would target, plus the states that kept others out.
+
+    ``key_mismatch`` and ``missing_file`` bindings are excluded from every plan (Contract decision 15), so
+    the panel must not count them as targets: counting them would either claim ``already_deployed`` or hide
+    the ``no_targets`` refusal the authoritative preview raises. Their states are returned so the panel can
+    keep the reason visible.
+    """
     owned = [certificate.id] + ([certificate.renews_id] if certificate.renews_id is not None else [])
-    return list(
+    rows = list(
         db.scalars(
             select(Binding)
             .join(Server, Server.id == Binding.server_id)
@@ -661,6 +670,9 @@ def _target_bindings(db: Session, certificate: Certificate) -> list[Binding]:
             )
         )
     )
+    targets = [binding for binding in rows if binding.match_state not in _EXCLUDED_MATCH_STATES]
+    excluded = {binding.match_state for binding in rows if binding.match_state in _EXCLUDED_MATCH_STATES}
+    return targets, excluded
 
 
 def _panel_blocked(
@@ -679,9 +691,14 @@ def _panel_blocked(
         blocked[certificate.status.value] = (
             f"the certificate is {certificate.status.value}; only an active certificate can be deployed"
         )
-    targets = _target_bindings(db, certificate)
+    targets, excluded_states = _target_bindings(db, certificate)
     if not targets:
-        blocked["no_targets"] = "no active binding is a deploy target for this certificate"
+        reason = "no active binding is a deploy target for this certificate"
+        if excluded_states:
+            reason += (
+                f" ({', '.join(sorted(excluded_states))} bindings are excluded from every plan)"
+            )
+        blocked["no_targets"] = reason
     elif all(binding.on_disk_fingerprint == certificate.sha256_fingerprint for binding in targets):
         blocked["already_deployed"] = (
             "every target binding already has the new certificate on disk; there is nothing to deploy"

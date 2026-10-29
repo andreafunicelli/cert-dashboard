@@ -19,7 +19,7 @@ from uuid import UUID
 
 import pytest
 from cryptography import x509
-from cryptography.hazmat.primitives.asymmetric import ec
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from sqlalchemy import select, update
 
 from app.crypto.chain import order_chain
@@ -27,7 +27,7 @@ from app.crypto.parse import parse_certificates
 from app.jobs import worker
 from app.jobs.worker import record_worker_start
 from app.models import AuditLog, Binding, Job, JobHost, Server, WorkerHeartbeat
-from app.models.enums import JobStatus, JobType, WebserverType
+from app.models.enums import JobStatus, JobType, PrivateKeyType, WebserverType
 from app.services.audit import Actor
 from app.services.certificates import CertificateMetadata, save_certificate, store_key
 from app.services.deploy import configure_keyring
@@ -37,6 +37,7 @@ from tests.integration.conftest import create_login_user, disable_schedules
 OPERATOR = "deploy-start-operator"
 PAIR_HOST = "pair.example.internal"
 UNTRUSTED_HOST = "untrusted.example.internal"
+BLOCKED_HOST = "blocked.example.internal"
 # What reconciliation records on a binding whose separate certificate file could not be verified as the
 # chain of the leaf (D1 / operator decision 4): it stays a certificate of its own and carries the diagnostic.
 CHAIN_DIAGNOSTIC = "incomplete chain: no configured file holds this leaf's issuer"
@@ -45,9 +46,13 @@ ACTIVE = (JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED)
 _WORLD: SimpleNamespace | None = None
 
 
-def _certificate(db, ca, keyring, actor, now, *, names, renews_id=None, with_chain=True):
+def _certificate(db, ca, keyring, actor, now, *, names, renews_id=None, with_chain=True, key_type="ec"):
     """A keyed leaf the session CA issues, stored with its intermediate or deliberately without it."""
-    key = ec.generate_private_key(ec.SECP256R1())
+    key = (
+        rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        if key_type == "rsa"
+        else ec.generate_private_key(ec.SECP256R1())
+    )
     pem = ca.issue(
         public_key=key.public_key(),
         common_name=names[0],
@@ -86,8 +91,11 @@ def _server(db, hostname, group, now):
     return server
 
 
-def _binding(db, server, vhost, *, current, current_key, now, cert_path, key_path, chain_path=None, **extra):
-    """One active ``matched`` binding of ``current``, with the paths the preview must write."""
+def _binding(
+    db, server, vhost, *, current, current_key, now, cert_path, key_path, chain_path=None,
+    match_state="matched", on_disk_fingerprint=None, **extra,
+):
+    """One active binding of ``current``, with the paths the preview must write."""
     row = Binding(
         server_id=server.id,
         webserver=server.webserver,
@@ -104,10 +112,10 @@ def _binding(db, server, vhost, *, current, current_key, now, cert_path, key_pat
         key_owner="root",
         key_group="root",
         key_mode=0o600,
-        on_disk_fingerprint=current.sha256_fingerprint,
+        on_disk_fingerprint=on_disk_fingerprint or current.sha256_fingerprint,
         on_disk_key_public_sha256=current_key.public_key_sha256,
         certificate_id=current.id,
-        match_state="matched",
+        match_state=match_state,
         last_seen_at=now - timedelta(hours=1),
         **extra,
     )
@@ -117,29 +125,38 @@ def _binding(db, server, vhost, *, current, current_key, now, cert_path, key_pat
 
 
 def _pair_world(db, ca, keyring, actor, now):
-    """D1: two same-issuer certificate files with no chain plus one binding whose chain file is verified.
+    """D1: a host with a real same-issuer RSA+ECDSA pair plus one binding whose chain file verifies.
 
-    A positional or issuer-matching heuristic would make the second file a chain of the first and write a chain
-    over a live certificate; the preview must show one ``write cert`` per file and a ``write chain`` only for the
-    binding that carries a verified ``chain_path``.
+    ``rsa_old`` and ``ecdsa_old`` are two distinct certificates signed by the same CA — one with an RSA key,
+    one with an EC key — and neither has a chain file. A positional or issuer-matching heuristic would make
+    the second certificate a chain of the first and write a chain over a live certificate; the preview must
+    show one ``write cert`` per file and a ``write chain`` only for the binding with a verified ``chain_path``.
     """
-    old, old_key = _certificate(db, ca, keyring, actor, now, names=("rsa.example.internal", "ecdsa.example.internal"))
-    new, _key = _certificate(
-        db, ca, keyring, actor, now, names=("rsa.example.internal", "ecdsa.example.internal"), renews_id=old.id
+    rsa_old, rsa_key = _certificate(
+        db, ca, keyring, actor, now, names=("rsa.example.internal",), key_type="rsa"
+    )
+    ecdsa_old, ecdsa_key = _certificate(db, ca, keyring, actor, now, names=("ecdsa.example.internal",))
+    pair_new, _pair_key = _certificate(
+        db, ca, keyring, actor, now, names=("rsa.example.internal", "ecdsa.example.internal"),
+        renews_id=rsa_old.id,
+    )
+    chain_old, chain_key = _certificate(db, ca, keyring, actor, now, names=("chain.example.internal",))
+    chain_new, _chain_key = _certificate(
+        db, ca, keyring, actor, now, names=("chain.example.internal",), renews_id=chain_old.id
     )
     server = _server(db, PAIR_HOST, "ring_b", now)
     bindings = {
         "rsa": _binding(
-            db, server, "rsa.example.internal", current=old, current_key=old_key, now=now,
+            db, server, "rsa.example.internal", current=rsa_old, current_key=rsa_key, now=now,
             cert_path="/etc/nginx/ssl/rsa.crt", key_path="/etc/nginx/ssl/rsa.key",
         ),
         "ecdsa": _binding(
-            db, server, "ecdsa.example.internal", current=old, current_key=old_key, now=now,
+            db, server, "ecdsa.example.internal", current=ecdsa_old, current_key=ecdsa_key, now=now,
             cert_path="/etc/nginx/ssl/ecdsa.crt", key_path="/etc/nginx/ssl/ecdsa.key",
             notes=CHAIN_DIAGNOSTIC,
         ),
         "chain": _binding(
-            db, server, "chain.example.internal", current=old, current_key=old_key, now=now,
+            db, server, "chain.example.internal", current=chain_old, current_key=chain_key, now=now,
             cert_path="/etc/nginx/ssl/chain.crt", key_path="/etc/nginx/ssl/chain.key",
             chain_path="/etc/nginx/ssl/chain.pem",
         ),
@@ -165,7 +182,38 @@ def _pair_world(db, ca, keyring, actor, now):
     )
     db.add(unknown)
     db.flush()
-    return SimpleNamespace(old=old, new=new, server=server, bindings=bindings, unknown=unknown)
+    return SimpleNamespace(
+        old=rsa_old, rsa_old=rsa_old, ecdsa_old=ecdsa_old, new=pair_new, chain_new=chain_new,
+        server=server, bindings=bindings, unknown=unknown, rsa_key=rsa_key, ecdsa_key=ecdsa_key,
+    )
+
+
+def _blocked_world(db, ca, keyring, actor, now):
+    """A lineage whose only bindings are excluded from every plan: one ``key_mismatch``, one ``missing_file``.
+
+    Both carry the new fingerprint on disk, so a guardrail that counts them as targets would report
+    ``already_deployed`` (or, with different fingerprints, nothing at all) while the authoritative preview
+    refuses with ``no_targets``. The panel and the start screen must agree.
+    """
+    old, old_key = _certificate(db, ca, keyring, actor, now, names=("blocked.example.internal",))
+    new, _key = _certificate(
+        db, ca, keyring, actor, now, names=("blocked.example.internal",), renews_id=old.id
+    )
+    server = _server(db, BLOCKED_HOST, "ring_d", now)
+    bindings = (
+        _binding(
+            db, server, "blocked.example.internal", current=old, current_key=old_key, now=now,
+            cert_path="/etc/nginx/ssl/blocked.crt", key_path="/etc/nginx/ssl/blocked.key",
+            match_state="key_mismatch", on_disk_fingerprint=new.sha256_fingerprint,
+        ),
+        _binding(
+            db, server, "blocked.example.internal", current=old, current_key=old_key, now=now,
+            cert_path="/etc/nginx/ssl/missing.crt", key_path="/etc/nginx/ssl/missing.key",
+            match_state="missing_file", on_disk_fingerprint=new.sha256_fingerprint,
+            notes="certificate missing or unreadable at discovery",
+        ),
+    )
+    return SimpleNamespace(old=old, new=new, server=server, bindings=bindings)
 
 
 def _untrusted_world(db, ca, keyring, actor, now):
@@ -192,6 +240,7 @@ class DeployStartWorld:
         self.world = namespace.world
         self.pair = namespace.pair
         self.untrusted = namespace.untrusted
+        self.blocked = namespace.blocked
 
     def end_active(self):
         """One deploy at a time: finish whatever an earlier test left queued, running or paused."""
@@ -261,6 +310,7 @@ def start_world(web_factory, deploy_world_factory, clock, keyring, ca):
                 world=deploy_world_factory(db, actor),
                 pair=_pair_world(db, ca, keyring, actor, clock()),
                 untrusted=_untrusted_world(db, ca, keyring, actor, clock()),
+                blocked=_blocked_world(db, ca, keyring, actor, clock()),
                 actor=actor,
             )
     return DeployStartWorld(web_factory, _WORLD, clock, _WORLD.actor)
@@ -271,6 +321,13 @@ def plan_hash(page_text):
     match = re.search(r'name="plan_sha256" value="([0-9a-f]{64})"', page_text)
     assert match is not None, page_text[:800]
     return match.group(1)
+
+
+def binding_block(host_html: str, binding_id: int) -> str:
+    """One binding's rendered block inside a host row, nested elements included."""
+    start = host_html.index(f'data-binding="{binding_id}"')
+    end = host_html.find('data-binding="', start + 1)
+    return host_html[start:] if end == -1 else host_html[start:end]
 
 
 def post(signed_in, **fields):
@@ -297,6 +354,20 @@ def test_start_screen_previews_and_enqueues_with_confirmation(signed_in, start_w
     assert "Deploy to 3 hosts, starting with canary web01.example.internal" in page.text
     assert "/etc/nginx/ssl/www.crt" in page.text and "write cert" in page.text and "write key" in page.text
     assert 'data-batch="0"' in page.text and 'data-batch="1"' in page.text  # 50% of 3 hosts -> 2 batches
+    # §6.6: the operator compares the identity that is on disk with the one that will be written, per
+    # binding, before confirming. Today only the totals panel named the new certificate.
+    old, new = start_world.world.old, start_world.world.new_certificate
+    binding_id = start_world.world.target_bindings[0].id
+    host = re.search(r'<tr[^>]*data-host="web01\.example\.internal".*?</tr>', page.text, re.DOTALL)
+    assert host is not None, page.text[:2000]
+    block = binding_block(host.group(0), binding_id)
+    assert "data-identity" in block
+    assert f'data-current-cn="{old.common_name}"' in block
+    assert f'data-current-fingerprint="{old.sha256_fingerprint}"' in block
+    assert f'data-new-cn="{new.common_name}"' in block
+    assert f'data-new-fingerprint="{new.sha256_fingerprint}"' in block
+    assert f'<time datetime="{old.not_after.strftime("%Y-%m-%dT%H:%M:%SZ")}">' in block
+    assert f'<time datetime="{new.not_after.strftime("%Y-%m-%dT%H:%M:%SZ")}">' in block
     plan = plan_hash(page.text)
 
     refused = post(signed_in, certificate_id=certificate_id, plan_sha256=plan)
@@ -406,6 +477,57 @@ def test_unknown_bindings_and_explicit_selection_through_the_form(signed_in, sta
     assert done.status_code == 303
     rows = start_world.rows(UUID(done.headers["location"].rsplit("/", 1)[1]))
     assert {row.binding_id for row in rows} == {pair.bindings["rsa"].id, pair.bindings["ecdsa"].id}
+
+
+def test_panel_and_start_screen_agree_when_every_binding_is_excluded(signed_in, start_world):
+    """§8.4/§8.7: the panel must not promise a deploy the authoritative plan refuses (Contract decision 15)."""
+    blocked = start_world.blocked
+    page = signed_in.get(f"/certificates/{blocked.new.id}").text
+    section = re.search(r'<section[^>]*id="deploy-panel".*?</section>', page, re.DOTALL)
+    assert section is not None, page[:1500]
+    panel = section.group(0)
+    assert 'data-error="no_targets"' in panel
+    # The reason is preserved: the operator is told which states kept the bindings out of every plan.
+    assert "key_mismatch" in panel and "missing_file" in panel
+    assert 'data-error="already_deployed"' not in panel
+    assert "data-deploy-ready" not in panel
+
+    start = signed_in.get(f"/deploy?certificate_id={blocked.new.id}")
+    assert start.status_code == 200
+    assert 'data-error="no_targets"' in start.text
+    assert 'data-error="already_deployed"' not in start.text
+    assert re.search(r'<button[^>]*data-start-disabled="[^"]*"[^>]*>[^<]*Start deploy', start.text)
+
+
+def test_changing_the_certificate_recomputes_the_target_choices(signed_in, start_world):
+    """The picker must not preview the new certificate on the previous certificate's ticked bindings."""
+    world, pair = start_world.world, start_world.pair
+    stale = world.target_bindings[0].id
+
+    fresh = signed_in.get(f"/deploy?certificate_id={pair.new.id}")
+    assert f'name="selection_for" value="{pair.new.id}"' in fresh.text
+    assert 'data-total="bindings">1<' in fresh.text  # the pair renewal owns one default target
+    select = re.search(r'<select[^>]*id="certificate_id"[^>]*>', fresh.text)
+    assert select is not None
+    # htmx replaces the whole options screen for a certificate change: the server re-renders the checkbox
+    # list and the canary choices for the new certificate instead of keeping the previous ones in the DOM.
+    assert 'hx-get="/deploy"' in select.group(0) and 'hx-select="#deploy-screen"' in select.group(0)
+    assert 'hx-target="#deploy-screen"' in select.group(0)
+    assert 'hx-trigger="change consume"' in select.group(0)  # the form does not double-preview it
+
+    # A no-JS Preview that still carries the previous certificate's ticked ids is not an explicit selection:
+    # the page comes back with the new certificate's own default targets and synchronized controls.
+    changed = signed_in.get(
+        f"/deploy?certificate_id={pair.new.id}&selection=explicit"
+        f"&selection_for={world.new_certificate.id}&binding_id={stale}"
+    )
+    assert changed.status_code == 200
+    assert f'name="selection_for" value="{pair.new.id}"' in changed.text
+    assert 'data-total="bindings">1<' in changed.text
+    assert f'data-host="{PAIR_HOST}"' in changed.text
+    assert 'data-host="web01.example.internal"' not in changed.text
+    assert f'name="binding_id" value="{pair.bindings["rsa"].id}" checked' in changed.text
+    assert f'name="binding_id" value="{stale}"' not in changed.text
 
 
 def test_plan_change_between_preview_and_post_shows_the_new_preview(signed_in, start_world):
@@ -528,34 +650,51 @@ def test_times_are_shown_in_the_display_timezone_and_utc(signed_in, start_world,
 # --- D1: the preview shows exactly what will be written ------------------------------------------
 
 
-def test_preview_renders_exactly_the_planned_file_writes(signed_in, start_world):
-    page = signed_in.get(f"/deploy?certificate_id={start_world.pair.new.id}")
+def test_preview_renders_two_cert_writes_for_a_same_issuer_rsa_ecdsa_pair(signed_in, start_world):
+    pair = start_world.pair
+    # A real RSA+ECDSA pair: two distinct certificates from the same CA (same issuer), neither with a chain.
+    assert pair.rsa_old.issuer_dn == pair.ecdsa_old.issuer_dn
+    assert pair.rsa_key.key_type is PrivateKeyType.RSA and pair.ecdsa_key.key_type is PrivateKeyType.ECDSA
+    assert pair.rsa_old.sha256_fingerprint != pair.ecdsa_old.sha256_fingerprint
+    ids = "&".join(f"binding_id={pair.bindings[name].id}" for name in ("rsa", "ecdsa"))
+    page = signed_in.get(f"/deploy?certificate_id={pair.new.id}&selection=explicit&{ids}")
     assert page.status_code == 200
-    host = re.search(r'<tr[^>]*data-host="pair.example.internal".*?</tr>', page.text, re.DOTALL)
-    assert host is not None, page[:1500]
+    host = re.search(rf'<tr[^>]*data-host="{PAIR_HOST}".*?</tr>', page.text, re.DOTALL)
+    assert host is not None, page[:2000]
     section = host.group(0)
     actions = re.findall(r'data-action="(write [a-z]+)"', section)
-    # rsa.crt and ecdsa.crt are two certificate files of one issuer with no verified chain: two leaf writes.
-    # chain.crt carries a verified chain_path, so it alone gets a chain write.
-    assert sorted(actions) == [
-        "write cert", "write cert", "write cert", "write chain", "write key", "write key", "write key",
-    ]
-    assert section.count('data-action="write chain"') == 1
-    assert "/etc/nginx/ssl/chain.pem" in section
-    for path in ("/etc/nginx/ssl/rsa.crt", "/etc/nginx/ssl/ecdsa.crt", "/etc/nginx/ssl/chain.crt"):
+    # Two certificate files of one issuer, neither a verified chain: two leaf writes and no chain write.
+    assert sorted(actions) == ["write cert", "write cert", "write key", "write key"]
+    assert 'data-action="write chain"' not in section
+    for path in ("/etc/nginx/ssl/rsa.crt", "/etc/nginx/ssl/ecdsa.crt"):
         assert f'data-file="{path}"' in section
+    assert 'data-file="/etc/nginx/ssl/chain.crt"' not in section
     assert "root:root" in section and "0644" in section and "0600" in section
 
 
+def test_preview_renders_a_verified_chain_write(signed_in, start_world):
+    pair = start_world.pair
+    page = signed_in.get(f"/deploy?certificate_id={pair.chain_new.id}")
+    assert page.status_code == 200
+    host = re.search(rf'<tr[^>]*data-host="{PAIR_HOST}".*?</tr>', page.text, re.DOTALL)
+    assert host is not None, page[:2000]
+    section = host.group(0)
+    actions = re.findall(r'data-action="(write [a-z]+)"', section)
+    assert sorted(actions) == ["write cert", "write chain", "write key"]
+    for path in ("/etc/nginx/ssl/chain.crt", "/etc/nginx/ssl/chain.pem", "/etc/nginx/ssl/chain.key"):
+        assert f'data-file="{path}"' in section
+
+
 def test_preview_shows_the_chain_diagnostic_of_a_binding(signed_in, start_world):
-    page = signed_in.get(f"/deploy?certificate_id={start_world.pair.new.id}")
-    host = re.search(r'<tr[^>]*data-host="pair.example.internal".*?</tr>', page.text, re.DOTALL)
+    pair = start_world.pair
+    ids = "&".join(f"binding_id={pair.bindings[name].id}" for name in ("rsa", "ecdsa"))
+    page = signed_in.get(f"/deploy?certificate_id={pair.new.id}&selection=explicit&{ids}")
+    host = re.search(rf'<tr[^>]*data-host="{PAIR_HOST}".*?</tr>', page.text, re.DOTALL)
     assert host is not None, page[:1500]
-    binding_id = start_world.pair.bindings["ecdsa"].id
-    binding = re.search(rf'<div[^>]*data-binding="{binding_id}".*?</div>', host.group(0), re.DOTALL)
-    assert binding is not None, host.group(0)[:1500]
-    assert "data-chain-diagnostic" in binding.group(0)
+    binding_id = pair.bindings["ecdsa"].id
+    block = binding_block(host.group(0), binding_id)
+    assert "data-chain-diagnostic" in block
     # The page escapes the text (an apostrophe is ``&#39;``); the operator still reads the exact diagnostic.
-    assert CHAIN_DIAGNOSTIC in unescape(binding.group(0))
+    assert CHAIN_DIAGNOSTIC in unescape(block)
     # The binding is still a target: the diagnostic is information, not a silent exclusion.
     assert "/etc/nginx/ssl/ecdsa.crt" in host.group(0)

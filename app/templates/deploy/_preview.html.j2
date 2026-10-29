@@ -17,7 +17,8 @@
   <dl class="fields">
     <dt>Certificate</dt>
     <dd><a href="/certificates/{{ preview.certificate.id }}">{{ preview.certificate.common_name }}</a> (#{{ preview.certificate.id }})
-      · chain {{ preview.chain_status }} · expires {{ time_tag(preview.certificate.not_after, tz) }}</dd>
+      · chain {{ preview.chain_status }} · <code data-certificate-fingerprint>{{ preview.certificate.sha256_fingerprint }}</code>
+      · expires {{ time_tag(preview.certificate.not_after, tz) }}</dd>
     <dt>Hosts</dt><dd data-total="hosts">{{ preview.totals.hosts }}</dd>
     <dt>Bindings</dt><dd data-total="bindings">{{ preview.totals.bindings }}</dd>
     <dt>Files</dt><dd data-total="files">{{ preview.totals.files }}</dd>
@@ -38,7 +39,23 @@
       <td>{{ host.batch_no + 1 }}{% if host.batch_no == 0 %} — canary{% endif %}</td>
       <td>
         {% for binding in host.bindings %}
-        <div data-binding="{{ binding.binding_id }}">{{ binding.vhost_name }}:{{ binding.port }} — {{ binding.match_state }}{% if notes.get(binding.binding_id) %}<div class="hint" data-chain-diagnostic>{{ notes[binding.binding_id] }}</div>{% endif %}</div>
+        <div data-binding="{{ binding.binding_id }}">
+          <div>{{ binding.vhost_name }}:{{ binding.port }} — {{ binding.match_state }}</div>
+          {# §6.6: the operator compares the identity on disk with the one that will be written, per binding. #}
+          <div class="hint" data-identity
+               data-current-cn="{{ binding.current_common_name or '' }}"
+               data-current-fingerprint="{{ binding.current_fingerprint or '' }}"
+               data-new-cn="{{ preview.certificate.common_name }}"
+               data-new-fingerprint="{{ preview.certificate.sha256_fingerprint }}">
+            current: {% if binding.current_common_name %}{{ binding.current_common_name }} (#{{ binding.current_certificate_id }}){% else %}unknown certificate{% endif %}
+            · <code>{{ binding.current_fingerprint or "—" }}</code>
+            · expires {{ time_tag(binding.current_not_after, tz) }}<br>
+            new: {{ preview.certificate.common_name }} (#{{ preview.certificate.id }})
+            · <code>{{ preview.certificate.sha256_fingerprint }}</code>
+            · expires {{ time_tag(preview.certificate.not_after, tz) }}
+          </div>
+          {% if notes.get(binding.binding_id) %}<div class="hint" data-chain-diagnostic>{{ notes[binding.binding_id] }}</div>{% endif %}
+        </div>
         {% endfor %}
       </td>
       <td>

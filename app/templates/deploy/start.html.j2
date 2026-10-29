@@ -10,11 +10,17 @@
   <p>An issued renewal, or an active certificate with a stored key, appears here. <a href="/certificates">Open the inventory</a>.</p>
 </section>
 {% else %}
+<div id="deploy-screen">
 <form id="deploy-options" class="panel wide" method="get" action="/deploy"
       hx-get="/deploy/preview" hx-target="#deploy-preview" hx-swap="innerHTML" hx-trigger="change, submit">
   <h2>Plan</h2>
   <label for="certificate_id">Certificate</label>
-  <select id="certificate_id" name="certificate_id">
+  {# A certificate change re-renders the whole screen from the server (the checkbox list and the canary
+     choices belong to the certificate), and ``consume`` keeps the form from also previewing the unchanged
+     screen with the new certificate. #}
+  <select id="certificate_id" name="certificate_id"
+          hx-get="/deploy" hx-include="#deploy-options" hx-select="#deploy-screen"
+          hx-target="#deploy-screen" hx-swap="outerHTML" hx-trigger="change consume">
     {% for candidate in candidates %}
     <option value="{{ candidate.certificate_id }}"{% if candidate.certificate_id|string == form.certificate_id or (not form.certificate_id and loop.first) %} selected{% endif %}>{{ candidate.common_name }} (#{{ candidate.certificate_id }}){% if candidate.renewal_id %} — issued renewal{% endif %} — chain {{ candidate.chain_status }} — expires {{ candidate.not_after | datetime(tz) }}</option>
     {% endfor %}
@@ -28,13 +34,15 @@
 
   <fieldset>
     <legend>Target bindings</legend>
-    <p class="hint">Untick a binding to leave it out of the plan; the list follows the certificate, so reload the page to start again from the default selection.</p>
+    <p class="hint">Untick a binding to leave it out of the plan; changing the certificate reloads the plan with that certificate's default targets.</p>
     {% for choice in choices %}
     <label class="inline"><input type="checkbox" name="binding_id" value="{{ choice.binding_id }}"{% if choice.checked %} checked{% endif %}>
       {{ choice.hostname }} · {{ choice.vhost_name }}:{{ choice.port }} — <code>{{ choice.cert_path }}</code> ({{ choice.match_state }}{% if choice.match_state == "unknown" %}: unknown certificate, tick "include unknown" to deploy to it{% endif %})</label>
     {% else %}
     <p>No active binding is a deploy target for this certificate.</p>
     {% endfor %}
+    {# The certificate this checkbox list was rendered for: the server ignores the ids when the picker changed. #}
+    <input type="hidden" name="selection_for" value="{{ selection_for }}">
     <input type="hidden" name="selection" value="explicit">
   </fieldset>
 
@@ -64,6 +72,7 @@
 
 <div id="deploy-preview">
 {% include "deploy/_preview.html.j2" %}
+</div>
 </div>
 {% endif %}
 {% endblock %}

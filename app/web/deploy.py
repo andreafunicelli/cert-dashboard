@@ -226,7 +226,14 @@ def _options(params, timezone_name: str) -> tuple[DeployOptions | None, dict[str
     if not_before_error is not None:
         errors["not_before"] = not_before_error
     binding_ids = tuple(sorted({value for raw in params.getlist("binding_id") if (value := _int(raw))}))
-    explicit = _text(params.get("selection")) == "explicit" or bool(binding_ids)
+    # The checkbox list belongs to one certificate; the form carries that id in ``selection_for``. A no-JS
+    # Preview after changing the picker still submits the previous certificate's ticked ids: they must not
+    # become an explicit selection of targets the operator never ticked (the page's htmx picker reloads the
+    # server-rendered screen instead). A request without the marker — a bookmarkable URL or the confirmation
+    # POST, which echoes the previewed ids — is trusted as is.
+    selection_for = _int(params.get("selection_for"))
+    scoped = selection_for is None or selection_for == certificate_id
+    explicit = scoped and (_text(params.get("selection")) == "explicit" or bool(binding_ids))
     group, host = _text(params.get("group")), _text(params.get("host"))
     if certificate_id is None:
         return None, errors
@@ -376,6 +383,9 @@ def _start_context(request: Request, params, errors: dict[str, str] | None = Non
         "confirm": confirm,
         "canary": next((host for host in preview.hosts if host.batch_no == 0), None) if preview else None,
         "form": _form_values(params),
+        # The certificate the checkbox list was rendered for: a later request that names a different one
+        # must use that certificate's defaults instead of the ids still in the DOM (see ``_options``).
+        "selection_for": preview.certificate.id if preview is not None else "",
         "batch_percent": batch_percent,
         "pause_after_canary": pause_after_canary,
         "include_unknown": bool(options.include_unknown) if options else False,
