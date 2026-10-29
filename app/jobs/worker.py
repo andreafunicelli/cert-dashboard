@@ -328,6 +328,21 @@ def register_tick_step(name: str, step: Callable[[Session, datetime], int], *, r
 register_tick_step("notification_retry", enqueue_notification_retry, requires=(JobType.ALERT_EXPIRY, "default"))
 
 
+def _deploy_sweep(db: Session, now: datetime) -> int:
+    """Contract decision 20's ``deploy_sweep``: pause expiry, then terminal jobs with pending rows.
+
+    Imported lazily, exactly like ``_deploy_timeout``: ``app.services.deploy_runtime`` imports
+    ``app.services.settings``, which imports this module, so a module-level import would close a cycle.
+    """
+    from app.services.deploy_runtime import sweep_deploys
+
+    return sweep_deploys(db, now)
+
+
+# Inert until the deploy handler (``deploy/default``) is registered.
+register_tick_step("deploy_sweep", _deploy_sweep, requires=(JobType.DEPLOY, "default"))
+
+
 def scheduler_tick(factory: sessionmaker[Session], registry: JobRegistry, now: datetime) -> None:
     """Enqueue due scheduled jobs, reap timed-out jobs, requeue retryable failures, run tick steps.
 
