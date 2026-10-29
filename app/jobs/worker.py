@@ -179,6 +179,16 @@ def timeout_for(db: Session, job: Job) -> int:
     return _FIXED_TIMEOUTS.get(job_type, DEFAULT_DEPLOY_TIMEOUT)
 
 
+def _deploy_timeout(db: Session, job: Job) -> int:
+    """Contract decision 21: the timeout depends on the hosts still to run, so it is computed per claim."""
+    from app.services.deploy_runtime import deploy_timeout_seconds
+
+    return deploy_timeout_seconds(db, job)
+
+
+register_timeout(JobType.DEPLOY, _deploy_timeout)
+
+
 # --- schedules ----------------------------------------------------------------------------------
 
 
