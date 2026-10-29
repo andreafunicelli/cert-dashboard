@@ -6,8 +6,9 @@ one for every ``job_host`` row joined to its server and binding, and the pause t
 job is paused.
 """
 
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -20,6 +21,39 @@ from app.services.deploy import pause_deadline
 from app.services.settings import get_setting
 
 TOTAL_KEYS = ("succeeded", "failed", "rolled_back", "skipped", "pending")
+
+# How the host that stopped the rollout left its files (§8.7 failure banner). Only a failure the playbook
+# raises before the first live write may claim that nothing changed; a lost worker left files that may have
+# been changed and were never verified (§9.4), and a failed rollback is never a clean restore.
+RESTORED = "restored"
+RESTORE_FAILED = "restore_failed"
+UNVERIFIED = "unverified"
+NOTHING_WRITTEN = "nothing_written"
+
+# Contract decision 18's reasons that are raised before the first live write (preflight, backup, transport, a
+# run that never started): a failure here changed no live file. ``internal`` is "ended before verification"
+# with no step reached, which §6.4 records as a pre-write outcome.
+PRE_WRITE_REASONS = frozenset(
+    {
+        "drift_detected",
+        "missing_target",
+        "permission_denied",
+        "insufficient_space",
+        "baseline_config_invalid",
+        "key_mismatch_preflight",
+        "backup_failed",
+        "unreachable",
+        "auth",
+        "binding_blocked",
+        "not_in_inventory",
+        "file_conflict",
+        "internal",
+    }
+)
+# Contract decision 18: the handler fails the job with ``rollout stopped: <hostname> failed (<reason>)``.
+_STOPPED_MESSAGE = re.compile(r"^rollout stopped: (?P<host>\S+) failed \(")
+_NEVER = datetime.max.replace(tzinfo=UTC)
+
 
 # The JSON report is an allowlist: every ``HostView`` field except the (redacted) log excerpt, whose text stays
 # in the database, plus one entry per binding carrying that binding's old and new fingerprint.
@@ -94,12 +128,23 @@ class DeployJobView:
         return [host for batch in self.batches for host in batch]
 
     @property
+    def stopping_host(self) -> HostView | None:
+        """The host the failure banner is about: the one that stopped the rollout."""
+        return next((host for host in self.hosts if host.hostname == self.first_failed_host), None)
+
+    @property
     def failure_reason(self) -> str | None:
         """The reason code of the host that stopped the rollout, if it has one."""
-        for host in self.hosts:
-            if host.hostname == self.first_failed_host:
-                return host.reason
-        return None
+        host = self.stopping_host
+        return host.reason if host is not None else None
+
+    @property
+    def failure_restoration(self) -> str | None:
+        """How the stopping host's files stand: restored, not restored, or never verified (§8.7)."""
+        host = self.stopping_host
+        if host is None:
+            return None
+        return _restoration(host.status, host.rolled_back, host.rollback_error, host.reason)
 
     @property
     def polling(self) -> bool:
@@ -179,14 +224,16 @@ def _host_view(server: Server, rows: list[tuple[JobHost, Binding | None]], *, te
     )
     rollback_error = next((row.rollback_error for row, _binding in rows if row.rollback_error), None)
     reason = next((reason for row, _binding in rows if (reason := _reason(row))), None)
-    # Contract decision 18 and §9.4: a failed rollback, a host that timed out and a host whose worker was lost
-    # all leave files that may be wrong and were never verified, so each one needs a human.
-    needs_attention = rollback_error is not None or reason == "worker_lost"
+    status_value = getattr(status, "value", status)
+    # Contract decision 18 and §9.4: a failed rollback and a host whose files may have changed without
+    # verification (worker_lost, a timed-out run) each need a human; a proven pre-write failure does not.
+    state = _restoration(status_value, any(row.rolled_back for row, _binding in rows), rollback_error, reason)
+    needs_attention = state in (RESTORE_FAILED, UNVERIFIED)
     return HostView(
         server_id=server.id,
         hostname=server.hostname,
         batch_no=first.batch_no,
-        status=getattr(status, "value", status),
+        status=status_value,
         bindings=tuple(binding.vhost_name for _row, binding in rows if binding is not None),
         old_fingerprint=next(iter(fingerprints)) if len(fingerprints) == 1 else None,
         new_fingerprint=first.new_fingerprint,
@@ -250,8 +297,41 @@ def _inventory_rev(job: Job) -> str | None:
     return None
 
 
-def _view(db: Session, job_id: UUID, now: datetime | None) -> DeployJobView:
-    return _snapshot(db, job_id, now)[0]
+def _restoration(status: str, rolled_back: bool, rollback_error: str | None, reason: str | None) -> str | None:
+    """How one host's files stand after it stopped the rollout; ``None`` for a host that did not fail."""
+    if status not in (JobHostStatus.FAILED.value, JobHostStatus.ROLLED_BACK.value):
+        return None
+    if rollback_error is not None:
+        return RESTORE_FAILED  # §9.4: the restore itself failed, so the host needs a human
+    if rolled_back:
+        return RESTORED
+    if reason in PRE_WRITE_REASONS:
+        return NOTHING_WRITTEN
+    return UNVERIFIED  # e.g. worker_lost: the files may have changed and were never verified
+
+
+def _stopper(job: Job, hosts: list[HostView], rows: list[tuple[JobHost, Server, Binding | None]]) -> HostView | None:
+    """The host that stopped the rollout: the one the handler named, else the failure that completed first.
+
+    The batch runs with ``deploy.concurrency`` threads, so the first failed host in hostname order is not
+    necessarily the one that stopped the rollout. The handler persists the stopper in the job's failure
+    message (Contract decision 18); a job without that evidence falls back to the completion chronology.
+    """
+    candidates = [host for host in hosts if host.status in (JobHostStatus.FAILED.value, JobHostStatus.ROLLED_BACK.value)]
+    if not candidates:
+        return None
+    message = job.error_message if isinstance(job.error_message, str) else ""
+    match = _STOPPED_MESSAGE.match(message)
+    if match is not None:
+        for host in candidates:
+            if host.hostname == match.group("host"):
+                return host
+    finished: dict[str, datetime] = {}
+    for row, server, _binding in rows:
+        seen = finished.get(server.hostname)
+        if row.finished_at is not None and (seen is None or row.finished_at < seen):
+            finished[server.hostname] = row.finished_at
+    return min(candidates, key=lambda host: (finished.get(host.hostname, _NEVER), host.batch_no, host.hostname))
 
 
 def _snapshot(
@@ -288,7 +368,14 @@ def _snapshot(
         deadline = pause_deadline(job, hours if type(hours) is int else 24)
     payload = job.payload if isinstance(job.payload, dict) else {}
     certificate_id = payload.get("certificate_id")
-    first_failed, files_restored = _failure(hosts)
+    stopper = _stopper(job, hosts, rows)
+    first_failed = stopper.hostname if stopper is not None else None
+    restoration = (
+        None
+        if stopper is None
+        else _restoration(stopper.status, stopper.rolled_back, stopper.rollback_error, stopper.reason)
+    )
+    files_restored = True if restoration == RESTORED else False if restoration == RESTORE_FAILED else None
     view = DeployJobView(
         job_id=job.id,
         status=status.value,
@@ -309,21 +396,9 @@ def _snapshot(
     return view, rows
 
 
-def _failure(hosts: list[HostView]) -> tuple[str | None, bool | None]:
-    """The host that stopped the rollout and whether its files were put back (§8.7 failure banner)."""
-    for host in hosts:
-        if host.status in (JobHostStatus.FAILED.value, JobHostStatus.ROLLED_BACK.value):
-            if host.rolled_back and host.rollback_error is None:
-                return host.hostname, True
-            if host.rollback_error is not None:
-                return host.hostname, False
-            return host.hostname, None  # preflight failure: nothing was written, nothing to restore
-    return None, None
-
-
 def deploy_job_view(db: Session, job_id: UUID, now: datetime) -> DeployJobView:
     """The screen's view of one deploy job; ``DeployJobNotFound`` for anything that is not a deploy job."""
-    return _view(db, job_id, now)
+    return _snapshot(db, job_id, now)[0]
 
 
 def deploy_report(db: Session, job_id: UUID) -> dict[str, Any]:

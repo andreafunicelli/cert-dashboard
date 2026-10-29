@@ -10,7 +10,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app.jobs.queue import InvalidJobState
@@ -21,7 +21,6 @@ from app.web.common import (
     _transact,
     display_timezone,
     install_template_helpers,
-    render_block,
     set_flash,
 )
 
@@ -70,18 +69,25 @@ def _job_page(request: Request, job_id: UUID, status: int = 200, errors: dict[st
     return _render(request, "deploy/job.html.j2", status, **_context(request, view, timezone_name, errors or {}))
 
 
-def _refused(request: Request, job_id: UUID, errors: dict[str, str], status: int = 422) -> HTMLResponse:
-    """A refused control: the controls fragment for htmx, the whole page without JavaScript."""
+def _live(request: Request, job_id: UUID, status: int = 200, errors: dict[str, str] | None = None) -> HTMLResponse:
+    """The live region alone: the page includes it, htmx polls it, and a refused control re-renders it."""
     view, timezone_name = _view(request, job_id)
-    context = _context(request, view, timezone_name, errors)
+    return _render(request, "deploy/_progress.html.j2", status, **_context(request, view, timezone_name, errors or {}))
+
+
+def _refused(request: Request, job_id: UUID, errors: dict[str, str], status: int = 422) -> HTMLResponse:
+    """A refused control: the live region for htmx, the whole page without JavaScript."""
     if _is_htmx(request):
-        return render_block(request, "deploy/job.html.j2", "controls", status, **context)
-    return _render(request, "deploy/job.html.j2", status, **context)
+        return _live(request, job_id, status, errors)
+    return _job_page(request, job_id, status, errors)
 
 
-def _redirect(request: Request, location: str, note: str) -> RedirectResponse:
-    """POST→303 with a one-shot note, so a reload never posts again."""
-    response = RedirectResponse(location, 303)
+def _redirect(request: Request, location: str, note: str) -> Response:
+    """Success: a 303 for a browser, ``HX-Redirect`` for htmx, which cannot observe a 303 (repo convention)."""
+    if _is_htmx(request):
+        response: Response = Response(status_code=200, headers={"HX-Redirect": location})
+    else:
+        response = RedirectResponse(location, 303)
     set_flash(response, request.app.state.settings.session_secret, [note])
     return response
 
@@ -106,8 +112,7 @@ def register_deploy_routes(app: FastAPI) -> None:
 
     @app.get("/jobs/{job_id}/progress")
     def deploy_progress(request: Request, job_id: UUID):
-        view, timezone_name = _view(request, job_id)
-        return _render(request, "deploy/_progress.html.j2", view=view, tz=timezone_name)
+        return _live(request, job_id)
 
     @app.get("/deploy/{job_id}/report.json")
     def deploy_job_report(request: Request, job_id: UUID):

@@ -157,6 +157,77 @@ class DeployJobWorld:
             job.finished_at = at + timedelta(seconds=45)
         return job_id
 
+    def concurrent_stop(self, *, stopper: str = WEB03, later: str = WEB02):
+        """A concurrent batch where ``stopper`` failed first and ``later`` failed in flight afterwards.
+
+        web01 succeeded as the canary; web03 and web02 share batch 1 and both fail, web03 first in wall-clock
+        time. The handler names the host that stopped the rollout in the job's failure message.
+        """
+        job_id = self.start(batch_percent=50, pause_after_canary=False)
+        at = self.clock() - timedelta(minutes=10)
+        with self.factory.begin() as db:
+            self._write(db, job_id, WEB01, "succeeded", started_at=at, finished_at=at + timedelta(seconds=30), backup=True)
+            self._write(
+                db,
+                job_id,
+                stopper,
+                "rolled_back",
+                started_at=at + timedelta(seconds=30),
+                finished_at=at + timedelta(seconds=50),
+                reason="config_test_failed",
+                rolled_back=True,
+                backup=True,
+            )
+            self._write(
+                db,
+                job_id,
+                later,
+                "rolled_back",
+                started_at=at + timedelta(seconds=30),
+                finished_at=at + timedelta(seconds=70),
+                reason="reload_failed",
+                rolled_back=True,
+                backup=True,
+            )
+            job = db.get(Job, job_id)
+            job.status = JobStatus.FAILED
+            job.started_at = at
+            job.finished_at = at + timedelta(seconds=70)
+            job.error_class = "config_invalid"
+            job.error_message = f"rollout stopped: {stopper} failed (config_test_failed)"
+        return job_id
+
+    def pause_now(self, job_id):
+        """Turn a running job into the paused one the handler leaves after a successful canary."""
+        with self.factory.begin() as db:
+            job = db.get(Job, job_id)
+            job.status = JobStatus.PAUSED
+            job.paused_at = self.clock()
+            job.resume_from_batch = 1
+        return job_id
+
+    def fail_now(self, job_id, *, stopper: str = WEB02):
+        """Turn a running job into the stopped one: ``stopper`` failed and stopped the rollout."""
+        at = self.clock() - timedelta(seconds=30)
+        with self.factory.begin() as db:
+            self._write(
+                db,
+                job_id,
+                stopper,
+                "rolled_back",
+                started_at=at,
+                finished_at=self.clock(),
+                reason="config_test_failed",
+                rolled_back=True,
+                backup=True,
+            )
+            job = db.get(Job, job_id)
+            job.status = JobStatus.FAILED
+            job.finished_at = self.clock()
+            job.error_class = "config_invalid"
+            job.error_message = f"rollout stopped: {stopper} failed (config_test_failed)"
+        return job_id
+
     def terminal_with_pending_rows(self):
         """A job-level gate failure: nothing ran, so its rows are still ``pending``."""
         job_id = self.start(batch_percent=50, pause_after_canary=False)
@@ -413,6 +484,40 @@ def test_running_progress_fragment_keeps_polling(signed_in, deploy_job_world):
     assert "ok: [www.example.internal]" in progress.text
 
 
+def test_poll_fragment_brings_the_paused_state_with_it(signed_in, deploy_job_world):
+    """A running job that pauses must arrive with its banner and Continue control, not freeze the first page."""
+    job_id = deploy_job_world.running(batch_no=1, batch_percent=33)
+    page = signed_in.get(f"/deploy/{job_id}").text
+    assert f'hx-get="/jobs/{job_id}/progress" hx-trigger="every 2s"' in page
+    assert "Canary succeeded — continue?" not in page
+
+    deploy_job_world.pause_now(job_id)
+    fragment = signed_in.get(f"/jobs/{job_id}/progress", headers={"HX-Request": "true"})
+    assert fragment.status_code == 200
+    text = fragment.text
+    assert "<html" not in text
+    # header, banner and controls all refresh with the poll, not only the totals table
+    assert 'data-job-status="paused"' in text and 'data-phase="paused"' in text
+    assert "Canary succeeded — continue?" in text
+    assert f'hx-post="/deploy/{job_id}/continue"' in text
+    assert 'hx-trigger="every 2s"' not in text  # a paused job stops polling
+
+
+def test_poll_fragment_brings_the_failure_state_with_it(signed_in, deploy_job_world):
+    """A running job that fails must arrive with the failure banner and the retry control."""
+    job_id = deploy_job_world.running(batch_no=1, batch_percent=33)
+    assert "Rollout stopped" not in signed_in.get(f"/deploy/{job_id}").text
+
+    deploy_job_world.fail_now(job_id, stopper=WEB02)
+    fragment = signed_in.get(f"/jobs/{job_id}/progress", headers={"HX-Request": "true"})
+    assert fragment.status_code == 200
+    text = fragment.text
+    assert "<html" not in text
+    assert "Rollout stopped" in text and f"The first failed host is <strong>{WEB02}</strong>" in text
+    assert f'hx-post="/deploy/{job_id}/hosts/{deploy_job_world.world.servers[WEB02].id}/retry"' in text
+    assert 'hx-trigger="every 2s"' not in text  # a stopped job stops polling
+
+
 # --- the failure banner and the JSON report -----------------------------------------------------
 
 
@@ -447,6 +552,29 @@ def test_failure_banner_says_when_files_could_not_be_restored(signed_in, deploy_
     text = signed_in.get(f"/deploy/{job_id}").text
     assert "Rollout stopped" in text and WEB02 in text
     assert "files could not be restored" in text
+
+
+def failure_banner(page_text: str) -> str:
+    assert 'data-banner="failure"' in page_text, page_text[:400]
+    return page_text.split('data-banner="failure"', 1)[1].split("</section>", 1)[0]
+
+
+def test_worker_lost_banner_never_claims_nothing_was_written(signed_in, deploy_job_world):
+    """§9.4: a reaped host's files may have changed and were never verified — never 'no file was changed'."""
+    job_id = deploy_job_world.lost_worker()
+    banner = failure_banner(signed_in.get(f"/deploy/{job_id}").text)
+    assert WEB02 in banner
+    assert "No file was changed" not in banner
+    assert "may have been changed" in banner and "manual attention" in banner
+
+
+def test_failure_banner_names_the_host_that_stopped_the_rollout(signed_in, deploy_job_world):
+    """In a concurrent batch the stopper is not the first hostname: web03 failed before web02."""
+    job_id = deploy_job_world.concurrent_stop(stopper=WEB03, later=WEB02)
+    page = signed_in.get(f"/deploy/{job_id}").text
+    assert f"The first failed host is <strong>{WEB03}</strong>" in page
+    assert f"The first failed host is <strong>{WEB02}</strong>" not in page
+    assert signed_in.get(f"/deploy/{job_id}/report.json").json()["first_failed_host"] == WEB03
 
 
 # --- host states that need a human ---------------------------------------------------------------
@@ -527,6 +655,37 @@ def test_cancel_refusal_is_a_fragment(signed_in, deploy_job_world):
     # without JavaScript the refusal is the whole page, with the message inline
     refused = signed_in.post(f"/deploy/{finished}/cancel", data=csrf(signed_in))
     assert refused.status_code == 422 and "<html" in refused.text and 'data-error="state"' in refused.text
+    # with htmx the refusal replaces the live region the form lives in, and swaps nothing else
+    fragment = signed_in.post(f"/deploy/{finished}/cancel", data=csrf(signed_in), headers={"HX-Request": "true"})
+    assert fragment.status_code == 422
+    assert "<html" not in fragment.text and 'id="deploy-job-live"' in fragment.text
+    assert 'data-error="state"' in fragment.text
+
+
+def test_controls_are_htmx_forms_with_a_no_javascript_fallback(signed_in, deploy_job_world, clock):
+    # the retry form first: starting another deploy would finish whatever job is still active
+    retry = deploy_job_world.stopped()
+    server_id = deploy_job_world.world.servers[WEB02].id
+    retry_page = signed_in.get(f"/deploy/{retry}").text
+    assert f'action="/deploy/{retry}/hosts/{server_id}/retry"' in retry_page
+    assert f'hx-post="/deploy/{retry}/hosts/{server_id}/retry"' in retry_page
+
+    paused = deploy_job_world.paused(paused_at=clock() - timedelta(hours=1))
+    text = signed_in.get(f"/deploy/{paused}").text
+    for action in (f"/deploy/{paused}/continue", f"/deploy/{paused}/cancel"):
+        assert f'action="{action}"' in text  # a browser without JavaScript posts the same form
+        assert f'hx-post="{action}"' in text  # htmx posts it too, so a 422 fragment can land
+    assert 'hx-target="#deploy-job-live"' in text and 'hx-swap="outerHTML"' in text
+
+    # htmx cannot follow a 303: success answers 200 with HX-Redirect, so the browser reloads the job screen
+    htmx_cancel = signed_in.post(f"/deploy/{paused}/cancel", data=csrf(signed_in), headers={"HX-Request": "true"})
+    assert htmx_cancel.status_code == 200 and htmx_cancel.headers["HX-Redirect"] == f"/deploy/{paused}"
+    assert fetch(deploy_job_world.factory, Job, paused).status == "cancelled"
+
+    # without JavaScript the same POST is a 303 to the job screen
+    paused_again = deploy_job_world.paused(paused_at=clock() - timedelta(hours=1))
+    plain = signed_in.post(f"/deploy/{paused_again}/cancel", data=csrf(signed_in), follow_redirects=False)
+    assert plain.status_code == 303 and plain.headers["location"] == f"/deploy/{paused_again}"
 
 
 def test_retry_host_is_a_new_job(signed_in, deploy_job_world):
