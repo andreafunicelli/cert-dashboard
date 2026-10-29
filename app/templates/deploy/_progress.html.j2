@@ -1,0 +1,36 @@
+{# Live progress of one deploy job: polled by htmx while the job moves, static when paused or finished. #}
+<div id="deploy-progress" data-status="{{ view.status }}"{% if view.polling %} hx-get="/jobs/{{ view.job_id }}/progress" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+  <section class="panel wide" aria-label="Totals">
+    <h2>Totals</h2>
+    <ul class="totals">
+      <li data-total="succeeded">Succeeded <strong>{{ view.totals.succeeded }}</strong></li>
+      <li data-total="failed">Failed <strong>{{ view.totals.failed }}</strong></li>
+      <li data-total="rolled_back">Rolled back <strong>{{ view.totals.rolled_back }}</strong></li>
+      <li data-total="skipped">Skipped <strong>{{ view.totals.skipped }}</strong></li>
+      <li data-total="pending">Pending <strong>{{ view.totals.pending }}</strong></li>
+    </ul>
+  </section>
+  {% for batch in view.batches %}
+  <details class="panel wide batch" data-batch="{{ loop.index0 }}"{% if view.polling and batch[0].status in ("running", "pending") %} open{% endif %}>
+    <summary>Batch {{ loop.index0 + 1 }}{% if loop.index0 == 0 %} — canary{% endif %} · {{ batch | length }} host{{ "" if batch | length == 1 else "s" }}</summary>
+    <div class="table-wrap"><table class="deploy-hosts">
+      <thead><tr><th scope="col">Host</th><th scope="col">Bindings</th><th scope="col">Status</th><th scope="col">Old → new fingerprint</th><th scope="col">Duration</th><th scope="col">Rollback</th><th scope="col">Backup</th><th scope="col">Log</th></tr></thead>
+      <tbody>
+      {% for host in batch %}
+      <tr class="deploy-host" data-host="{{ host.hostname }}" data-status="{{ host.status }}">
+        <td>{{ host.hostname }}{% if host.needs_attention %} <span class="chip chip-critical" data-badge="needs-attention">needs manual attention</span>{% endif %}</td>
+        <td>{% for binding in host.bindings %}{{ binding }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
+        <td>{{ "not run" if host.status == "pending" else host.status }}{% if host.reason %}<br><small>{{ host.reason }}</small>{% endif %}</td>
+        <td>{% if host.old_fingerprint %}<code title="{{ host.old_fingerprint }}">{{ host.old_fingerprint[:12] }}…</code>{% else %}—{% endif %}
+            → {% if host.new_fingerprint %}<code title="{{ host.new_fingerprint }}">{{ host.new_fingerprint[:12] }}…</code>{% else %}—{% endif %}</td>
+        <td>{{ host.duration_seconds if host.duration_seconds is not none else "—" }}</td>
+        <td>{% if host.rolled_back %}rolled back{% elif host.rollback_error %}not restored{% else %}—{% endif %}</td>
+        <td>{% if host.backup_dir %}<input class="copy-path" type="text" readonly value="{{ host.backup_dir }}" aria-label="Backup path on {{ host.hostname }}">{% else %}—{% endif %}</td>
+        <td>{% if host.log_excerpt %}<details><summary>Excerpt</summary><pre>{{ host.log_excerpt }}</pre></details>{% else %}—{% endif %}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table></div>
+  </details>
+  {% endfor %}
+</div>
