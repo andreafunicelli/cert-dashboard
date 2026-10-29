@@ -664,7 +664,7 @@ def test_internal_before_the_first_write_keeps_the_no_write_assertion(signed_in,
 
 
 @pytest.mark.parametrize("reason", ["unreachable", "auth"])
-@pytest.mark.parametrize("step", ["", pytest.param(None, id="no-precheck")])
+@pytest.mark.parametrize("step", ["", "writing", pytest.param(None, id="no-precheck")])
 def test_transport_failure_with_unknown_write_status_never_claims_nothing_was_written(
     signed_in, deploy_job_world, reason, step
 ):
