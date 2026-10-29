@@ -953,8 +953,8 @@ def test_unknown_or_non_deploy_job_is_404(signed_in, deploy_job_world, clock):
             assert signed_in.get(path).status_code == 404, path
 
 
-def test_deploy_navigation_entry_stays_disabled(signed_in, deploy_job_world):
-    # Task 19 enables the Deploy navigation entry; until then the screen is reachable by URL only.
+def test_deploy_navigation_entry_is_enabled(signed_in, deploy_job_world):
+    # Task 19 enabled the Deploy navigation entry (before it, the screen was reachable by URL only).
     text = signed_in.get(f"/deploy/{deploy_job_world.finished()}").text
-    assert '<a href="/deploy">Deploy</a>' not in text
-    assert 'aria-disabled="true"' in text
+    assert '<a href="/deploy">Deploy</a>' in text
+    assert '<span aria-disabled="true" title="handler deploy/default not registered (Plan 3)">Deploy</span>' not in text

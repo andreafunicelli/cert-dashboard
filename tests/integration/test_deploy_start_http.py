@@ -186,8 +186,11 @@ def _untrusted_world(db, ca, keyring, actor, now):
 class DeployStartWorld:
     """Create deploys on the module world and keep the database in a known state for each test."""
 
-    def __init__(self, factory, world, clock, actor):
-        self.factory, self.world, self.clock, self.actor = factory, world, clock, actor
+    def __init__(self, factory, namespace, clock, actor):
+        self.factory, self.clock, self.actor = factory, clock, actor
+        self.world = namespace.world
+        self.pair = namespace.pair
+        self.untrusted = namespace.untrusted
 
     def end_active(self):
         """One deploy at a time: finish whatever an earlier test left queued, running or paused."""
@@ -533,7 +536,9 @@ def test_preview_renders_exactly_the_planned_file_writes(signed_in, start_world)
     actions = re.findall(r'data-action="(write [a-z]+)"', section)
     # rsa.crt and ecdsa.crt are two certificate files of one issuer with no verified chain: two leaf writes.
     # chain.crt carries a verified chain_path, so it alone gets a chain write.
-    assert sorted(actions) == ["write cert", "write cert", "write chain", "write key", "write key", "write key"]
+    assert sorted(actions) == [
+        "write cert", "write cert", "write cert", "write chain", "write key", "write key", "write key",
+    ]
     assert section.count('data-action="write chain"') == 1
     assert "/etc/nginx/ssl/chain.pem" in section
     for path in ("/etc/nginx/ssl/rsa.crt", "/etc/nginx/ssl/ecdsa.crt", "/etc/nginx/ssl/chain.crt"):
