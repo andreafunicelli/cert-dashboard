@@ -36,7 +36,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.ansible.deploy import (
-    HostOutcome,
     StagedMaterial,
     failure,
     run_host_deploy,
@@ -303,7 +302,8 @@ def _deploy(context: JobContext, job: AnsibleJob) -> Mapping[str, JSONValue]:
 
 
 def _stopped_reason(result: object) -> str:
-    if isinstance(result, HostOutcome):
+    """The reason of the host that stopped the rollout (``internal`` when no outcome is readable)."""
+    if isinstance(result, _HostRun):
         return result.reason or "internal"
     return "internal"
 

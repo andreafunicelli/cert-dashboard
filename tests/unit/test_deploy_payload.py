@@ -117,3 +117,15 @@ def test_plan_sha256_must_be_lowercase_hex(value):
 def test_a_non_mapping_payload_is_rejected():
     with pytest.raises(ValueError):
         validate_deploy_payload(["certificate_id"])  # type: ignore[arg-type]
+
+
+def test_stopped_reason_comes_from_the_failed_host_run():
+    """The rollout's failure class is derived from the *host run*, not from a ``HostOutcome`` directly."""
+    from app.jobs.handlers.deploy import _HostRun, _stopped_reason
+
+    assert _stopped_reason(_HostRun("web02.example.internal", "failed", "drift_detected")) == "drift_detected"
+    assert _stopped_reason(_HostRun("web02.example.internal", "rolled_back", "config_test_failed")) == (
+        "config_test_failed"
+    )
+    for unreadable in (RuntimeError("boom"), None, _HostRun("web02.example.internal", None, None)):
+        assert _stopped_reason(unreadable) == "internal"
