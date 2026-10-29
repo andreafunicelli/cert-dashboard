@@ -13,6 +13,7 @@ ones an operator's browser meets.
 
 import re
 from datetime import UTC, datetime, timedelta
+from html import unescape
 from types import SimpleNamespace
 from uuid import UUID
 
@@ -553,7 +554,8 @@ def test_preview_shows_the_chain_diagnostic_of_a_binding(signed_in, start_world)
     binding_id = start_world.pair.bindings["ecdsa"].id
     binding = re.search(rf'<div[^>]*data-binding="{binding_id}".*?</div>', host.group(0), re.DOTALL)
     assert binding is not None, host.group(0)[:1500]
-    assert 'data-chain-diagnostic' in binding.group(0)
-    assert CHAIN_DIAGNOSTIC in binding.group(0)
+    assert "data-chain-diagnostic" in binding.group(0)
+    # The page escapes the text (an apostrophe is ``&#39;``); the operator still reads the exact diagnostic.
+    assert CHAIN_DIAGNOSTIC in unescape(binding.group(0))
     # The binding is still a target: the diagnostic is information, not a silent exclusion.
     assert "/etc/nginx/ssl/ecdsa.crt" in host.group(0)
