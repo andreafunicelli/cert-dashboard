@@ -617,4 +617,3 @@ def test_deploy_navigation_entry_stays_disabled(signed_in, deploy_job_world):
     text = signed_in.get(f"/deploy/{deploy_job_world.finished()}").text
     assert '<a href="/deploy">Deploy</a>' not in text
     assert 'aria-disabled="true"' in text
-
