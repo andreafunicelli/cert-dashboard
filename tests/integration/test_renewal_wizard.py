@@ -752,28 +752,29 @@ def test_non_trusted_chain_warnings_are_shown_first_on_the_ready_page(signed_in,
     assert "does not block" in warnings.lower()
 
 
-def test_ready_page_without_deploy_explains_it_is_unavailable(signed_in, wizard):
+def test_ready_page_links_the_deploy_screen_preloaded_with_the_issued_certificate(signed_in, wizard):
+    """Plan 3 Task 19 registers deploy/default, so §8.5 step 5 always offers the deploy screen."""
     renewal = wizard.issued()
     page = signed_in.get(f"/renewals/{renewal.id}?step=ready")
-    assert (
-        "Deployment is not available in this version; the renewal stays issued until a deploy succeeds."
-        in page.text
-    )
-    assert "/deploy?certificate_id=" not in page.text
-    assert f'href="/certificates/{wizard.row(renewal.id).certificate_id}"' in page.text
+    certificate_id = wizard.row(renewal.id).certificate_id
+    assert f'href="/deploy?certificate_id={certificate_id}"' in page.text
+    assert "Deployment is not available" not in page.text
+    assert f'href="/certificates/{certificate_id}"' in page.text
 
 
-def test_ready_page_links_to_deploy_only_when_plan_3_is_registered(signed_in, wizard):
+def test_ready_page_deploy_link_matches_the_registry_capability(signed_in, wizard):
     renewal = wizard.issued()
     registry = signed_in.app.state.job_registry
-    signed_in.app.state.job_registry = SimpleNamespace(supports=lambda job_type: job_type == JobType.DEPLOY)
+    assert registry.supports(JobType.DEPLOY)
+    signed_in.app.state.job_registry = SimpleNamespace(supports=lambda job_type: False)
     try:
         page = signed_in.get(f"/renewals/{renewal.id}?step=ready")
     finally:
         signed_in.app.state.job_registry = registry
     certificate_id = wizard.row(renewal.id).certificate_id
-    assert f'href="/deploy?certificate_id={certificate_id}"' in page.text
-    assert "Deployment is not available" not in page.text
+    assert "/deploy?certificate_id=" not in page.text
+    assert "Deployment is not available" in page.text
+    assert f'href="/certificates/{certificate_id}"' in page.text
 
 
 # --- cancel --------------------------------------------------------------------------------------------

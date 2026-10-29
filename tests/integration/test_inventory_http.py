@@ -649,11 +649,8 @@ def test_overview_hides_the_checklist_once_certificates_exist(signed_in, invento
 def test_navigation_enables_implemented_areas_only(signed_in):
     text = signed_in.get("/").text
     assert '<a href="/">Overview</a>' in text and '<a href="/certificates">Certificates</a>' in text
-    reasons = {
-        "Deploy": "handler deploy/default not registered (Plan 3)",
-    }
-    for label, reason in reasons.items():
-        assert re.search(rf'<span aria-disabled="true" title="{re.escape(reason)}">{label}</span>', text), label
+    assert '<a href="/deploy">Deploy</a>' in text  # deploy/default is registered (Plan 3 Task 19)
+    assert '<span aria-disabled="true" title="handler deploy/default not registered (Plan 3)">Deploy</span>' not in text
     assert '<a href="/servers">Servers</a>' in text  # the read-only server map (Plan 2 Task 14)
     assert '<a href="/scans">Scans</a>' in text  # scan/default is registered (Plan 2 Task 12)
     assert '<a href="/audit">Audit</a>' in text
@@ -913,8 +910,11 @@ def test_detail_download_and_export_actions_are_live_and_other_buttons_are_place
     # Task 19 enabled the renewal wizard entry point for active certificates.
     assert f'href="/renewals/new?from={inventory.www}"' in page.text
     assert not re.search(r'<button[^>]*disabled[^>]*>[^<]*Renew', page.text)
-    reason = "handler deploy/default not registered (Plan 3)"
-    assert re.search(rf'<button type="button" disabled title="{re.escape(reason)}">Deploy</button>', page.text)
+    # Plan 3 Task 19: Deploy is a link to the start screen, and the detail page carries the deploy panel.
+    assert f'href="/deploy?certificate_id={inventory.www}"' in page.text
+    assert not re.search(r'<button[^>]*disabled[^>]*>[^<]*Deploy</button>', page.text)
+    panel = re.search(r'<section[^>]*id="deploy-panel".*?</section>', page.text, re.DOTALL)
+    assert panel is not None and "Deployments" in panel.group(0)
     # Plan 2 Task 2: "Scan now" is a CSRF-protected POST form that only enqueues a job.
     actions = page.text.split('id="actions-panel"', 1)[1].split("</section>", 1)[0]
     assert re.search(

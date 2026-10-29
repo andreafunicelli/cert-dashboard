@@ -67,8 +67,10 @@
   {% if detail.key and detail.key.master_key_version in missing_key_versions %}
   <p class="form-error" role="alert">PFX export is unavailable: {{ key_unavailable }}. Certificate, chain and full-chain downloads still work.</p>
   {% endif %}
-  <p class="hint">Public downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployment and scanning arrive with a later plan.</p>
+  <p class="hint">Public downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployments and scans are audited too.</p>
 </section>
+
+{% include "certificates/_deploy_panel.html.j2" %}
 
 <section class="panel wide" id="validation-panel">
   <h2>Validation</h2>

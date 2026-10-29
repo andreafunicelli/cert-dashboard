@@ -1,0 +1,86 @@
+{% extends "base.html.j2" %}
+{% block title %}Deploy · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Deploy</h1>
+<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.</p>
+
+{% if not candidates %}
+<section class="panel wide" data-empty-state="deploy">
+  <h2>Nothing to deploy yet</h2>
+  <p>An issued renewal, or an active certificate with a stored key, appears here. <a href="/certificates">Open the inventory</a>.</p>
+</section>
+{% else %}
+<div id="deploy-screen">
+<form id="deploy-options" class="panel wide" method="get" action="/deploy"
+      hx-get="/deploy/preview" hx-target="#deploy-preview" hx-swap="innerHTML" hx-trigger="change, submit">
+  <h2>Plan</h2>
+  <label for="certificate_id">Certificate</label>
+  {# A certificate change re-renders the whole screen from the server (the checkbox list and the canary
+     choices belong to the certificate), and ``consume`` keeps the form from also previewing the unchanged
+     screen with the new certificate. #}
+  <select id="certificate_id" name="certificate_id"
+          hx-get="/deploy" hx-include="#deploy-options" hx-select="#deploy-screen"
+          hx-target="#deploy-screen" hx-swap="outerHTML" hx-trigger="change consume">
+    {% for candidate in candidates %}
+    <option value="{{ candidate.certificate_id }}"{% if candidate.certificate_id|string == form.certificate_id or (not form.certificate_id and loop.first) %} selected{% endif %}>{{ candidate.common_name }} (#{{ candidate.certificate_id }}){% if candidate.renewal_id %} — issued renewal{% endif %} — chain {{ candidate.chain_status }} — expires {{ candidate.not_after | datetime(tz) }}</option>
+    {% endfor %}
+  </select>
+
+  <label for="group">Group filter (optional)</label>
+  <input id="group" name="group" value="{{ form.group }}" maxlength="253" placeholder="canary_ring">
+
+  <label for="host">Host filter (optional)</label>
+  <input id="host" name="host" value="{{ form.host }}" maxlength="253" placeholder="web01.example.internal">
+
+  <fieldset>
+    <legend>Target bindings</legend>
+    <p class="hint">Untick a binding to leave it out of the plan; changing the certificate reloads the plan with that certificate's default targets.</p>
+    {% for choice in choices %}
+    <label class="inline"><input type="checkbox" name="binding_id" value="{{ choice.binding_id }}"{% if choice.checked %} checked{% endif %}>
+      {{ choice.hostname }} · {{ choice.vhost_name }}:{{ choice.port }} — <code>{{ choice.cert_path }}</code> ({{ choice.match_state }}{% if choice.match_state == "unknown" %}: unknown certificate, tick "include unknown" to deploy to it{% endif %})</label>
+    {% else %}
+    <p>No active binding is a deploy target for this certificate.</p>
+    {% endfor %}
+    {# The certificate this checkbox list was rendered for: the server ignores the ids when the picker changed. #}
+    <input type="hidden" name="selection_for" value="{{ selection_for }}">
+    <input type="hidden" name="selection" value="explicit">
+  </fieldset>
+
+  <label class="inline"><input type="hidden" name="include_unknown" value="0"><input type="checkbox" name="include_unknown" value="1"{% if include_unknown %} checked{% endif %}>
+    Include bindings whose certificate is unknown (audited as <code>deploy.include_unknown</code>)</label>
+
+  <label for="batch_percent">Batch percent</label>
+  <input id="batch_percent" name="batch_percent" type="number" min="1" max="100" value="{{ batch_percent }}">
+
+  <label class="inline"><input type="hidden" name="pause_after_canary" value="0"><input type="checkbox" name="pause_after_canary" value="1"{% if pause_after_canary %} checked{% endif %}>
+    Pause after the canary for approval</label>
+
+  <label for="canary_server_id">Canary server</label>
+  <select id="canary_server_id" name="canary_server_id">
+    <option value=""{% if not form.canary_server_id %} selected{% endif %}>default (first server of the smallest group)</option>
+    {% if preview %}{% for host in preview.hosts %}
+    <option value="{{ host.server_id }}"{% if form.canary_server_id == host.server_id|string %} selected{% endif %}>{{ host.hostname }}</option>
+    {% endfor %}{% endif %}
+  </select>
+
+  <label for="not_before">Not before ({{ tz }})</label>
+  <input id="not_before" name="not_before" type="datetime-local" value="{{ form.not_before }}">
+  <p class="hint">The deploy window is a not-before time only, at most seven days ahead; times are shown in {{ tz }} and stored in UTC.</p>
+
+  <button type="submit">Preview</button>
+</form>
+
+<div id="deploy-preview">
+{% include "deploy/_preview.html.j2" %}
+</div>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  // htmx ignores 4xx bodies by default; a refused plan answers 422 with the re-rendered preview.
+  document.body.addEventListener("htmx:beforeSwap", function (event) {
+    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
+  });
+</script>
+{% endblock %}

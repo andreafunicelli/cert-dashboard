@@ -1,6 +1,7 @@
 """Job handler registry shared by the worker (dispatch) and the web app (capability checks)."""
 
 from app.jobs.handlers.cleanup import cleanup, validate_cleanup_payload
+from app.jobs.handlers.deploy import deploy_handler_registration
 from app.jobs.handlers.digest import send_digest, validate_digest_payload
 from app.jobs.handlers.discover import discover as run_discovery
 from app.jobs.handlers.discover import validate_discover_payload
@@ -36,4 +37,5 @@ def build_registry() -> JobRegistry:
     )
     registry.register(JobType.DISCOVER, run_discovery, validator=validate_discover_payload)
     registry.register(JobType.DISCOVER, pull_test, action=TEST_PULL_ACTION, validator=validate_test_pull_payload)
+    deploy_handler_registration(registry)  # deploy/default plus its renewal success hook (Plan 3 Task 19)
     return registry

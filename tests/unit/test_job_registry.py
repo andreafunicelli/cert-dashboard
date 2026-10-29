@@ -57,7 +57,6 @@ def test_build_registry_supports_cleanup_pull_import_and_the_default_scan():
     registry = build_registry()
     assert registry.supports(JobType.CLEANUP)
     assert registry.supports(JobType.CLEANUP, "default")
-    assert not registry.supports(JobType.DEPLOY)
     assert registry.supports(JobType.SCAN, "import_pull")  # Task 16
     assert registry.supports(JobType.SCAN)  # scan/default (Plan 2 Task 2)
     assert build_registry() is not build_registry()
@@ -69,7 +68,16 @@ def test_registry_supports_the_test_pull_and_the_default_discovery():
     assert registry.supports(JobType.DISCOVER, "test_pull")
     assert registry.supports(JobType.DISCOVER)  # discover/default (Plan 3 Task 10)
     assert registry.supports(JobType.DISCOVER, "default")
-    assert not registry.supports(JobType.DEPLOY)  # arrives with Plan 3 Task 16
+
+
+def test_build_registry_registers_the_deploy_handler_and_its_success_hook():
+    """Plan 3 Task 19 wires ``deploy/default`` in: the navigation, the sweep and the renewal hook go live."""
+    registry = build_registry()
+    assert registry.supports(JobType.DEPLOY)
+    assert registry.supports(JobType.DEPLOY, "default")
+    assert registry.success_hook(JobType.DEPLOY) is not None
+    assert registry.supports(*worker.TICK_STEPS["deploy_sweep"].requires)  # the sweep is no longer inert
+    assert worker.TICK_STEPS["deploy_sweep"].requires == (JobType.DEPLOY, "default")
 
 
 def test_test_pull_payload_is_exactly_its_action():

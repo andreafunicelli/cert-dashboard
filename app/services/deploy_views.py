@@ -7,18 +7,22 @@ job is paused.
 """
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Integer, select
+from sqlalchemy import Integer, and_, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Binding, Certificate, Job, JobHost, Server, User
-from app.models.enums import JobHostStatus, JobStatus, JobType
-from app.services.deploy import pause_deadline
+from app.models import Binding, Certificate, Job, JobHost, PrivateKey, Renewal, Server, User
+from app.models.enums import CertificateStatus, JobHostStatus, JobStatus, JobType, RenewalState
+from app.services.deploy import _EXCLUDED_MATCH_STATES, pause_deadline
 from app.services.settings import get_setting
+
+# ``_EXCLUDED_MATCH_STATES`` is the one authoritative definition of "never a deploy target" (Contract
+# decision 15): the panel reuses it instead of restating the states, so it cannot drift from the preview.
 
 TOTAL_KEYS = ("succeeded", "failed", "rolled_back", "skipped", "pending")
 
@@ -496,3 +500,223 @@ def deploy_report(db: Session, job_id: UUID) -> dict[str, Any]:
         "inventory_rev": view.inventory_rev,
         "hosts": hosts,
     }
+
+
+# --- the start screen and the certificate deploy panel (§8.7, §6.6, §8.4; Plan 3 Task 19) --------
+#
+# Read models only: the certificate picker, the recent-deploy lists and the panel's guardrail display.
+# The authoritative gate stays ``app.services.deploy.start_deploy``; the codes here are the same closed set,
+# rendered for the operator so the panel and the start screen never disagree about *why* a deploy is refused.
+
+ACTIVE_DEPLOY_STATUSES = (JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED)
+CANDIDATE_LIMIT = 50
+RECENT_DEPLOY_LIMIT = 20
+PANEL_DEPLOY_LIMIT = 5
+
+
+@dataclass(frozen=True)
+class DeployCandidate:
+    """One certificate the start screen offers: an issued renewal first, else an active keyed certificate."""
+
+    certificate_id: int
+    common_name: str
+    not_after: datetime
+    renewal_id: UUID | None
+    chain_status: str
+
+
+@dataclass(frozen=True)
+class DeployJobSummary:
+    """One deploy job as a list or a panel shows it: its target, where it stands and its host totals."""
+
+    job_id: UUID
+    certificate_id: int | None
+    certificate_cn: str
+    status: str
+    created_at: datetime
+    finished_at: datetime | None
+    totals: dict[str, int]
+
+
+@dataclass(frozen=True)
+class CertificateDeployPanel:
+    """§8.4's deploy panel: the newest deploys of one certificate, the active deploy and the guardrails."""
+
+    certificate_id: int
+    jobs: tuple[DeployJobSummary, ...]
+    active: DeployJobSummary | None
+    blocked: dict[str, str]
+
+
+def _payload_certificate_id():
+    """The certificate id a deploy payload carries (Contract decision 15), as an integer expression."""
+    return Job.payload.op("->>")("certificate_id").cast(Integer)
+
+
+def _issued_renewal_id():
+    """The newest ``issued`` renewal that produced this certificate, if any."""
+    return (
+        select(Renewal.id)
+        .where(Renewal.certificate_id == Certificate.id, Renewal.state == RenewalState.ISSUED)
+        .order_by(Renewal.state_changed_at.desc(), Renewal.id.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+
+def deploy_candidates(db: Session, now: datetime, limit: int = CANDIDATE_LIMIT) -> list[DeployCandidate]:
+    """The certificate picker: issued renewals first, then active keyed certificates, expiring ones first."""
+    renewal_id = _issued_renewal_id()
+    rows = db.execute(
+        select(Certificate, renewal_id.label("renewal_id"))
+        .where(
+            or_(
+                renewal_id.is_not(None),
+                and_(Certificate.status == CertificateStatus.ACTIVE, Certificate.key_id.is_not(None)),
+            )
+        )
+        .order_by(
+            renewal_id.is_(None),  # an issued renewal is what the operator is here for
+            Certificate.not_after <= now,  # then the certificates that are still valid
+            Certificate.not_after,
+            Certificate.id,
+        )
+        .limit(limit)
+    ).all()
+    return [
+        DeployCandidate(
+            certificate_id=certificate.id,
+            common_name=certificate.common_name,
+            not_after=certificate.not_after,
+            renewal_id=renewal,
+            chain_status=certificate.chain_status.value,
+        )
+        for certificate, renewal in rows
+    ]
+
+
+def _host_totals(db: Session, job_ids: Sequence[UUID]) -> dict[UUID, dict[str, int]]:
+    """One grouped query for the host totals of every listed job (constant cost, whatever the host count)."""
+    totals: dict[UUID, dict[str, int]] = {job_id: {key: 0 for key in TOTAL_KEYS} for job_id in job_ids}
+    if not job_ids:
+        return totals
+    rows = db.execute(
+        select(JobHost.job_id, JobHost.status, func.count())
+        .where(JobHost.job_id.in_(tuple(job_ids)))
+        .group_by(JobHost.job_id, JobHost.status)
+    ).all()
+    for job_id, status, count in rows:
+        key = getattr(status, "value", status)
+        if key in totals[job_id]:
+            totals[job_id][key] = int(count)
+    return totals
+
+
+def _summaries(db: Session, condition, limit: int) -> tuple[DeployJobSummary, ...]:
+    """Deploy jobs newest first, each with its certificate and its host totals, in two queries."""
+    statement = (
+        select(Job, Certificate)
+        .outerjoin(Certificate, Certificate.id == _payload_certificate_id())
+        .where(Job.type == JobType.DEPLOY)
+    )
+    if condition is not None:
+        statement = statement.where(condition)
+    rows = db.execute(
+        statement.order_by(Job.created_at.desc(), Job.id.desc()).limit(limit)
+    ).all()
+    totals = _host_totals(db, [job.id for job, _certificate in rows])
+    return tuple(
+        DeployJobSummary(
+            job_id=job.id,
+            certificate_id=certificate.id if certificate is not None else None,
+            certificate_cn=certificate.common_name if certificate is not None else "—",
+            status=JobStatus(job.status).value,
+            created_at=job.created_at,
+            finished_at=job.finished_at,
+            totals=totals[job.id],
+        )
+        for job, certificate in rows
+    )
+
+
+def recent_deploys(db: Session, limit: int = RECENT_DEPLOY_LIMIT) -> list[DeployJobSummary]:
+    """The newest deploy jobs, whatever their status (the Deploy screen's history)."""
+    return list(_summaries(db, None, limit))
+
+
+def active_deploy(db: Session) -> DeployJobSummary | None:
+    """The one deploy that holds the window (queued, running or paused), or ``None`` (Contract decision 15)."""
+    jobs = _summaries(db, Job.status.in_(ACTIVE_DEPLOY_STATUSES), 1)
+    return jobs[0] if jobs else None
+
+
+def _target_bindings(db: Session, certificate: Certificate) -> tuple[list[Binding], set[str]]:
+    """The bindings a default deploy of ``certificate`` would target, plus the states that kept others out.
+
+    ``key_mismatch`` and ``missing_file`` bindings are excluded from every plan (Contract decision 15), so
+    the panel must not count them as targets: counting them would either claim ``already_deployed`` or hide
+    the ``no_targets`` refusal the authoritative preview raises. Their states are returned so the panel can
+    keep the reason visible.
+    """
+    owned = [certificate.id] + ([certificate.renews_id] if certificate.renews_id is not None else [])
+    rows = list(
+        db.scalars(
+            select(Binding)
+            .join(Server, Server.id == Binding.server_id)
+            .where(
+                Binding.is_active.is_(True),
+                Server.is_active.is_(True),
+                Binding.certificate_id.in_(owned),
+            )
+        )
+    )
+    targets = [binding for binding in rows if binding.match_state not in _EXCLUDED_MATCH_STATES]
+    excluded = {binding.match_state for binding in rows if binding.match_state in _EXCLUDED_MATCH_STATES}
+    return targets, excluded
+
+
+def _panel_blocked(
+    db: Session, certificate: Certificate, now: datetime, active: DeployJobSummary | None
+) -> dict[str, str]:
+    """The guardrails of §8.7 for one certificate, as the panel explains them before the operator clicks."""
+    blocked: dict[str, str] = {}
+    key_row = db.get(PrivateKey, certificate.key_id) if certificate.key_id is not None else None
+    if key_row is None:
+        blocked["no_key"] = "the certificate has no stored private key; import or renew it before deploying"
+    if certificate.not_after <= now:
+        blocked["expired"] = f"the certificate expired on {certificate.not_after.isoformat()}"
+    elif certificate.not_before > now:
+        blocked["not_yet_valid"] = f"the certificate is not valid before {certificate.not_before.isoformat()}"
+    if certificate.status != CertificateStatus.ACTIVE:
+        blocked[certificate.status.value] = (
+            f"the certificate is {certificate.status.value}; only an active certificate can be deployed"
+        )
+    targets, excluded_states = _target_bindings(db, certificate)
+    if not targets:
+        reason = "no active binding is a deploy target for this certificate"
+        if excluded_states:
+            reason += (
+                f" ({', '.join(sorted(excluded_states))} bindings are excluded from every plan)"
+            )
+        blocked["no_targets"] = reason
+    elif all(binding.on_disk_fingerprint == certificate.sha256_fingerprint for binding in targets):
+        blocked["already_deployed"] = (
+            "every target binding already has the new certificate on disk; there is nothing to deploy"
+        )
+    if active is not None:
+        blocked["active_deploy"] = f"deploy job {active.job_id} is {active.status}"
+    return blocked
+
+
+def certificate_deploy_panel(db: Session, certificate_id: int, now: datetime) -> CertificateDeployPanel:
+    """§8.4's deploy panel for one certificate: its newest deploys, the active deploy and the guardrails."""
+    certificate = db.get(Certificate, certificate_id)
+    if certificate is None:
+        raise DeployJobNotFound(f"certificate {certificate_id} does not exist")
+    active = active_deploy(db)
+    return CertificateDeployPanel(
+        certificate_id=certificate_id,
+        jobs=_summaries(db, _payload_certificate_id() == certificate_id, PANEL_DEPLOY_LIMIT),
+        active=active,
+        blocked=_panel_blocked(db, certificate, now, active),
+    )

@@ -1935,7 +1935,6 @@ def deploy_ready(ssh_targets, fresh_targets, queue_factory, ansible_worker, inve
     from app.crypto.chain import order_chain
     from app.crypto.parse import parse_certificates
     from app.jobs.handlers import build_registry
-    from app.jobs.handlers.deploy import deploy_handler_registration
     from app.jobs.handlers.discover import request_discovery
     from app.models import Job, Renewal
     from app.models.enums import RenewalState
@@ -1948,8 +1947,7 @@ def deploy_ready(ssh_targets, fresh_targets, queue_factory, ansible_worker, inve
     artifacts = Path(tempfile.mkdtemp(prefix="cd-", dir="/tmp"))
     configure_keyring(keyring)
     repo = inventory_repo(queue_factory, hosts=ssh_targets.inventory_hosts())
-    registry = build_registry()
-    deploy_handler_registration(registry)
+    registry = build_registry()  # registers deploy/default and its renewal hook since Plan 3 Task 19
 
     def build_worker(**overrides):
         values = {
@@ -1958,7 +1956,6 @@ def deploy_ready(ssh_targets, fresh_targets, queue_factory, ansible_worker, inve
             "artifacts_root": artifacts,
             "keyring": keyring,
             "key_staging_dir": tmp_path / "keys",
-            # ``build_registry()`` registers ``deploy/default`` in Task 19; until then the fixture wires it.
             "registry": registry,
         }
         return ansible_worker(queue_factory, **{**values, **overrides})

@@ -250,7 +250,9 @@ def test_base_template_escapes_users_and_offline_assets_exist(signed_in):
     response = signed_in.get("/_test/page")
     assert response.status_code == 200 and "&lt;script&gt;fixture&lt;/script&gt;" in response.text
     assert "<script>fixture</script>" not in response.text
-    assert "htmx.min.js" in response.text and "aria-disabled" in response.text
+    assert "htmx.min.js" in response.text and '<nav aria-label="Main">' in response.text
+    # Every navigation area is implemented now (Plan 3 Task 19 enabled Deploy), so none is disabled.
+    assert 'aria-disabled="true"' not in response.text
     assert signed_in.get("/static/app.css").status_code == 200
     assert signed_in.get("/static/htmx.min.js").status_code == 200
 

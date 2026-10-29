@@ -1,0 +1,35 @@
+{# §8.4's deploy panel: the guardrails that would refuse a deploy of this certificate right now, the active
+   deploy with a link to its screen, and this certificate's newest deploy jobs with their host totals.
+   The reasons are notes, not form errors: this page is not a form, and a certificate that is already deployed
+   everywhere (or has no key yet) is a normal state, not a failed submission.
+   The keyring-version guardrail needs the process keyring, which this read model does not take: the page's
+   own key panel and the start screen own that one, so the "ready" hint is gated on it here. #}
+<section class="panel wide" id="deploy-panel">
+  <h2>Deployments</h2>
+  {% set key_missing = detail.key and detail.key.master_key_version in missing_key_versions %}
+  {% if key_missing %}
+  <p class="notice warning-note" data-error="key_version">{{ key_unavailable }}</p>
+  {% endif %}
+  {% for code, message in panel.blocked.items() %}
+  <p class="notice" data-error="{{ code }}">{{ message }}{% if code == "active_deploy" and panel.active %} <a href="/deploy/{{ panel.active.job_id }}">Open the active deploy</a>{% endif %}</p>
+  {% endfor %}
+  {% if not panel.blocked and not key_missing %}<p class="hint" data-deploy-ready>No guardrail blocks a deploy of this certificate.</p>{% endif %}
+  {% if panel.jobs %}
+  <div class="table-wrap"><table class="deploy-history">
+    <thead><tr><th scope="col">Job</th><th scope="col">Status</th><th scope="col">Hosts</th><th scope="col">Created</th><th scope="col">Finished</th></tr></thead>
+    <tbody>
+    {% for job in panel.jobs %}
+    <tr data-deploy-job="{{ job.job_id }}">
+      <td><a href="/deploy/{{ job.job_id }}"><code>{{ job.job_id }}</code></a></td>
+      <td><span class="chip">{{ job.status }}</span></td>
+      <td>{{ job.totals.succeeded }} succeeded · {{ job.totals.failed }} failed · {{ job.totals.rolled_back }} rolled back · {{ job.totals.skipped }} skipped · {{ job.totals.pending }} pending</td>
+      <td>{{ time_tag(job.created_at, tz) }}</td>
+      <td>{{ time_tag(job.finished_at, tz) }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p>No deploy has run for this certificate yet.</p>
+  {% endif %}
+</section>

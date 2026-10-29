@@ -685,7 +685,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             ("Overview", "/", True, ""),
             ("Certificates", "/certificates", True, ""),
             ("Servers", "/servers", True, ""),
-            ("Deploy", "/deploy", False, deploy_reason),
+            ("Deploy", "/deploy", registry.supports(JobType.DEPLOY), deploy_reason),
             ("Scans", "/scans", registry.supports(JobType.SCAN, "default"), scan_reason),
             ("Audit", "/audit", True, ""),
             ("Settings", "/settings", True, ""),
