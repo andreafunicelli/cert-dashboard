@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from app.ansible.deploy import run_host_deploy
 from app.models.enums import WebserverType
-from tests.integration.conftest import JOB_ID, spki_of, writes_of
+from tests.integration.conftest import JOB_ID, spki_of, task_starts, writes_of
 from tests.integration.test_deploy_preflight import describe, web01_targets
 
 WWW_CRT = "/etc/nginx/ssl/www.crt"
@@ -77,6 +77,32 @@ def test_deploy_writes_once_and_verifies(ssh_targets, fresh_targets, deploy_mate
     assert not [name for name in listing if "cert-dashboard" in name]
     # the backup of this job stays on the host for manual recovery
     assert ssh_targets.backups("ssh-nginx-1") == [f"{BACKUP_ROOT}/{JOB_ID}"]
+
+
+def test_stale_temp_files_do_not_survive_into_the_live_files(ssh_targets, fresh_targets, deploy_material, tmp_path):
+    # An interrupted attempt can leave a nonempty temp file next to a live path, and `file: state=touch` never
+    # empties one: the write path removes it before creating its own empty temp (Contract decision 17).
+    stale = b"stale content from an interrupted deploy\n"
+    for path in (WWW_CRT, WWW_KEY, LEGACY_KEY):
+        directory, name = path.rsplit("/", 1)
+        ssh_targets.put("ssh-nginx-1", f"{directory}/.{name}.cert-dashboard.tmp", stale, mode=0o644)
+    targets = web01_targets(deploy_material, ssh_targets.old.fingerprint)
+    outcome = run_host_deploy(
+        deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX, targets,
+        deploy_material.staged, job_id=JOB_ID, retention_days=30, timeout_seconds=600,
+    )  # fmt: skip
+    assert (outcome.status, outcome.precheck["step"]) == ("succeeded", "verified"), describe(outcome)
+    assert ssh_targets.read("ssh-nginx-1", WWW_CRT) == deploy_material.fullchain_pem
+    assert stale not in ssh_targets.read("ssh-nginx-1", WWW_CRT)
+    for key in (WWW_KEY, LEGACY_KEY):
+        assert spki_of(ssh_targets.read("ssh-nginx-1", key)) == deploy_material.spki_sha256
+        assert stale not in ssh_targets.read("ssh-nginx-1", key)
+    listing = ssh_targets.exec("ssh-nginx-1", "ls", "-a", "/etc/nginx/ssl").stdout.split()
+    assert not [name for name in listing if "cert-dashboard" in name]
+    starts = task_starts(tmp_path / "run")
+    remove = "Remove any stale temporary file of every changed path"
+    assert starts.count(remove) == 1, "removed once for every changed path, before the temp file is created"
+    assert starts.index(remove) < starts.index("Fill every temporary file with its new content")
 
 
 def test_config_test_failure_restores_every_file_byte_for_byte(ssh_targets, fresh_targets, deploy_material, tmp_path):

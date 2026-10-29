@@ -23,7 +23,7 @@ import pytest
 import yaml
 from jinja2 import Environment
 
-from app.ansible.deploy import ROLLBACK_ERRORS, VERIFY_ATTEMPTS, VERIFY_DELAY_SECONDS, WRITE_STEPS
+from app.ansible.deploy import WRITE_STEPS
 from app.ansible.discovery import CERT_KEY_HASH_COMMAND, KEY_HASH_COMMAND
 from app.ansible.runner import PLAYBOOK_DIR
 
@@ -378,6 +378,34 @@ def test_the_writing_step_is_published_before_the_first_write(deploy_play):
     assert writes and writing[0] < writes[0], "deploy_step=writing must precede the first live write"
 
 
+def test_a_stale_temporary_file_is_removed_before_the_empty_temp_file_is_created():
+    """Contract decision 17: the temp file is *created* empty, so a leftover from a killed run is removed.
+
+    ``ansible.builtin.file: state=touch`` never empties a file that already exists: an interrupted attempt
+    that left content in ``.cert-dashboard.tmp`` or ``.cert-dashboard.restore.tmp`` would carry it into the
+    next write or restore, silently breaking "empty with the final mode before any content". Both paths make
+    the temp path absent first, then create it empty with the final owner, group and mode, fill it and rename.
+    """
+    for playbook in (DEPLOY_WRITE, ROLLBACK):
+        tasks = walk(yaml.safe_load(playbook.read_text(encoding="utf-8")))
+        temps = [task for task in tasks if "{{ item.temp }}" in yaml.safe_dump(task)]
+        assert [module_of(task) for task in temps] == [
+            "ansible.builtin.file",  # remove a stale temp: touch would keep its content
+            "ansible.builtin.file",  # create it empty with the final owner, group and mode
+            "ansible.builtin.copy",  # fill it
+            "ansible.builtin.command",  # rename it into place
+        ], f"{playbook.name}: {[label(task) for task in temps]}"
+        remove, create, fill, _rename = temps
+        assert remove["ansible.builtin.file"] == {"path": "{{ item.temp }}", "state": "absent"}
+        assert create["ansible.builtin.file"]["state"] == "touch"
+        assert create["ansible.builtin.file"]["mode"] == "{{ item.mode }}"
+        assert remove["loop"] == create["loop"] and remove.get("loop_control") == create.get("loop_control")
+        assert remove.get("when") == create.get("when"), "the same entries, never a different set"
+        for task in (remove, create, fill):
+            assert task.get("no_log") is True, f"{label(task)} names the key temp files and must be no_log: true"
+            assert task.get("become") is True, f"{label(task)} must run as root"
+
+
 def test_the_rollback_is_one_block_that_restores_every_manifest_path():
     """A single attempt at restoring *every* manifest path, then test, reload and verify the old leaf."""
     [task] = yaml.safe_load(ROLLBACK.read_text(encoding="utf-8"))
@@ -387,7 +415,13 @@ def test_the_rollback_is_one_block_that_restores_every_manifest_path():
     assert rescue and all(module_of(item) == "ansible.builtin.set_fact" for item in rescue)
     dumped = yaml.safe_dump(rescue)
     assert "include_tasks" not in dumped and "until" not in dumped, "the rescue only records, it retries nothing"
-    for text in ROLLBACK_ERRORS:
+    # Contract decision 17: the fixed texts the rollback publishes when it fails.
+    for text in (
+        "restore failed",
+        "config test failed after restore",
+        "reload failed after restore",
+        "old certificate not served after restore",
+    ):
         assert text in dumped
     body = walk(task["block"])
     plan = yaml.safe_dump(body)
@@ -501,8 +535,9 @@ def test_the_verification_retries_three_times_two_seconds_apart(deploy_tasks):
     ]
     assert len(verifies) == 2, "one verification of the new leaf, one of the restored old leaf"
     for task in verifies:
-        assert task["retries"] == VERIFY_ATTEMPTS - 1, "retries is attempts minus the first run"
-        assert task["delay"] == VERIFY_DELAY_SECONDS and task["timeout"] <= 60
+        # §6.4 step 7: three attempts, two seconds apart — `retries` is the count minus the first run.
+        assert task["retries"] == 2, "three attempts: the first run plus two retries"
+        assert task["delay"] == 2 and task["timeout"] <= 60
         assert task["loop"] == "{{ targets }}" and task.get("no_log") is True
         assert "-showcerts" in yaml.safe_dump(task["ansible.builtin.shell"])
     # the retry loop must never abort the play by itself: the published evidence decides

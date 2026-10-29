@@ -58,6 +58,40 @@ def test_verify_failure_rolls_back(ssh_targets, fresh_targets, deploy_material, 
     assert f"{BACKUP_ROOT}/{JOB_ID}" in ssh_targets.backups("ssh-nginx-1")
 
 
+def test_stale_restore_files_are_removed_before_the_rollback_creates_its_own(
+    ssh_targets, fresh_targets, deploy_material, tmp_path
+):
+    # A killed attempt can leave both temporary-file forms behind, and `file: state=touch` never empties one.
+    # The restore removes them before creating its own empty temp (Contract decision 17).
+    stale = b"stale content from an interrupted run\n"
+    before = {
+        path: (ssh_targets.read("ssh-nginx-1", path), ssh_targets.stat("ssh-nginx-1", path))
+        for path in (WWW_CRT, WWW_KEY)
+    }
+    for path in before:
+        directory, name = path.rsplit("/", 1)
+        ssh_targets.put("ssh-nginx-1", f"{directory}/.{name}.cert-dashboard.tmp", stale, mode=0o644)
+        ssh_targets.put("ssh-nginx-1", f"{directory}/.{name}.cert-dashboard.restore.tmp", stale, mode=0o644)
+    outcome = run_host_deploy(
+        deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX,
+        only_www(deploy_material, ssh_targets.old.fingerprint), deploy_material.staged,
+        job_id=JOB_ID, retention_days=30, timeout_seconds=600,
+    )  # fmt: skip
+    assert (outcome.status, outcome.reason, outcome.rolled_back) == (
+        "rolled_back", "config_test_failed", True), describe(outcome)  # fmt: skip
+    for path, (data, stat) in before.items():
+        assert ssh_targets.read("ssh-nginx-1", path) == data, path
+        assert ssh_targets.stat("ssh-nginx-1", path)[:3] == stat[:3], path
+        assert stale not in ssh_targets.read("ssh-nginx-1", path), path
+    assert ssh_targets.served_fingerprint("ssh-nginx-1", WWW_VHOST) == ssh_targets.old.fingerprint
+    listing = ssh_targets.exec("ssh-nginx-1", "ls", "-a", "/etc/nginx/ssl").stdout.split()
+    assert not [name for name in listing if "cert-dashboard" in name]
+    starts = task_starts(tmp_path / "run")
+    remove = "Remove any stale restore file of every manifest path"
+    assert starts.count(remove) == 1, "one removal for the whole manifest, before the restore temp is created"
+    assert starts.index(remove) < starts.index("Fill every restore file with its backed-up content")
+
+
 def test_failed_rollback_needs_manual_attention(ssh_targets, fresh_targets, deploy_material, tmp_path):
     # The write breaks the configuration (partial selection) and the killed master makes the rollback's own
     # reload fail: the host is reported with `rolled_back: false` and a rollback error, and the backup stays.

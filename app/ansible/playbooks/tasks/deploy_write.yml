@@ -9,10 +9,12 @@
 # Contract decision 17: each distinct path (Task 12's `plan_file_writes`, passed in `files`) is written in
 # exactly three steps — `file` creates `<dir>/.<name>.cert-dashboard.tmp` empty with the final owner, group
 # and mode (the mode is set before any content exists), `copy` fills that existing file, and `command mv -f`
-# renames it atomically on the same filesystem. The owner/group/mode are the ones the current file has, as the
-# backup manifest recorded them; a key is `0600`, a certificate or chain file `old_mode & 0o644`. A path whose
-# content already matches is not written (§6.4 step 9), but the label, config test, reload and verification
-# still run, so a re-run of the same job is a safe no-op that still proves the host serves the new leaf.
+# renames it atomically on the same filesystem. A stale temp file from an interrupted run is removed first:
+# `file: state=touch` never truncates, so touching a leftover would keep its content and break "empty before
+# content". The owner/group/mode are the ones the current file has, as the backup manifest recorded them; a
+# key is `0600`, a certificate or chain file `old_mode & 0o644`. A path whose content already matches is not
+# written (§6.4 step 9), but the label, config test, reload and verification still run, so a re-run of the
+# same job is a safe no-op that still proves the host serves the new leaf.
 #
 # Every task that names the file map is `no_log: true`: the map and the restore plan contain the key paths, and
 # the copy and restore tasks move key bytes.
@@ -108,6 +110,17 @@
 - name: Mark the host as writing
   ansible.builtin.set_fact:
     deploy_step: writing
+
+- name: Remove any stale temporary file of every changed path
+  ansible.builtin.file:
+    path: "{{ item.temp }}"
+    state: absent
+  loop: "{{ write_entries }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.write | bool
+  become: true
+  no_log: true
 
 - name: Create the empty temporary file of every changed path with its final metadata
   ansible.builtin.file:

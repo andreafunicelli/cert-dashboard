@@ -7,7 +7,8 @@
 # and not only the paths this run happened to write, because a failure in the middle of step 3 leaves some
 # files replaced and some not. Every path is put back with the same three-step method as the write — an empty
 # temp file with the original owner/group/mode, the backed-up bytes, then one atomic `mv` — so the mode is set
-# before the content and the live file is never half-written.
+# before the content and the live file is never half-written. A stale restore temp file from a killed attempt
+# is removed before the empty one is created: `file: state=touch` never truncates.
 #
 # The rollback is itself a `block` and its `rescue` only records `rollback_error`: a rollback that fails is a
 # single attempt (§6.4 step 8, "never retries a rollback automatically beyond the single attempt"), reported as
@@ -38,6 +39,16 @@
                'group': item.value.group | default('root'),
                'mode': item.value.mode | default('0644')}] }}
       loop: "{{ manifest_files | default({}) | dict2items }}"
+      no_log: true
+
+    - name: Remove any stale restore file of every manifest path
+      ansible.builtin.file:
+        path: "{{ item.temp }}"
+        state: absent
+      loop: "{{ restore_entries }}"
+      loop_control:
+        label: "{{ item.path }}"
+      become: true
       no_log: true
 
     - name: Create the empty restore file of every manifest path
