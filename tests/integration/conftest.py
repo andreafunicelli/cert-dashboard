@@ -1958,6 +1958,8 @@ def deploy_ready(ssh_targets, fresh_targets, queue_factory, ansible_worker, inve
             "artifacts_root": artifacts,
             "keyring": keyring,
             "key_staging_dir": tmp_path / "keys",
+            # ``build_registry()`` registers ``deploy/default`` in Task 19; until then the fixture wires it.
+            "registry": registry,
         }
         return ansible_worker(queue_factory, **{**values, **overrides})
 
