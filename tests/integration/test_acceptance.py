@@ -255,6 +255,11 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
     stack.continue_deploy(record.deploy_job)
     record.deployed = stack.report(record.deploy_job)
     record.renewal_state_deployed = stack.renewal_state(record.renewal)
+    # What the two deployed nginx hosts serve right after the rollout: the drill later restores web01 to the
+    # previous certificate, so this has to be captured here and not re-read when the checklist is asserted.
+    record.served = {
+        service: ssh_targets.served_fingerprint(service, WWW) for service in ("ssh-nginx-1", "ssh-nginx-2")
+    }
     record.nginx_cert = ssh_targets.read("ssh-nginx-2", NGINX_CRT)
     record.nginx_chain_file = ssh_targets.exec(
         "ssh-nginx-2", "sh", "-c", "test -e /etc/nginx/ssl/www.chain.pem", check=False
@@ -386,8 +391,8 @@ def test_v1_acceptance_against_container_targets(acceptance_stack, ssh_targets, 
     assert s.deployed["totals"]["pending"] == 0, s.deployed["totals"]
     assert s.renewal_state_deployed == "deployed"
     new = certificate_row(factory, s.new_certificate)
-    assert ssh_targets.served_fingerprint("ssh-nginx-1", WWW) == new.sha256_fingerprint
-    assert ssh_targets.served_fingerprint("ssh-nginx-2", WWW) == new.sha256_fingerprint
+    assert s.served["ssh-nginx-1"] == new.sha256_fingerprint, s.served
+    assert s.served["ssh-nginx-2"] == new.sha256_fingerprint, s.served
     # D1: nginx receives the full chain in ``cert_path`` and no separate chain file is ever created.
     assert [fingerprint(cert) for cert in pem_certificates(s.nginx_cert)] == [
         new.sha256_fingerprint,
