@@ -256,6 +256,35 @@ class DeployJobWorld:
             )
         return job_id
 
+    def stopped_internal(self, *, step: str | None):
+        """Canary succeeded, then web02 failed ``internal`` at the last step the playbook published.
+
+        ``step`` is the persisted ``precheck.step``: ``None`` writes no evidence at all, exactly like a host
+        task that died before recording its run (``_mark_internal``).
+        """
+        job_id = self.start(batch_percent=50, pause_after_canary=False)
+        at = self.clock() - timedelta(minutes=10)
+        with self.factory.begin() as db:
+            self._write(db, job_id, WEB01, "succeeded", started_at=at, finished_at=at + timedelta(seconds=40), backup=True)
+            self._write(
+                db,
+                job_id,
+                WEB02,
+                "failed",
+                started_at=at + timedelta(seconds=40),
+                finished_at=at + timedelta(seconds=90),
+                reason="internal",
+                step=step,
+            )
+            self._write(db, job_id, WEB03, "skipped", reason="rollout_stopped")
+            job = db.get(Job, job_id)
+            job.status = JobStatus.FAILED
+            job.started_at = at
+            job.finished_at = at + timedelta(seconds=90)
+            job.error_class = "internal"
+            job.error_message = f"rollout stopped: {WEB02} failed (internal)"
+        return job_id
+
     def lost_worker(self):
         """The reaper failed a host still ``running`` with ``worker_lost``: the files may have changed."""
         job_id = self.running(batch_no=1, batch_percent=33)
@@ -367,9 +396,13 @@ class DeployJobWorld:
         rollback_error=None,
         backup=False,
         log_excerpt=None,
+        step=None,
     ):
         """Set every row of one host: the deploy writes a host's bindings together."""
-        precheck = {"backup_dir": f"{BACKUP_ROOT}/{job_id}"} if backup else None
+        precheck = {"backup_dir": f"{BACKUP_ROOT}/{job_id}"} if backup else {}
+        if step is not None:
+            precheck = {**precheck, "step": step}
+        precheck = precheck or None
         for row, server in self._rows(db, job_id, hostname):
             row.status = JobHostStatus(status)
             row.started_at = started_at
@@ -568,6 +601,38 @@ def test_worker_lost_banner_never_claims_nothing_was_written(signed_in, deploy_j
     assert "may have been changed" in banner and "manual attention" in banner
 
 
+@pytest.mark.parametrize(
+    "step",
+    ["writing", "reloaded", "verified", pytest.param(None, id="no-step-evidence")],
+)
+def test_internal_after_the_first_write_fails_closed(signed_in, deploy_job_world, step):
+    """`internal` is not a pre-write guarantee: a run that reached the write, or published no step at all.
+
+    ``parse_host_result`` maps a ``step='verified'`` run whose per-binding evidence disagrees to
+    ``failed``/``internal`` — its files were written. Only a persisted pre-write step proves otherwise.
+    """
+    job_id = deploy_job_world.stopped_internal(step=step)
+    banner = failure_banner(signed_in.get(f"/deploy/{job_id}").text)
+    assert WEB02 in banner
+    assert "No file was changed" not in banner
+    assert "may have been changed" in banner and "manual attention" in banner
+    report = signed_in.get(f"/deploy/{job_id}/report.json").json()
+    assert report["files_restored"] is None  # tri-state: unknown, never "nothing to restore"
+    assert host_of(report, WEB02)["needs_attention"] is True
+
+
+@pytest.mark.parametrize("step", ["preflight", "backed_up"])
+def test_internal_before_the_first_write_keeps_the_no_write_assertion(signed_in, deploy_job_world, step):
+    """A run that published only preflight or backup work never touched a live file: the banner says so."""
+    job_id = deploy_job_world.stopped_internal(step=step)
+    banner = failure_banner(signed_in.get(f"/deploy/{job_id}").text)
+    assert WEB02 in banner and "No file was changed" in banner
+    assert "may have been changed" not in banner
+    report = signed_in.get(f"/deploy/{job_id}/report.json").json()
+    assert report["files_restored"] is None
+    assert host_of(report, WEB02)["needs_attention"] is False
+
+
 def test_failure_banner_names_the_host_that_stopped_the_rollout(signed_in, deploy_job_world):
     """In a concurrent batch the stopper is not the first hostname: web03 failed before web02."""
     job_id = deploy_job_world.concurrent_stop(stopper=WEB03, later=WEB02)
@@ -660,6 +725,53 @@ def test_cancel_refusal_is_a_fragment(signed_in, deploy_job_world):
     assert fragment.status_code == 422
     assert "<html" not in fragment.text and 'id="deploy-job-live"' in fragment.text
     assert 'data-error="state"' in fragment.text
+
+
+def live_region(page: str) -> tuple[int, int]:
+    """The span of the ``#deploy-job-live`` element (balanced ``<div>`` counting, like a browser parses it)."""
+    start = page.index('<div id="deploy-job-live"')
+    depth = 0
+    for tag in re.finditer(r"<div\b|</div>", page[start:]):
+        depth += 1 if tag.group(0) == "<div" else -1
+        if depth == 0:
+            return start, start + tag.end()
+    raise AssertionError("unbalanced #deploy-job-live region")
+
+
+def after_htmx_swap(page: str, fragment: str) -> str:
+    """What the browser shows after htmx answers a refused control: ``hx-target``/``hx-swap="outerHTML"``."""
+    start, end = live_region(page)
+    return page[:start] + fragment.strip() + page[end:]
+
+
+def test_refused_control_swaps_visibly_for_htmx(signed_in, deploy_job_world):
+    """htmx drops 4xx bodies by default, so the page must opt a 422 into the visible live-region swap.
+
+    A refusal from the control forms is a 422 fragment; without the ``htmx:beforeSwap`` handler the operator
+    would see nothing at all. The test runs the swap htmx performs (target selector -> response root) and
+    looks for the reason in the resulting document, then keeps the no-JavaScript behaviour intact.
+    """
+    job_id = deploy_job_world.stopped()
+    server_id = deploy_job_world.world.servers[WEB02].id
+    page = signed_in.get(f"/deploy/{job_id}").text
+    # the page ships the handler the repository's other inline forms use
+    assert 'document.body.addEventListener("htmx:beforeSwap"' in page
+    assert "event.detail.xhr.status === 422" in page
+    assert "event.detail.shouldSwap = true" in page and "event.detail.isError = false" in page
+    # the form targets the region the refusal replaces, so the swap lands where the reason is rendered
+    assert 'hx-target="#deploy-job-live"' in page
+    refusal = signed_in.post(
+        f"/deploy/{job_id}/hosts/{server_id}/retry", data=csrf(signed_in), headers={"HX-Request": "true"}
+    )
+    assert refusal.status_code == 422
+    assert refusal.text.lstrip().startswith('<div id="deploy-job-live"')
+    message = re.search(r'data-error="reason"[^>]*><p>(.*?)</p>', refusal.text, re.DOTALL)
+    assert message is not None and message.group(1).strip()
+    shown = after_htmx_swap(page, refusal.text)
+    assert 'data-error="reason"' in shown and message.group(1) in shown
+    # without JavaScript the same refusal is the whole page with the message inline
+    plain = signed_in.post(f"/deploy/{job_id}/hosts/{server_id}/retry", data=csrf(signed_in))
+    assert plain.status_code == 422 and "<html" in plain.text and 'data-error="reason"' in plain.text
 
 
 def test_controls_are_htmx_forms_with_a_no_javascript_fallback(signed_in, deploy_job_world, clock):

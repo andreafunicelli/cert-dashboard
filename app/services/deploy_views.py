@@ -30,9 +30,10 @@ RESTORE_FAILED = "restore_failed"
 UNVERIFIED = "unverified"
 NOTHING_WRITTEN = "nothing_written"
 
-# Contract decision 18's reasons that are raised before the first live write (preflight, backup, transport, a
-# run that never started): a failure here changed no live file. ``internal`` is "ended before verification"
-# with no step reached, which §6.4 records as a pre-write outcome.
+# Contract decision 18's reasons that a playbook raises before the first live write (preflight, backup,
+# transport, a run that never started): a failure here changed no live file. ``internal`` is deliberately
+# absent: the same reason is also what a ``step='verified'`` run whose per-binding evidence disagrees maps to,
+# so only the persisted step tells the two apart (see ``_restoration``).
 PRE_WRITE_REASONS = frozenset(
     {
         "drift_detected",
@@ -47,9 +48,14 @@ PRE_WRITE_REASONS = frozenset(
         "binding_blocked",
         "not_in_inventory",
         "file_conflict",
-        "internal",
     }
 )
+# ``precheck.step`` is the last step the playbook published. ``preflight`` and ``backed_up`` are the only ones
+# that prove the run stopped before the first live write; Contract decision 17's ``writing`` … ``reloaded``
+# steps and the terminal ``verified``/``rolled_back``/``rollback_failed`` are all past it, and an empty step is
+# no evidence at all (a killed worker leaves no excerpt of its run).
+PRE_WRITE_STEPS = frozenset({"preflight", "backed_up"})
+
 # Contract decision 18: the handler fails the job with ``rollout stopped: <hostname> failed (<reason>)``.
 _STOPPED_MESSAGE = re.compile(r"^rollout stopped: (?P<host>\S+) failed \(")
 _NEVER = datetime.max.replace(tzinfo=UTC)
@@ -142,9 +148,7 @@ class DeployJobView:
     def failure_restoration(self) -> str | None:
         """How the stopping host's files stand: restored, not restored, or never verified (§8.7)."""
         host = self.stopping_host
-        if host is None:
-            return None
-        return _restoration(host.status, host.rolled_back, host.rollback_error, host.reason)
+        return None if host is None else _state(host)
 
     @property
     def polling(self) -> bool:
@@ -226,8 +230,15 @@ def _host_view(server: Server, rows: list[tuple[JobHost, Binding | None]], *, te
     reason = next((reason for row, _binding in rows if (reason := _reason(row))), None)
     status_value = getattr(status, "value", status)
     # Contract decision 18 and §9.4: a failed rollback and a host whose files may have changed without
-    # verification (worker_lost, a timed-out run) each need a human; a proven pre-write failure does not.
-    state = _restoration(status_value, any(row.rolled_back for row, _binding in rows), rollback_error, reason)
+    # verification (worker_lost, a timed-out run, an `internal` run past the first write) each need a human;
+    # only a proven pre-write failure does not.
+    state = _restoration(
+        status_value,
+        any(row.rolled_back for row, _binding in rows),
+        rollback_error,
+        reason,
+        _write_started(rows),
+    )
     needs_attention = state in (RESTORE_FAILED, UNVERIFIED)
     return HostView(
         server_id=server.id,
@@ -297,7 +308,26 @@ def _inventory_rev(job: Job) -> str | None:
     return None
 
 
-def _restoration(status: str, rolled_back: bool, rollback_error: str | None, reason: str | None) -> str | None:
+def _write_started(rows: list[tuple[JobHost, Binding | None]]) -> bool | None:
+    """Whether the host's run reached the first live write, from the step it persisted.
+
+    ``None`` means no step is readable at all (a worker that died before recording its run); callers must
+    treat that as unknown, never as proof that nothing changed.
+    """
+    steps = [row.precheck.get("step") for row, _binding in rows if isinstance(row.precheck, dict)]
+    known = [step for step in steps if isinstance(step, str)]
+    if not known:
+        return None
+    return any(step not in PRE_WRITE_STEPS for step in known)
+
+
+def _restoration(
+    status: str,
+    rolled_back: bool,
+    rollback_error: str | None,
+    reason: str | None,
+    write_started: bool | None,
+) -> str | None:
     """How one host's files stand after it stopped the rollout; ``None`` for a host that did not fail."""
     if status not in (JobHostStatus.FAILED.value, JobHostStatus.ROLLED_BACK.value):
         return None
@@ -307,7 +337,20 @@ def _restoration(status: str, rolled_back: bool, rollback_error: str | None, rea
         return RESTORED
     if reason in PRE_WRITE_REASONS:
         return NOTHING_WRITTEN
+    if reason == "internal" and write_started is False:
+        # Only a run that published a pre-write step proves nothing changed. No persisted step, or a step at
+        # or past the first write, fails closed to manual attention (§9.4).
+        return NOTHING_WRITTEN
     return UNVERIFIED  # e.g. worker_lost: the files may have changed and were never verified
+
+
+def _state(host: HostView) -> str:
+    """The same four-way classification for a host already collapsed into a ``HostView`` (banner and report)."""
+    if host.rollback_error is not None:
+        return RESTORE_FAILED
+    if host.rolled_back:
+        return RESTORED
+    return UNVERIFIED if host.needs_attention else NOTHING_WRITTEN
 
 
 def _stopper(job: Job, hosts: list[HostView], rows: list[tuple[JobHost, Server, Binding | None]]) -> HostView | None:
@@ -370,11 +413,7 @@ def _snapshot(
     certificate_id = payload.get("certificate_id")
     stopper = _stopper(job, hosts, rows)
     first_failed = stopper.hostname if stopper is not None else None
-    restoration = (
-        None
-        if stopper is None
-        else _restoration(stopper.status, stopper.rolled_back, stopper.rollback_error, stopper.reason)
-    )
+    restoration = None if stopper is None else _state(stopper)
     files_restored = True if restoration == RESTORED else False if restoration == RESTORE_FAILED else None
     view = DeployJobView(
         job_id=job.id,
