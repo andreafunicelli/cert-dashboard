@@ -320,7 +320,11 @@ def test_v1_acceptance_against_container_targets(acceptance_stack, ssh_targets, 
 
     # 2. SMTP settings, the test email, and a real expiry alert for a certificate set 7 days out.
     assert s.smtp_delivered == 1, "the SMTP test form did not deliver exactly one message"
-    assert s.expiry_mail["subject"].startswith("[Cert Dashboard]")
+    # The shipped alert subject is ``Certificate <CN> <phrase>`` (``app/services/alerts.py``); the plan's
+    # sketch assumed a ``[Cert Dashboard]`` prefix that neither the spec nor the implementation has.
+    assert s.expiry_mail["subject"] == "Certificate expiring.example.internal expires in 7 days", (
+        s.expiry_mail["subject"]
+    )
     assert "expiring.example.internal" in s.expiry_mail.as_string()
 
     # 3. Discovery of the real inventory: every binding agrees with ``grep ssl_certificate``.
@@ -357,7 +361,9 @@ def test_v1_acceptance_against_container_targets(acceptance_stack, ssh_targets, 
     assert s.paused["phase"] == "paused", s.paused
     assert s.deployed["status"] == "succeeded", s.deployed["status"]
     assert s.deployed["totals"]["failed"] == 0 and s.deployed["totals"]["rolled_back"] == 0
-    assert s.deployed["totals"]["succeeded"] == 3, s.deployed["totals"]
+    # Totals count hosts, not bindings: the job targets web01's two vhosts and web02's one (3 bindings, 2 hosts).
+    assert s.deployed["totals"]["succeeded"] == 2, s.deployed["totals"]
+    assert s.deployed["totals"]["pending"] == 0, s.deployed["totals"]
     assert s.renewal_state_deployed == "deployed"
     new = certificate_row(factory, s.new_certificate)
     assert ssh_targets.served_fingerprint("ssh-nginx-1", WWW) == new.sha256_fingerprint
