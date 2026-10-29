@@ -806,11 +806,45 @@ class Worker:
 
     def _finish(self, job_id: UUID, status: Literal["succeeded", "failed", "cancelled"], **details) -> str:
         def apply(db: Session, now: datetime) -> None:
-            finish(db, job_id, self.worker_id, status, now, **details)
-            if status == "succeeded":
+            outcome = status
+            if status in ("succeeded", "failed"):
+                outcome = self._accepted_cancel(db, job_id, status, details)
+            finish(db, job_id, self.worker_id, outcome, now, **details)
+            if outcome == "succeeded":
                 self._run_success_hook(db, job_id, now)
 
         return self._commit_outcome(job_id, status, apply)
+
+    def _accepted_cancel(
+        self,
+        db: Session,
+        job_id: UUID,
+        status: Literal["succeeded", "failed", "cancelled"],
+        details: dict[str, object],
+    ) -> Literal["succeeded", "failed", "cancelled"]:
+        """Contract decision 20: an accepted operator Cancel outranks the handler's own outcome.
+
+        The job row is locked before the ``deploy.cancel`` audit is read, so a Cancel that committed
+        before this transaction is visible and one that arrives later waits on the row and is then
+        refused as stale instead of racing a success. Host failures keep their own row evidence; only
+        the job's outcome becomes ``cancelled`` (and the renewal success hook is not run).
+        """
+        job = db.execute(
+            select(Job).where(Job.id == job_id).with_for_update().execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if job is None or JobType(job.type) is not JobType.DEPLOY:
+            return status
+        # Imported lazily like ``_deploy_timeout``: ``deploy_runtime`` imports ``settings``, which imports
+        # this module.
+        from app.services.deploy_runtime import CANCELLED_BY_OPERATOR, cancel_accepted
+
+        if not cancel_accepted(db, job_id):
+            return status
+        details["error_message"] = CANCELLED_BY_OPERATOR
+        result = details.get("result")
+        if isinstance(result, Mapping):
+            details["result"] = {**result, "phase": "cancelled"}
+        return "cancelled"
 
     def _run_success_hook(self, db: Session, job_id: UUID, now: datetime) -> None:
         """Run the registration's hook in a savepoint: a failing hook never undoes the success."""

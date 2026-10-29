@@ -61,8 +61,10 @@ from app.services.bindings import verify_sni
 from app.services.certificates import unwrap_key
 from app.services.deploy import BatchRun, DeployTarget, run_batch
 from app.services.deploy_runtime import (
+    CANCELLED_BY_OPERATOR,
     ExecutionGate,
     advance_renewal,
+    cancel_accepted,
     claim_host_rows,
     deploy_totals,
     record_host_outcome,
@@ -92,8 +94,6 @@ _ERROR_CLASS = {
 # A rollout stops on the first host that changed nothing or that could not restore what it changed.
 _STOPPING_STATUSES = ("failed", "rolled_back")
 _EXECUTION_KEY_MISMATCH = "the certificate and its stored private key do not match"
-# The exact text the §6.5 cancel leaves on the job (the row reason is the closed token ``cancelled``).
-CANCELLED_BY_OPERATOR = "cancelled by operator"
 
 # Contract decision 15: the exact payload keys ``start_deploy`` writes.
 _KEYS = frozenset(
@@ -301,6 +301,11 @@ def _deploy(context: JobContext, job: AnsibleJob, pause_after_canary: bool) -> M
             # Contract decision 20: an operator cancel skips the pending rows, so nothing new is submitted.
             should_stop=lambda: _cancelled(context),
         )
+        if _cancel_accepted(context):
+            # Contract decision 20: an accepted cancel is the job's outcome once the batch has settled.
+            # It outranks a host that failed after it — every host keeps its failed/rolled back evidence
+            # in its own rows — and the pending rows were already skipped ``cancelled``.
+            raise JobCancelled(CANCELLED_BY_OPERATOR, _phase_result(job.revision, context, "cancelled"))
         if run.stopped_by is not None:
             reason = _stopped_reason(run.results.get(run.stopped_by))
             with context.factory.begin() as db:
@@ -309,11 +314,11 @@ def _deploy(context: JobContext, job: AnsibleJob, pause_after_canary: bool) -> M
                 _ERROR_CLASS.get(reason, "config_invalid"),
                 f"rollout stopped: {run.stopped_by.hostname} failed ({reason})",
             )
-        if _cancelled(context):
-            # In-flight hosts of this batch are done; the pending rows are already skipped.
-            raise JobCancelled(CANCELLED_BY_OPERATOR, _phase_result(job.revision, context, "cancelled"))
         if batch_no == 0 and pause_after_canary and _canary_succeeded(run) and _has_pending(context):
             raise JobPaused(1, _phase_result(job.revision, context, "paused"))
+    if _cancel_accepted(context):
+        # A cancel also lands when nothing was left to submit (a resume whose rows were all skipped).
+        raise JobCancelled(CANCELLED_BY_OPERATOR, _phase_result(job.revision, context, "cancelled"))
     with context.factory() as db:
         totals = deploy_totals(db, context.job_id)
     return {**revision_result(job.revision), "phase": "done", "totals": totals}
@@ -341,6 +346,16 @@ def _cancelled(context: JobContext) -> bool:
             )
             is not None
         )
+
+
+def _cancel_accepted(context: JobContext) -> bool:
+    """True once an operator Cancel for this job is committed (Contract decision 20).
+
+    Unlike ``_cancelled`` this does not depend on a skipped row: cancelling the only in-flight host
+    leaves every row ``running`` and writes just the ``deploy.cancel`` audit.
+    """
+    with context.factory() as db:
+        return cancel_accepted(db, context.job_id)
 
 
 def _has_pending(context: JobContext) -> bool:

@@ -25,7 +25,18 @@ from sqlalchemy.orm import Session
 
 from app.ansible.deploy import HostOutcome
 from app.jobs.queue import SYSTEM_ACTOR, JobFailure, cancel_idle
-from app.models import Binding, Certificate, Job, JobHost, JSONValue, PrivateKey, Renewal, Server, User
+from app.models import (
+    AuditLog,
+    Binding,
+    Certificate,
+    Job,
+    JobHost,
+    JSONValue,
+    PrivateKey,
+    Renewal,
+    Server,
+    User,
+)
 from app.models.enums import CertificateStatus, ChainStatus, JobHostStatus, JobStatus, JobType, RenewalState
 from app.services.audit import Actor, record
 from app.services.bindings import audit_binding_state, binding_state, verify_sni
@@ -38,9 +49,11 @@ from app.services.trust_anchors import assess_certificate
 
 __all__ = [
     "BINDING_BLOCKED",
+    "CANCELLED_BY_OPERATOR",
     "DEPLOY_TIMEOUT_MARGIN",
     "ExecutionGate",
     "advance_renewal",
+    "cancel_accepted",
     "claim_host_rows",
     "deploy_timeout_seconds",
     "deploy_totals",
@@ -53,6 +66,9 @@ __all__ = [
 _LOG = logging.getLogger(__name__)
 
 DEPLOY_TIMEOUT_MARGIN = 900
+# The exact text a cancelled deploy leaves on the job (§6.5); the row reason is the closed token
+# ``cancelled``.
+CANCELLED_BY_OPERATOR = "cancelled by operator"
 # Contract decision 16's fixed refusal: the certificate is not trusted (anymore) and the planned override
 # does not cover the status it has now.
 TRUST_CHANGED = "certificate trust changed since the deploy was planned; plan it again"
@@ -125,6 +141,34 @@ def revalidate_for_execution(db: Session, job: Job, now: datetime) -> ExecutionG
     if key_row is None:
         raise JobFailure("key_unwrap", NO_KEY)
     return ExecutionGate(certificate, key_row)
+
+
+# --- the accepted-cancel signal (Contract decision 20) ---------------------------------------------
+
+
+def cancel_accepted(db: Session, job_id: UUID) -> bool:
+    """True when an operator Cancel for this job is committed (§6.5, Contract decision 20).
+
+    ``cancel_deploy`` writes ``deploy.cancel`` in the same transaction that takes the job row's lock, so
+    the audit row is the durable signal that the cancel was accepted. Nothing else survives a running
+    cancel whose rows are all already ``running`` or finished: ``_skip_cancelled_rows`` then changes no
+    row, and a pending-row count would silently report "not cancelled".
+
+    The audit table is append-only, so the row can only appear by an accepted cancel and is never
+    withdrawn; a caller that needs to be race-free reads it after locking the job row.
+    """
+    return (
+        db.scalar(
+            select(AuditLog.id)
+            .where(
+                AuditLog.action == "deploy.cancel",
+                AuditLog.target_type == "job",
+                AuditLog.target_id == str(job_id),
+            )
+            .limit(1)
+        )
+        is not None
+    )
 
 
 # --- host rows ---------------------------------------------------------------------------------------

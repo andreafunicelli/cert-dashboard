@@ -19,7 +19,7 @@ from sqlalchemy import select
 from app.jobs.handlers import deploy as deploy_handler
 from app.jobs.queue import InvalidJobState, claim, finish, reap
 from app.jobs.worker import timeout_for
-from app.models import AuditLog, Job, JobHost, Renewal, Server
+from app.models import AuditLog, Binding, Job, JobHost, Renewal, Server
 from app.services.audit import Actor
 from app.services.deploy import DeployBlocked, cancel_deploy, continue_deploy, pause_deadline, retry_host
 from app.services.trust_anchors import remove_anchor
@@ -98,6 +98,16 @@ def _reason(row):
 def server_of(factory, hostname):
     with factory() as db:
         return db.scalars(select(Server).where(Server.hostname == hostname)).one()
+
+
+def binding_id_of(factory, hostname, vhost=WWW):
+    """The id of one host's ``vhost`` binding, for a job that targets exactly one server."""
+    with factory() as db:
+        return db.scalar(
+            select(Binding.id)
+            .join(Server, Server.id == Binding.server_id)
+            .where(Server.hostname == hostname, Binding.vhost_name == vhost)
+        )
 
 
 def audits_of(factory, action, target_id):
@@ -249,6 +259,147 @@ def test_cancel_running_deploy_lets_in_flight_hosts_finish(
     assert cancel.details["from_status"] == "running"
     assert "job.cancelled" in audit_actions(queue_factory, str(job_id))
     # A cancelled deploy never advances the renewal (§4.6), even though the canary and web02 succeeded.
+    assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
+
+
+def test_cancel_in_flight_only_host_ends_cancelled(
+    ssh_targets, fresh_targets, queue_factory, deploy_ready, clock, actor, monkeypatch
+):
+    """A cancel with zero pending rows must still end the job cancelled.
+
+    The single-host retry has one batch only, so when the cancel commits every row is already
+    ``running``: ``_skip_cancelled_rows`` changes nothing and the ``deploy.cancel`` audit is the only
+    signal. The in-flight host finishes, the job ends ``cancelled`` and the renewal is not advanced
+    (Contract decision 20).
+    """
+    drift(ssh_targets, deploy_ready)
+    original_id = deploy_ready.start(batch_percent=33, pause_after_canary=False)  # [web01], [web02], [web03]
+    deploy_ready.worker.run_queued(timeout=900)
+    assert fetch(queue_factory, Job, original_id).status == "failed"
+    web03 = server_of(queue_factory, WEB03)
+    with queue_factory.begin() as db:
+        retry_id = retry_host(db, original_id, web03.id, "retry the host the rollout never touched", actor, clock()).id
+
+    started, release = threading.Event(), threading.Event()
+    real = deploy_handler.run_host_deploy
+
+    def blocked(runner, hostname, *args, **kwargs):
+        if hostname == WEB03:
+            started.set()
+            assert release.wait(300), "the test never released the in-flight host"
+        return real(runner, hostname, *args, **kwargs)
+
+    monkeypatch.setattr(deploy_handler, "run_host_deploy", blocked)
+    runner = threading.Thread(target=deploy_ready.worker.run_queued, kwargs={"timeout": 900}, daemon=True)
+    runner.start()
+    try:
+        assert started.wait(300), "the retry host never started"
+        with queue_factory.begin() as db:
+            assert cancel_deploy(db, retry_id, actor, clock()).status == "running"
+        assert {row.status for _, row in rows_of(queue_factory, retry_id)} == {"running"}  # no pending row
+        [cancel] = audits_of(queue_factory, "deploy.cancel", retry_id)
+        assert cancel.details["pending_rows"] == 0
+    finally:
+        release.set()
+        runner.join(900)
+    assert not runner.is_alive()
+
+    job = fetch(queue_factory, Job, retry_id)
+    assert (job.status, job.error_message) == ("cancelled", CANCELLED_BY_OPERATOR)
+    assert job.result["phase"] == "cancelled"
+    assert host_status(queue_factory, retry_id, WEB03) == "succeeded"  # the in-flight host finished
+    assert "job.cancelled" in audit_actions(queue_factory, str(retry_id))
+    assert "job.succeeded" not in audit_actions(queue_factory, str(retry_id))
+    # A cancelled deploy never advances the renewal (§4.6), even though the only host succeeded.
+    assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
+
+
+def test_cancel_while_in_flight_host_fails_ends_cancelled(
+    ssh_targets, fresh_targets, queue_factory, deploy_ready, clock, actor, monkeypatch
+):
+    """An accepted cancel outranks a host that fails after it, once the batch has settled.
+
+    The cancel is committed while web02 is in flight; web02 then fails its drift preflight and web03
+    was already skipped ``cancelled``. The job ends ``cancelled`` — not ``failed`` — and web02 keeps
+    its own failure evidence (Contract decision 20).
+    """
+    set_setting(queue_factory, "deploy.concurrency", 1)
+    drift(ssh_targets, deploy_ready)  # web02 will fail its drift preflight
+    started, release = threading.Event(), threading.Event()
+    real = deploy_handler.run_host_deploy
+
+    def blocked(runner, hostname, *args, **kwargs):
+        if hostname == WEB02:
+            started.set()
+            assert release.wait(300), "the test never released the in-flight host"
+        return real(runner, hostname, *args, **kwargs)
+
+    monkeypatch.setattr(deploy_handler, "run_host_deploy", blocked)
+    job_id = deploy_ready.start(batch_percent=50, pause_after_canary=False)
+    runner = threading.Thread(target=deploy_ready.worker.run_queued, kwargs={"timeout": 900}, daemon=True)
+    runner.start()
+    try:
+        assert started.wait(300), "the canary batch never finished"
+        with queue_factory.begin() as db:
+            assert cancel_deploy(db, job_id, actor, clock()).status == "running"
+        assert host_reason(queue_factory, job_id, WEB03) == ("skipped", "cancelled")
+        assert host_status(queue_factory, job_id, WEB02) == "running"  # in flight, not cancelled
+    finally:
+        release.set()
+        runner.join(900)
+    assert not runner.is_alive()
+
+    job = fetch(queue_factory, Job, job_id)
+    assert (job.status, job.error_message) == ("cancelled", CANCELLED_BY_OPERATOR)
+    assert job.result["phase"] == "cancelled"
+    assert host_reason(queue_factory, job_id, WEB02) == ("failed", "drift_detected")  # evidence retained
+    assert host_reason(queue_factory, job_id, WEB03) == ("skipped", "cancelled")
+    assert "job.cancelled" in audit_actions(queue_factory, str(job_id))
+    assert "job.failed" not in audit_actions(queue_factory, str(job_id))
+    assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
+
+
+def test_cancel_accepted_after_the_handler_check_cannot_race_a_success(
+    ssh_targets, fresh_targets, queue_factory, deploy_ready, clock, actor, monkeypatch
+):
+    """A cancel that commits after the handler's last check is still finalised as ``cancelled``.
+
+    The handler's durable check is stubbed out to simulate the race window between its last look and
+    the worker's finalization: the job-row fence in ``_finish`` must see the committed
+    ``deploy.cancel`` and end the job ``cancelled`` without running the renewal success hook.
+    """
+    monkeypatch.setattr(deploy_handler, "_cancel_accepted", lambda context: False)
+    started, release = threading.Event(), threading.Event()
+    real = deploy_handler.run_host_deploy
+
+    def blocked(runner, hostname, *args, **kwargs):
+        if hostname == WEB02:
+            started.set()
+            assert release.wait(300), "the test never released the in-flight host"
+        return real(runner, hostname, *args, **kwargs)
+
+    monkeypatch.setattr(deploy_handler, "run_host_deploy", blocked)
+    job_id = deploy_ready.start(
+        binding_ids=(binding_id_of(queue_factory, WEB02),), batch_percent=100, pause_after_canary=False
+    )  # web02 only: batch 0 is the whole rollout
+    runner = threading.Thread(target=deploy_ready.worker.run_queued, kwargs={"timeout": 900}, daemon=True)
+    runner.start()
+    try:
+        assert started.wait(300), "the only host never started"
+        with queue_factory.begin() as db:
+            assert cancel_deploy(db, job_id, actor, clock()).status == "running"
+        [cancel] = audits_of(queue_factory, "deploy.cancel", job_id)
+        assert cancel.details["pending_rows"] == 0
+    finally:
+        release.set()
+        runner.join(900)
+    assert not runner.is_alive()
+
+    job = fetch(queue_factory, Job, job_id)
+    assert (job.status, job.error_message) == ("cancelled", CANCELLED_BY_OPERATOR)
+    assert job.result["phase"] == "cancelled"
+    assert "job.cancelled" in audit_actions(queue_factory, str(job_id))
+    assert "job.succeeded" not in audit_actions(queue_factory, str(job_id))
     assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
 
 
