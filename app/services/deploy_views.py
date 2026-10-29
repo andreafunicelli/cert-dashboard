@@ -30,10 +30,11 @@ RESTORE_FAILED = "restore_failed"
 UNVERIFIED = "unverified"
 NOTHING_WRITTEN = "nothing_written"
 
-# Contract decision 18's reasons that a playbook raises before the first live write (preflight, backup,
-# transport, a run that never started): a failure here changed no live file. ``internal`` is deliberately
-# absent: the same reason is also what a ``step='verified'`` run whose per-binding evidence disagrees maps to,
-# so only the persisted step tells the two apart (see ``_restoration``).
+# Contract decision 18's reasons that a playbook raises before the first live write (preflight, backup, a
+# run that never started): the task that raises them runs before ``deploy_step=writing``, so the reason alone
+# proves that no live file changed. ``internal`` is deliberately absent: the same reason is also what a
+# ``step='verified'`` run whose per-binding evidence disagrees maps to, so only the persisted step tells the
+# two apart (see ``_restoration``). Transport failures are absent for the same reason and handled below.
 PRE_WRITE_REASONS = frozenset(
     {
         "drift_detected",
@@ -43,13 +44,16 @@ PRE_WRITE_REASONS = frozenset(
         "baseline_config_invalid",
         "key_mismatch_preflight",
         "backup_failed",
-        "unreachable",
-        "auth",
         "binding_blocked",
         "not_in_inventory",
         "file_conflict",
     }
 )
+# An SSH connection can be lost at any step, and the runner replaces a dark host's published data with ``{}``
+# (``runner._host_results``), so an ``unreachable``/``auth`` row usually has no step to prove it was pre-write.
+# Only a persisted pre-write step may claim that nothing changed (§9.4).
+TRANSPORT_REASONS = frozenset({"unreachable", "auth"})
+
 # ``precheck.step`` is the last step the playbook published. ``preflight`` and ``backed_up`` are the only ones
 # that prove the run stopped before the first live write; Contract decision 17's ``writing`` … ``reloaded``
 # steps and the terminal ``verified``/``rolled_back``/``rollback_failed`` are all past it, and an empty step is
@@ -230,8 +234,8 @@ def _host_view(server: Server, rows: list[tuple[JobHost, Binding | None]], *, te
     reason = next((reason for row, _binding in rows if (reason := _reason(row))), None)
     status_value = getattr(status, "value", status)
     # Contract decision 18 and §9.4: a failed rollback and a host whose files may have changed without
-    # verification (worker_lost, a timed-out run, an `internal` run past the first write) each need a human;
-    # only a proven pre-write failure does not.
+    # verification (worker_lost, a timed-out run, an `internal` run past the first write, an SSH failure with
+    # no persisted pre-write step) each need a human; only a proven pre-write failure does not.
     state = _restoration(
         status_value,
         any(row.rolled_back for row, _binding in rows),
@@ -311,11 +315,12 @@ def _inventory_rev(job: Job) -> str | None:
 def _write_started(rows: list[tuple[JobHost, Binding | None]]) -> bool | None:
     """Whether the host's run reached the first live write, from the step it persisted.
 
-    ``None`` means no step is readable at all (a worker that died before recording its run); callers must
+    ``None`` means no step is readable at all (a worker that died before recording its run, or a dark host
+    whose published data the runner discarded and whose row therefore carries ``step: ""``); callers must
     treat that as unknown, never as proof that nothing changed.
     """
     steps = [row.precheck.get("step") for row, _binding in rows if isinstance(row.precheck, dict)]
-    known = [step for step in steps if isinstance(step, str)]
+    known = [step for step in steps if isinstance(step, str) and step]
     if not known:
         return None
     return any(step not in PRE_WRITE_STEPS for step in known)
@@ -335,6 +340,10 @@ def _restoration(
         return RESTORE_FAILED  # §9.4: the restore itself failed, so the host needs a human
     if rolled_back:
         return RESTORED
+    if reason in TRANSPORT_REASONS:
+        # SSH can be lost before or after the first write and a dark host publishes no step, so only a
+        # persisted pre-write step proves nothing changed; anything else fails closed to manual attention.
+        return NOTHING_WRITTEN if write_started is False else UNVERIFIED
     if reason in PRE_WRITE_REASONS:
         return NOTHING_WRITTEN
     if reason == "internal" and write_started is False:

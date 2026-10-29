@@ -285,6 +285,36 @@ class DeployJobWorld:
             job.error_message = f"rollout stopped: {WEB02} failed (internal)"
         return job_id
 
+    def stopped_transport(self, *, reason: str, step: str | None):
+        """Canary succeeded, then web02 was lost over SSH; the runner publishes no data for a dark host.
+
+        ``step`` is the persisted ``precheck.step``: ``""`` is exactly what ``parse_host_result`` stores for
+        a host the runner reported dark (its ``set_stats`` data is discarded), ``None`` is a row with no
+        ``precheck`` document at all.
+        """
+        job_id = self.start(batch_percent=50, pause_after_canary=False)
+        at = self.clock() - timedelta(minutes=10)
+        with self.factory.begin() as db:
+            self._write(db, job_id, WEB01, "succeeded", started_at=at, finished_at=at + timedelta(seconds=40), backup=True)
+            self._write(
+                db,
+                job_id,
+                WEB02,
+                "failed",
+                started_at=at + timedelta(seconds=40),
+                finished_at=at + timedelta(seconds=90),
+                reason=reason,
+                step=step,
+            )
+            self._write(db, job_id, WEB03, "skipped", reason="rollout_stopped")
+            job = db.get(Job, job_id)
+            job.status = JobStatus.FAILED
+            job.started_at = at
+            job.finished_at = at + timedelta(seconds=90)
+            job.error_class = "transient_network" if reason == "unreachable" else "auth"
+            job.error_message = f"rollout stopped: {WEB02} failed ({reason})"
+        return job_id
+
     def lost_worker(self):
         """The reaper failed a host still ``running`` with ``worker_lost``: the files may have changed."""
         job_id = self.running(batch_no=1, batch_percent=33)
@@ -628,6 +658,46 @@ def test_internal_before_the_first_write_keeps_the_no_write_assertion(signed_in,
     banner = failure_banner(signed_in.get(f"/deploy/{job_id}").text)
     assert WEB02 in banner and "No file was changed" in banner
     assert "may have been changed" not in banner
+    report = signed_in.get(f"/deploy/{job_id}/report.json").json()
+    assert report["files_restored"] is None
+    assert host_of(report, WEB02)["needs_attention"] is False
+
+
+@pytest.mark.parametrize("reason", ["unreachable", "auth"])
+@pytest.mark.parametrize("step", ["", pytest.param(None, id="no-precheck")])
+def test_transport_failure_with_unknown_write_status_never_claims_nothing_was_written(
+    signed_in, deploy_job_world, reason, step
+):
+    """An SSH failure can strike after the first write, and a dark host publishes no step (§9.4).
+
+    ``app/ansible/runner.py`` replaces a dark host's published data with ``{}``, so the row carries no
+    evidence that nothing was written; the screen and the report must not assert it.
+    """
+    job_id = deploy_job_world.stopped_transport(reason=reason, step=step)
+    page = signed_in.get(f"/deploy/{job_id}").text
+    banner = failure_banner(page)
+    assert WEB02 in banner and f"({reason})" in banner
+    assert "No file was changed" not in banner
+    assert "may have been changed" in banner and "manual attention" in banner
+    assert 'data-badge="needs-attention"' in page
+    report = signed_in.get(f"/deploy/{job_id}/report.json").json()
+    assert report["files_restored"] is None  # tri-state: unknown, never "nothing to restore"
+    host = host_of(report, WEB02)
+    assert host["needs_attention"] is True and host["reason"] == reason
+
+
+@pytest.mark.parametrize("reason", ["unreachable", "auth"])
+@pytest.mark.parametrize("step", ["preflight", "backed_up"])
+def test_transport_failure_with_a_persisted_pre_write_step_keeps_the_no_write_assertion(
+    signed_in, deploy_job_world, reason, step
+):
+    """A persisted ``preflight``/``backed_up`` step is independent proof the run stopped before the write."""
+    job_id = deploy_job_world.stopped_transport(reason=reason, step=step)
+    page = signed_in.get(f"/deploy/{job_id}").text
+    banner = failure_banner(page)
+    assert WEB02 in banner and "No file was changed" in banner
+    assert "may have been changed" not in banner
+    assert 'data-badge="needs-attention"' not in page
     report = signed_in.get(f"/deploy/{job_id}/report.json").json()
     assert report["files_restored"] is None
     assert host_of(report, WEB02)["needs_attention"] is False
