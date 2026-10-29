@@ -17,9 +17,10 @@ import pytest
 from sqlalchemy import select
 
 from app.jobs.handlers import deploy as deploy_handler
-from app.jobs.queue import InvalidJobState, claim, finish, reap
+from app.jobs.queue import InvalidJobState, JobPaused, claim, enqueue, finish, reap
 from app.jobs.worker import timeout_for
 from app.models import AuditLog, Binding, Job, JobHost, Renewal, Server
+from app.models.enums import JobType
 from app.services.audit import Actor
 from app.services.deploy import DeployBlocked, cancel_deploy, continue_deploy, pause_deadline, retry_host
 from app.services.trust_anchors import remove_anchor
@@ -400,6 +401,77 @@ def test_cancel_accepted_after_the_handler_check_cannot_race_a_success(
     assert job.result["phase"] == "cancelled"
     assert "job.cancelled" in audit_actions(queue_factory, str(job_id))
     assert "job.succeeded" not in audit_actions(queue_factory, str(job_id))
+    assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
+
+
+def test_cancel_committed_before_the_pause_transition_ends_cancelled(queue_factory, make_worker, clock, actor):
+    """A Cancel committed in the pause handoff must beat the pause (Contract decision 20).
+
+    The handler's last Cancel check can pass, and then ``cancel_deploy`` commits, before the worker
+    releases the claim as a pause. The pause transition takes the job row's lock, so it must read the
+    committed ``deploy.cancel`` and finish the job ``cancelled`` — never ``paused`` and never, later,
+    ``pause_expired``. No SSH target is involved: the fence under test is the worker runtime's.
+    """
+    worker = make_worker(queue_factory)
+    with queue_factory.begin() as db:
+        job = enqueue(
+            db, JobType.DEPLOY, {"action": "default"}, actor, priority=0, run_after=clock(), max_attempts=1
+        )
+        job_id = job.id
+        claimed = claim(db, worker.worker_id, clock(), timeout_for)
+        assert claimed is not None and claimed.id == job_id
+    with queue_factory.begin() as db:
+        assert cancel_deploy(db, job_id, actor, clock()).status == "running"
+
+    assert worker._settle_control(job_id, JobPaused(1, {"phase": "paused"})) == "cancelled"
+
+    job = fetch(queue_factory, Job, job_id)
+    assert (job.status, job.error_message) == ("cancelled", CANCELLED_BY_OPERATOR)
+    assert job.result["phase"] == "cancelled"
+    actions = audit_actions(queue_factory, str(job_id))
+    assert "job.cancelled" in actions
+    assert "job.paused" not in actions
+
+
+def test_cancel_accepted_during_the_pause_handoff_ends_cancelled(
+    ssh_targets, fresh_targets, queue_factory, deploy_ready, clock, actor, monkeypatch
+):
+    """A Cancel that commits while the handler decides to pause still ends the job cancelled.
+
+    ``_has_pending`` is wrapped: it runs the real check and then commits ``cancel_deploy`` from
+    another session, recreating the window between the handler's last Cancel check and the worker's
+    pause transition. The pause fence must see ``deploy.cancel`` under the job-row lock, so the job
+    ends ``cancelled`` with no ``job.paused`` and the sweep can never turn it into ``pause_expired``.
+    """
+    real = deploy_handler._has_pending
+    cancelled: list = []
+
+    def has_pending_then_cancel(context):
+        pending = real(context)
+        if pending and not cancelled:
+            with queue_factory.begin() as db:
+                cancel_deploy(db, context.job_id, actor, clock())
+            cancelled.append(context.job_id)
+        return pending
+
+    monkeypatch.setattr(deploy_handler, "_has_pending", has_pending_then_cancel)
+    job_id = deploy_ready.start(batch_percent=50, pause_after_canary=True)  # [web01], [web02, web03]
+    deploy_ready.worker.run_queued(timeout=900)
+
+    assert cancelled == [job_id], "the cancel never committed inside the pause handoff window"
+    job = fetch(queue_factory, Job, job_id)
+    assert (job.status, job.error_message) == ("cancelled", CANCELLED_BY_OPERATOR)
+    assert job.result["phase"] == "cancelled"
+    actions = audit_actions(queue_factory, str(job_id))
+    assert "job.cancelled" in actions
+    assert "job.paused" not in actions
+    assert host_status(queue_factory, job_id, WEB01) == "succeeded"  # the canary stays deployed
+    assert host_reason(queue_factory, job_id, WEB02) == ("skipped", "cancelled")
+    assert host_reason(queue_factory, job_id, WEB03) == ("skipped", "cancelled")
+
+    deploy_ready.worker.tick()  # the deploy_sweep tick step must find nothing to expire
+    assert fetch(queue_factory, Job, job_id).status == "cancelled"
+    assert "deploy.pause_expired" not in audit_actions(queue_factory, str(job_id))
     assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
 
 
