@@ -83,7 +83,7 @@ def test_chain_status_outside_the_enum_is_rejected(value):
         validate_deploy_payload(payload(chain_status_at_plan=value))
 
 
-@pytest.mark.parametrize("value", ["nope", "", 7, None, "1f0f6e3a-5f4b-4c1d-9a4e"]) 
+@pytest.mark.parametrize("value", ["nope", "", 7, None, "1f0f6e3a-5f4b-4c1d-9a4e"])
 def test_retry_of_must_be_a_uuid_string(value):
     with pytest.raises(ValueError):
         validate_deploy_payload(payload(retry_of=value))

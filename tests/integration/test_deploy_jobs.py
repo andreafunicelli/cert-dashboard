@@ -327,6 +327,86 @@ def test_rollback_failure_is_audited(deploy_ready, queue_factory, ssh_targets):
     assert audits_of(queue_factory, "deploy.rollback") == []
 
 
+def test_rollback_success_is_audited(deploy_ready, queue_factory, ssh_targets):
+    """Task 15's fault with the nginx master alive: the partial write is rolled back and audited (§9.6)."""
+    www = binding_by(queue_factory, WEB01)
+    before = {
+        path: (ssh_targets.read("ssh-nginx-1", path), ssh_targets.stat("ssh-nginx-1", path))
+        for path in ("/etc/nginx/ssl/www.crt", "/etc/nginx/ssl/www.key")
+    }
+    job_id = deploy_ready.start(batch_percent=100, pause_after_canary=False, binding_ids=(www.id,))
+    deploy_ready.worker.run_queued(timeout=900)
+
+    job = fetch(queue_factory, Job, job_id)
+    assert (job.status, job.error_class) == ("failed", "config_invalid")
+    assert job.error_message == f"rollout stopped: {WEB01} failed (config_test_failed)"
+    [row] = rows_by_host(queue_factory, job_id)[WEB01]
+    assert (row.status, row.rolled_back, row.rollback_error) == ("rolled_back", True, None)
+    assert row.error_message.startswith("config_test_failed: ")
+    # The rollback restored the original bytes with their owner/group/mode, and the target serves them again.
+    for path, (data, stat) in before.items():
+        assert ssh_targets.read("ssh-nginx-1", path) == data, path
+        assert ssh_targets.stat("ssh-nginx-1", path)[:3] == stat[:3], path
+    assert ssh_targets.served_fingerprint("ssh-nginx-1", WWW) == ssh_targets.old.fingerprint
+    # A rolled-back host is not a verified host: the binding keeps pointing at the certificate it still serves.
+    rolled_back = binding_by(queue_factory, WEB01)
+    assert (rolled_back.match_state, rolled_back.certificate_id) == (
+        "matched",
+        deploy_ready.renewal.previous_certificate_id,
+    )
+    [audit] = audits_of(queue_factory, "deploy.rollback", job_id)
+    assert (audit.target_type, audit.details["server_id"]) == ("job", www.server_id)
+    assert (audit.details["reason"], audit.details["rolled_back"], audit.details["rollback_error"]) == (
+        "config_test_failed",
+        True,
+        None,
+    )
+    assert audits_of(queue_factory, "deploy.rollback_failed") == []
+    assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
+
+
+def test_host_task_exception_is_recorded_as_failed_internal(
+    deploy_ready, queue_factory, ssh_targets, monkeypatch
+):
+    """An unexpected exception after ``claim_host_rows`` must leave no ``running`` row and stop the rollout."""
+    from app.jobs.handlers import deploy as deploy_handler
+
+    real = deploy_handler.run_host_deploy
+
+    def explode(runner, hostname, *args, **kwargs):
+        if hostname == WEB02:
+            raise RuntimeError("unexpected host task failure")
+        return real(runner, hostname, *args, **kwargs)
+
+    monkeypatch.setattr(deploy_handler, "run_host_deploy", explode)
+    ssh_targets.mark_baseline("ssh-apache")
+    job_id = deploy_ready.start(batch_percent=33, pause_after_canary=False)
+    deploy_ready.worker.run_queued(timeout=900)
+
+    job = fetch(queue_factory, Job, job_id)
+    assert (job.status, job.error_class) == ("failed", "internal")
+    assert job.error_message == f"rollout stopped: {WEB02} failed (internal)"
+    rows = rows_by_host(queue_factory, job_id)
+    assert {row.status for row in rows[WEB01]} == {"succeeded"}
+    [web02] = rows[WEB02]
+    assert (web02.status, web02.error_message, web02.rolled_back, web02.rollback_error) == (
+        "failed",
+        "internal: deploy playbook ended before verification",
+        False,
+        None,
+    )
+    assert web02.started_at is not None and web02.finished_at is not None
+    assert web02.log_excerpt is None
+    [web03] = rows[WEB03]
+    assert (web03.status, web03.error_message, web03.started_at) == ("skipped", "rollout_stopped", None)
+    assert ssh_targets.backups("ssh-apache") == []
+    assert ssh_targets.unchanged_since_reset("ssh-apache"), ssh_targets.last_changes
+    assert not (run_root(job) / WEB03).exists()
+    assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
+    with queue_factory.begin() as db:
+        assert retry_due(db, deploy_ready.clock()) == 0
+
+
 # --- timeout, secrets ----------------------------------------------------------------------------
 
 
