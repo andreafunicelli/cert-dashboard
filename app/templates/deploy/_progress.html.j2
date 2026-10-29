@@ -30,6 +30,9 @@
   {% elif view.failure_restoration == "restore_failed" %}<strong>Its files could not be restored.</strong> Check the host by hand before deploying again; the failure is recorded as needing manual attention.
   {% elif view.failure_restoration == "unverified" %}<strong>Its files may have been changed and were never verified.</strong> Run discovery for that host and check it by hand before deploying again; the failure is recorded as needing manual attention.
   {% else %}No file was changed on that host: the rollout stopped before any write.{% endif %}
+  {% elif view.job_failure_reason %}
+  {# No host stopped the rollout: the job itself failed before any host row did (§8.7, Contract decisions 7 and 16). #}
+  <p data-failure="job">{{ view.job_failure_reason }}</p>
   {% endif %}
 </section>
 {% endif %}
