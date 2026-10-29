@@ -10,10 +10,8 @@ and a missing binary is an ``internal``/``preflight_tool_missing`` outcome *befo
 ``key_mismatch_preflight``.
 
 The mapping is deliberately strict: ``succeeded`` needs ``step == "verified"`` evidence that affirmatively
-(``matches: true``) carries the new fingerprint for *every* target binding. Task 14's playbook stops after
-the backup, so a run of it ends ``failed``/``internal`` ("deploy playbook ended before verification") with
-nothing changed outside ``/var/backups/cert-dashboard/<job_id>``; that is the fail-safe boundary of the task,
-not a bug.
+(``matches: true``) carries the new fingerprint for *every* target binding. A run that ends without that
+evidence — however it ends — is never a success (Contract decision 18).
 """
 
 from __future__ import annotations

@@ -1,0 +1,303 @@
+---
+# Write, label, test, reload and verify the new material of one host — spec 6.4 steps 3–7.
+#
+# Included from the main block of `deploy.yml`, which is the only place that may reach it: every task here
+# may change what the host serves, and the block's rescue is the single-attempt rollback behind it (Contract
+# decision 17). `deploy_step=writing` is set immediately before the first live write, so a failure in the
+# middle of step 3 is rolled back like any other.
+#
+# Contract decision 17: each distinct path (Task 12's `plan_file_writes`, passed in `files`) is written in
+# exactly three steps — `file` creates `<dir>/.<name>.cert-dashboard.tmp` empty with the final owner, group
+# and mode (the mode is set before any content exists), `copy` fills that existing file, and `command mv -f`
+# renames it atomically on the same filesystem. A stale temp file from an interrupted run is removed first:
+# `file: state=touch` never truncates, so touching a leftover would keep its content and break "empty before
+# content". The owner/group/mode are the ones the current file has, as the backup manifest recorded them; a
+# key is `0600`, a certificate or chain file `old_mode & 0o644`. A path whose content already matches is not
+# written (§6.4 step 9), but the label, config test, reload and verification still run, so a re-run of the
+# same job is a safe no-op that still proves the host serves the new leaf.
+#
+# Every task that names the file map is `no_log: true`: the map and the restore plan contain the key paths, and
+# the copy and restore tasks move key bytes.
+
+- name: Start the write phase
+  ansible.builtin.set_fact:
+    deploy_phase: write
+    write_entries: []
+    written_paths: []
+    written_files: {}
+    target_report: {}
+    verify_records: {}
+    verify_mismatches: []
+    verify_attempts: 0
+    verify_chain_length: 0
+    rolled_back: false
+    rollback_error: ''
+  no_log: true
+
+- name: Stat the staged material on the controller
+  ansible.builtin.stat:
+    path: "{{ lookup('vars', item.source) }}"
+    get_checksum: true
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  loop: "{{ files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  vars:
+    # The module of a controller-side task runs on the worker: pin it to the interpreter that runs the
+    # playbook instead of discovering one from PATH (which differs between a worker and a test harness).
+    ansible_python_interpreter: "{{ ansible_playbook_python }}"
+  connection: local
+  become: false
+  no_log: true
+  register: source_stat
+
+- name: Plan every write from the backup manifest
+  ansible.builtin.set_fact:
+    write_entries: >-
+      {{ write_entries + [{
+           'path': item.item.path,
+           'kind': item.item.kind,
+           'source_path': lookup('vars', item.item.source),
+           'temp': (item.item.path | dirname) ~ '/.' ~ (item.item.path | basename) ~ '.cert-dashboard.tmp',
+           'owner': manifest_entry.owner | default('root'),
+           'group': manifest_entry.group | default('root'),
+           'mode': ('0600' if item.item.kind == 'key' else certificate_mode),
+           'live_sha256': manifest_entry.sha256 | default('', true),
+           'new_sha256': item.stat.checksum | default('', true),
+           'write': ((item.stat.checksum | default('', true)) != (manifest_entry.sha256 | default('', true))
+                     or (manifest_entry.sha256 | default('', true)) | length == 0)}] }}
+  loop: "{{ source_stat.results }}"
+  loop_control:
+    label: "{{ item.item.path }}"
+  vars:
+    # The backup phase recorded the current owner, group and mode of every path; the mode of a certificate or
+    # chain file is the actual bitmask `old_mode & 0o644`, never a digit clamp (Jinja has no bitwise operator,
+    # so bit b of x is `(x // b) % 2` and the surviving bits are summed back).
+    manifest_entry: "{{ (manifest_files | default({})).get(item.item.path, {}) }}"
+    old_mode: "{{ manifest_entry.mode | default('0644') }}"
+    certificate_mode: >-
+      {{ '%04o' % ((((old_mode | int(base=8)) // 0o400) % 2) * 0o400
+                   + (((old_mode | int(base=8)) // 0o200) % 2) * 0o200
+                   + (((old_mode | int(base=8)) // 0o040) % 2) * 0o040
+                   + (((old_mode | int(base=8)) // 0o004) % 2) * 0o004) }}
+  no_log: true
+
+- name: Note the paths that are going to be written
+  ansible.builtin.set_fact:
+    written_paths: "{{ write_entries | selectattr('write') | map(attribute='path') | list }}"
+  no_log: true
+
+- name: Record the write of every path
+  ansible.builtin.set_fact:
+    written_files: >-
+      {{ written_files | combine({item.path: {'written': item.write | bool,
+                                              'writes': (1 if item.write else 0)}}) }}
+  loop: "{{ write_entries }}"
+  no_log: true
+
+- name: Record which binding uses a path that is written
+  ansible.builtin.set_fact:
+    target_report: >-
+      {{ target_report | combine({item.binding_id | string: {
+           'written': (item.cert_path in written_paths
+                       or (item.chain_path is not none and item.chain_path in written_paths)
+                       or item.key_path in written_paths)}}) }}
+  loop: "{{ targets }}"
+  no_log: true
+
+- name: Mark the host as writing
+  ansible.builtin.set_fact:
+    deploy_step: writing
+
+- name: Remove any stale temporary file of every changed path
+  ansible.builtin.file:
+    path: "{{ item.temp }}"
+    state: absent
+  loop: "{{ write_entries }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.write | bool
+  become: true
+  no_log: true
+
+- name: Create the empty temporary file of every changed path with its final metadata
+  ansible.builtin.file:
+    path: "{{ item.temp }}"
+    state: touch
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop: "{{ write_entries }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.write | bool
+  become: true
+  no_log: true
+
+- name: Fill every temporary file with its new content
+  ansible.builtin.copy:
+    src: "{{ item.source_path }}"
+    dest: "{{ item.temp }}"
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+    force: true
+  loop: "{{ write_entries }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.write | bool
+  become: true
+  no_log: true
+
+- name: Replace every changed path atomically
+  ansible.builtin.command:
+    argv: ["mv", "-f", "--", "{{ item.temp }}", "{{ item.path }}"]
+  loop: "{{ write_entries }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when: item.write | bool
+  become: true
+  timeout: 60
+  changed_when: true
+  no_log: true
+
+- name: Mark the host as written
+  ansible.builtin.set_fact:
+    deploy_step: written
+
+- name: Start the labelling phase
+  ansible.builtin.set_fact:
+    deploy_phase: label
+
+- name: Look for restorecon on this host
+  ansible.builtin.shell: command -v restorecon
+  args:
+    executable: /bin/sh
+  become: true
+  timeout: 60
+  changed_when: false
+  failed_when: false
+  register: restorecon_probe
+
+- name: Set the SELinux label of every written path
+  ansible.builtin.command:
+    argv: ["restorecon", "-F", "--", "{{ item.path }}"]
+  loop: "{{ write_entries }}"
+  loop_control:
+    label: "{{ item.path }}"
+  when:
+    - restorecon_probe.rc | default(1) | int == 0
+    - item.write | bool
+  become: true
+  timeout: 60
+  changed_when: true
+  no_log: true
+
+- name: Mark the host as labelled
+  ansible.builtin.set_fact:
+    deploy_step: labelled
+
+- name: Start the configuration-test phase
+  ansible.builtin.set_fact:
+    deploy_phase: config_test
+
+- name: Run the configuration test of the new files
+  ansible.builtin.command:
+    argv: "{{ ([nginx_bin, '-t'] if webserver == 'nginx' else [apachectl_bin, 'configtest']) }}"
+  become: true
+  timeout: 60
+  changed_when: false
+
+- name: Mark the host as config-tested
+  ansible.builtin.set_fact:
+    deploy_step: config_tested
+
+- name: Start the reload phase
+  ansible.builtin.set_fact:
+    deploy_phase: reload
+
+- name: Reload the webserver
+  ansible.builtin.command:
+    argv: "{{ ([nginx_bin, '-s', 'reload'] if webserver == 'nginx' else [apachectl_bin, 'graceful']) }}"
+  become: true
+  timeout: 60
+  changed_when: true
+
+- name: Mark the host as reloaded
+  ansible.builtin.set_fact:
+    deploy_step: reloaded
+
+- name: Start the verification phase
+  ansible.builtin.set_fact:
+    deploy_phase: verify
+
+- name: Check that this host serves the new certificate for every binding
+  ansible.builtin.shell: |
+    set -o pipefail
+    chain="$({{ openssl_bin | default('openssl') }} s_client -connect 127.0.0.1:{{ item.port | int }}{% if item.sni %} -servername {{ item.sni | quote }}{% endif %} -showcerts </dev/null 2>/dev/null)"
+    printf '%s\n' "$chain" | {{ openssl_bin | default('openssl') }} x509 -noout -fingerprint -sha256
+    printf '%s\n' "$chain" | awk '/BEGIN CERTIFICATE/{count++} END{print count + 0}'
+  args:
+    executable: /bin/bash
+  loop: "{{ targets }}"
+  loop_control:
+    label: "{{ item.sni | default(item.cert_path) }}"
+  register: verify_probe
+  until: >-
+    (verify_probe.stdout_lines | default([]) | first | default('')
+     | regex_replace('^.*= *', '') | replace(':', '') | lower) == item.new_fingerprint
+  retries: 2
+  delay: 2
+  failed_when: false
+  become: true
+  timeout: 60
+  changed_when: false
+  no_log: true
+
+- name: Record the verification of every binding
+  ansible.builtin.set_fact:
+    verify_records: >-
+      {{ verify_records | combine({item.item.binding_id | string: {
+           'verified': {'matches': (observed_fingerprint == item.item.new_fingerprint),
+                        'fingerprint': observed_fingerprint,
+                        'chain_length': observed_chain_length | int},
+           'attempts': (item.attempts | default(0) | int)
+                       + (0 if observed_fingerprint == item.item.new_fingerprint else 1)}}) }}
+    verify_mismatches: >-
+      {{ verify_mismatches + ([] if observed_fingerprint == item.item.new_fingerprint
+                              else [item.item.binding_id]) }}
+    verify_attempts: >-
+      {{ [verify_attempts | int, (item.attempts | default(0) | int)
+                               + (0 if observed_fingerprint == item.item.new_fingerprint else 1)] | max }}
+    verify_chain_length: "{{ [verify_chain_length | int, observed_chain_length] | max }}"
+  loop: "{{ verify_probe.results }}"
+  vars:
+    observed_fingerprint: "{{ item.stdout_lines[0] | default('', true) | regex_replace('^.*= *', '') | replace(':', '') | lower }}"
+    observed_chain_length: "{{ item.stdout_lines[1] | default('0', true) | trim | int }}"
+  no_log: true
+
+- name: Add the verification evidence of every binding to the report
+  ansible.builtin.set_fact:
+    target_report: >-
+      {{ target_report | combine({item.key: (target_report.get(item.key, {})
+                                             | combine({'verified': item.value.verified,
+                                                        'attempts': item.value.attempts}))}) }}
+  loop: "{{ verify_records | dict2items }}"
+  no_log: true
+
+- name: Note the verification failure of this host
+  ansible.builtin.set_fact:
+    deploy_reason: verify_failed
+  when: verify_mismatches | length > 0
+
+- name: Mark the host as verified
+  ansible.builtin.set_fact:
+    deploy_step: verified
+  when: verify_mismatches | length == 0
+
+- name: Stop the deploy when a binding does not serve the new certificate
+  ansible.builtin.fail:
+    msg: "the host does not serve the new certificate for every one of its bindings"
+  when: verify_mismatches | length > 0

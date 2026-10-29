@@ -1,30 +1,42 @@
 ---
-# Deploy one host's certificate material — Plan 3 Task 14: PREFLIGHT AND BACKUP ONLY.
+# Deploy the certificate material of one host — spec 6.4 steps 1–9 (Plan 3 Tasks 14–15).
 #
-# This playbook performs spec 6.4 steps 1 (preflight) and 2 (backup) and then stops, publishing
-# `step: backed_up`. It contains no task that writes, labels or replaces a live file and none that reloads a
-# service: those arrive in Task 15 together with the automatic rollback, inside the same block, so no
-# intermediate state of the plan can change a served certificate without a restore behind it (Contract
-# decision 17). A static unit test enforces the boundary: every `file`/`copy` writes under `{{ backup_root }}`,
-# no `command`/`shell` moves, copies, installs, relabels or reloads anything, and there is no `script` task.
+# The play runs against exactly one host (`limit`) and is fail-safe by construction: everything that may
+# replace, relabel, re-test or reload a live file or service is inside the ONE `block` below, and that
+# block's `rescue` is the single-attempt rollback (Contract decision 17). A failure from `deploy_step=writing`
+# onwards — a half-finished step 3, the label step, the config test, the reload, the verification — is undone
+# from the job's backup; a failure before it (preflight, backup) changed nothing live and is reported as is.
+# No live-changing task exists outside the block, and `tasks/rollback.yml` is itself a `block` whose `rescue`
+# only records `rollback_error`, so the restore is never retried. A static unit test enforces all of this.
 #
 # Extra-vars (paths and a JSON document only, never key content — Contract decisions 6 and 17):
 #   job_id, backup_root, backup_retention_days, space_required_bytes,
-#   openssl_bin / sha256sum_bin (the two preflight binaries, resolved on the controller),
+#   openssl_bin / sha256sum_bin (the preflight and verification binaries, resolved on the controller),
 #   cert_pem_path / chain_pem_path / fullchain_pem_path (public, artifact dir), key_pem_path (tmpfs staging),
 #   webservers (host -> nginx|apache), files ([{path, kind, source}]), targets ([{binding_id, cert_path,
 #   chain_path, key_path, expected_fingerprint, new_fingerprint, port, sni}]).
 #
 # The result is published through `set_stats` (Contract decision 7) for exactly the one host this run is
-# limited to; `parse_host_result` turns it into the job_host outcome, and only `step == "verified"` — which
-# this playbook never publishes — is a success (Contract decision 18).
+# limited to: the last step reached, the original failure reason, the rollback outcome, the per-path writes,
+# the per-binding evidence and the verification. `parse_host_result` turns that into the job_host outcome, and
+# only `step == "verified"` with affirmative per-binding evidence is a success (Contract decision 18).
 - name: Deploy the certificate material of one host
   hosts: all
   gather_facts: false
   become: true
 
+  vars:
+    # Contract decision 17: a failure in any of these steps may already have changed a live file, so it must
+    # be undone by the rollback. `verified` and the two rollback outcomes are terminal.
+    write_steps:
+      - writing
+      - written
+      - labelled
+      - config_tested
+      - reloaded
+
   tasks:
-    - name: Preflight and back up this host
+    - name: Write, label, test, reload and verify this host
       block:
         - name: Detect the webserver
           ansible.builtin.include_tasks: tasks/detect_webserver.yml
@@ -39,18 +51,30 @@
           ansible.builtin.set_fact:
             deploy_step: backed_up
 
+        - name: Write, label, test, reload and verify the new material
+          ansible.builtin.include_tasks: tasks/deploy_write.yml
+
       rescue:
-        # The preflight refuses through `fail` after setting `deploy_reason`; an unexpected task error has
-        # none, so it is classified by the phase it happened in. Nothing live has been touched either way.
-        # `ansible_failed_task` is a *static task name* (never its result, which may hold key material), so it
-        # is safe to publish and it is the one piece of evidence that tells an operator where the run broke.
+        # The preflight refuses through `fail` after setting `deploy_reason`; every other failure has none, so
+        # it is classified by the phase it happened in (Contract decision 18's fixed reasons). Nothing here
+        # reads target output: `ansible_failed_task` is a static task name, never its result, which may hold
+        # key material.
         - name: Record why this host stopped
           ansible.builtin.set_fact:
             deploy_reason: >-
-              {{ deploy_reason | default('', true) or
-                 ('backup_failed' if deploy_phase | default('') == 'backup' else 'internal') }}
+              {{ deploy_reason | default('', true)
+                 or ('backup_failed' if deploy_phase | default('') == 'backup'
+                     else 'write_failed' if deploy_phase | default('') in ['write', 'label']
+                     else 'config_test_failed' if deploy_phase | default('') == 'config_test'
+                     else 'reload_failed' if deploy_phase | default('') == 'reload'
+                     else 'verify_failed' if deploy_phase | default('') == 'verify'
+                     else 'internal') }}
             failed_task_name: "{{ ansible_failed_task.name | default('') }}"
           no_log: true
+
+        - name: Roll this host back to its backups
+          ansible.builtin.include_tasks: tasks/rollback.yml
+          when: (deploy_step | default('')) in write_steps
 
       always:
         - name: Publish the result of this host
@@ -60,11 +84,28 @@
                    'step': deploy_step | default(''),
                    'reason': deploy_reason | default(''),
                    'backup_dir': backup_dir | default(''),
+                   'rolled_back': rolled_back | default(false),
+                   'rollback_error': rollback_error | default(''),
                    'failed_task': failed_task_name | default(''),
-                   'hash_rc': [(new_leaf_key_hash.rc | default(-1)) | int,
-                               (new_key_key_hash.rc | default(-1)) | int],
-                   'hash_stderr': (new_leaf_key_hash.stderr | default('') | truncate(200)),
-                   'hash_msg': (new_leaf_key_hash.msg | default('') | truncate(200)),
-                   'hash_module_stderr': (new_leaf_key_hash.module_stderr | default('') | truncate(200)),
-                   'hash_failed': (new_leaf_key_hash.failed | default(false))}}} }}
+                   'files': written_files | default({}),
+                   'targets': target_report | default({}),
+                   'verify': {'attempts': verify_attempts | default(0) | int,
+                              'chain_length': verify_chain_length | default(0) | int},
+                   'hash_rc': [((new_leaf_key_hash | default({})).get('rc', -1)) | int,
+                               ((new_key_key_hash | default({})).get('rc', -1)) | int],
+                   'hash_stderr': ((new_leaf_key_hash | default({})).get('stderr', '') | truncate(200)),
+                   'hash_msg': ((new_leaf_key_hash | default({})).get('msg', '') | truncate(200)),
+                   'hash_module_stderr': ((new_leaf_key_hash | default({})).get('module_stderr', '') | truncate(200)),
+                   'hash_failed': ((new_leaf_key_hash | default({})).get('failed', false))}}} }}
           no_log: true
+
+    # §6.4 step 2's retention policy: only a host that verified may prune, and the pruner only ever walks the
+    # backup root (it keeps the newest backup of every path, so a rollback target is never removed).
+    - name: Prune backups past their retention
+      ansible.builtin.script:
+        cmd: "files/prune_backups.py --root {{ backup_root }} --retention-days {{ backup_retention_days | int }}"
+        executable: python3
+      become: true
+      timeout: 60
+      changed_when: false
+      when: (deploy_step | default('')) == 'verified'

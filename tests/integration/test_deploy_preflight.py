@@ -1,11 +1,16 @@
-"""Preflight and backup of a host deploy (Plan 3 Task 14; spec 6.4 steps 1–2, 9.6, 10.2 scenario 7).
+"""Preflight, backup and the write path of a host deploy (Plan 3 Tasks 14–15; spec 6.4 steps 1–3).
 
 These tests never inspect the code's own output: they read, stat and fingerprint the running containers
 through ``docker compose exec`` (``ssh_targets``), so "nothing changed" means the bytes, inode, mode and
-owner on the target are untouched. Task 14's playbook stops after the backup, so every passing preflight
-here ends ``failed``/``internal`` with ``step: backed_up`` — the fail-safe boundary of the task.
+owner on the target are untouched.
+
+Task 14's playbook stopped after the backup, so every passing preflight ended ``failed``/``internal``; from
+Task 15 the same run goes on to write, reload and verify, so a passing preflight ends ``succeeded``. The
+boundary that remains — and that this file still proves — is that the backup of every affected file is
+complete and matches its manifest **before** the first live write starts.
 """
 
+import hashlib
 import importlib.util
 import json
 from datetime import UTC, datetime
@@ -14,7 +19,7 @@ from uuid import uuid4
 
 from app.ansible.deploy import run_host_deploy
 from app.models.enums import WebserverType
-from tests.integration.conftest import JOB_ID
+from tests.integration.conftest import JOB_ID, task_starts
 
 WWW_CRT = "/etc/nginx/ssl/www.crt"
 WWW_KEY = "/etc/nginx/ssl/www.key"
@@ -59,7 +64,7 @@ def web01_targets(material, expected):
     ]
 
 
-def test_backup_tree_and_manifest_without_touching_live_files(ssh_targets, fresh_targets, deploy_material, tmp_path):
+def test_backup_is_complete_before_the_first_write(ssh_targets, fresh_targets, deploy_material, tmp_path):
     live = ("/etc/nginx/ssl/www.crt", "/etc/nginx/ssl/www.key", "/etc/nginx/ssl/legacy.key")
     before = {path: (ssh_targets.read("ssh-nginx-1", path), ssh_targets.stat("ssh-nginx-1", path)) for path in live}
     targets = web01_targets(deploy_material, ssh_targets.old.fingerprint)
@@ -67,11 +72,12 @@ def test_backup_tree_and_manifest_without_touching_live_files(ssh_targets, fresh
         deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX, targets,
         deploy_material.staged, job_id=JOB_ID, retention_days=30, timeout_seconds=600,
     )  # fmt: skip
-    assert (outcome.status, outcome.reason, outcome.precheck["step"]) == ("failed", "internal", "backed_up"), describe(outcome)
-    assert {path: (ssh_targets.read("ssh-nginx-1", path), ssh_targets.stat("ssh-nginx-1", path)) for path in live} == before
-    assert ssh_targets.served_fingerprint("ssh-nginx-1", WWW_VHOST) == ssh_targets.old.fingerprint
+    assert (outcome.status, outcome.reason, outcome.precheck["step"]) == (
+        "succeeded", None, "verified"), describe(outcome)  # fmt: skip
+    assert ssh_targets.served_fingerprint("ssh-nginx-1", WWW_VHOST) == deploy_material.fingerprint
     backup = f"/var/backups/cert-dashboard/{JOB_ID}"
     assert ssh_targets.stat("ssh-nginx-1", backup)[:3] == (0o700, "root", "root")
+    # every backup holds the bytes that were live before this run, not the new material
     assert ssh_targets.read("ssh-nginx-1", backup + "/etc/nginx/ssl/www.crt") == ssh_targets.old.fullchain_pem
     assert ssh_targets.stat("ssh-nginx-1", backup + "/etc/nginx/ssl/legacy.key").mode == 0o600
     manifest = json.loads(ssh_targets.read("ssh-nginx-1", backup + "/manifest.json"))
@@ -79,6 +85,15 @@ def test_backup_tree_and_manifest_without_touching_live_files(ssh_targets, fresh
     assert manifest["created_at"].endswith("Z")
     assert manifest["files"][WWW_CRT]["fingerprint"] == ssh_targets.old.fingerprint
     assert manifest["files"][WWW_CRT]["owner"] == "root" and manifest["files"][WWW_CRT]["mode"] == "0644"
+    for path, (data, stat) in before.items():
+        assert manifest["files"][path]["sha256"] == hashlib.sha256(data).hexdigest()
+        assert manifest["files"][path]["size"] == stat.size
+    # the backup is checked against its manifest before anything live is replaced: the assert task
+    # finishes before the first write task starts
+    starts = task_starts(tmp_path / "run")
+    backup_assert = starts.index("Refuse to go on when a backup is missing or does not match its manifest")
+    first_write = starts.index("Create the empty temporary file of every changed path with its final metadata")
+    assert backup_assert < first_write
     # The manifest this run wrote must be one the retention tool can read (Task 15 runs it): an over-strict
     # pruner would keep every backup forever. A synthetic newer manifest of the same paths makes this one
     # removable, so an empty plan below means the real manifest is unusable.
@@ -164,7 +179,6 @@ def test_apache_backup_covers_leaf_chain_and_key(ssh_targets, fresh_targets, dep
         "/etc/apache2/ssl/www.chain.pem",
         "/etc/apache2/ssl/www.key",
     )
-    before = {path: (ssh_targets.read("ssh-apache", path), ssh_targets.stat("ssh-apache", path)) for path in live}
     job = uuid4()
     targets = [
         deploy_material.target(
@@ -177,13 +191,13 @@ def test_apache_backup_covers_leaf_chain_and_key(ssh_targets, fresh_targets, dep
         deploy_material.runner(tmp_path), "web03.example.internal", WebserverType.APACHE, targets,
         deploy_material.staged, job_id=job, retention_days=30, timeout_seconds=600,
     )  # fmt: skip
-    assert (outcome.status, outcome.precheck["step"]) == ("failed", "backed_up"), describe(outcome)
-    assert {path: (ssh_targets.read("ssh-apache", path), ssh_targets.stat("ssh-apache", path)) for path in live} == before
+    assert (outcome.status, outcome.precheck["step"]) == ("succeeded", "verified"), describe(outcome)
     backup = f"{BACKUP_ROOT}/{job}"
     manifest = json.loads(ssh_targets.read("ssh-apache", backup + "/manifest.json"))
     assert sorted(manifest["files"]) == sorted(live)
     assert ssh_targets.stat("ssh-apache", backup + "/etc/apache2/ssl/www.key")[:3] == (0o600, "root", "root")
     assert ssh_targets.read("ssh-apache", backup + "/etc/apache2/ssl/www.chain.pem") == ssh_targets.old.chain_pem
+    assert ssh_targets.read("ssh-apache", backup + "/etc/apache2/ssl/www.crt") == ssh_targets.old.cert_pem
     for path in ("/etc/apache2/ssl/www.crt", "/etc/apache2/ssl/www.chain.pem"):
         assert ssh_targets.stat("ssh-apache", backup + path).mode & 0o777 <= 0o644
         assert ssh_targets.stat("ssh-apache", backup + path)[1:3] == ("root", "root")
@@ -197,13 +211,16 @@ def test_backup_mode_is_the_bitmask_of_the_original(ssh_targets, fresh_targets, 
     """
     targets = web01_targets(deploy_material, ssh_targets.old.fingerprint)
     for original in (0o500, 0o620, 0o711):
+        # Every iteration starts from the pristine target: the previous run deployed the new key material, so
+        # writing the old certificate back without the old keys would break `nginx -t` before the backup.
+        ssh_targets.reset("ssh-nginx-1")
         ssh_targets.put("ssh-nginx-1", WWW_CRT, ssh_targets.old.fullchain_pem, mode=original)
         job = uuid4()
         outcome = run_host_deploy(
             deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX, targets,
             deploy_material.staged, job_id=job, retention_days=30, timeout_seconds=600,
         )  # fmt: skip
-        assert outcome.precheck["step"] == "backed_up", describe(outcome)
+        assert outcome.precheck["step"] == "verified", describe(outcome)
         backup = f"{BACKUP_ROOT}/{job}"
         copied = ssh_targets.stat("ssh-nginx-1", backup + WWW_CRT)
         assert copied.mode == original & 0o644, f"{original:04o} -> {copied.mode:04o}"
@@ -243,7 +260,7 @@ def test_no_secret_in_artifacts_or_excerpt(ssh_targets, fresh_targets, deploy_ma
         deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX, targets,
         deploy_material.staged, job_id=JOB_ID, retention_days=30, timeout_seconds=600,
     )  # fmt: skip
-    assert outcome.precheck["step"] == "backed_up", describe(outcome)
+    assert outcome.precheck["step"] == "verified", describe(outcome)
 
     artifacts = [path for path in (tmp_path / "run").rglob("*") if path.is_file()]
     assert artifacts
@@ -269,11 +286,14 @@ def test_a_second_run_of_the_same_job_reuses_its_backup_directory(ssh_targets, f
         deploy_material.runner(tmp_path), "web01.example.internal", WebserverType.NGINX, targets,
         deploy_material.staged, job_id=JOB_ID, retention_days=30, timeout_seconds=600,
     )  # fmt: skip
-    assert first.precheck["step"] == second.precheck["step"] == "backed_up", describe(second)
+    assert first.precheck["step"] == second.precheck["step"] == "verified", describe(second)
     manifest = json.loads(
         ssh_targets.read("ssh-nginx-1", f"{BACKUP_ROOT}/{JOB_ID}/manifest.json")
     )
     assert sorted(manifest["files"]) == sorted((WWW_CRT, WWW_KEY, LEGACY_KEY))
-    assert ssh_targets.read("ssh-nginx-1", f"{BACKUP_ROOT}/{JOB_ID}" + WWW_CRT) == ssh_targets.old.fullchain_pem
+    # the second run backed up the content the first run wrote and then wrote nothing itself
+    assert ssh_targets.read("ssh-nginx-1", f"{BACKUP_ROOT}/{JOB_ID}" + WWW_CRT) == ssh_targets.read(
+        "ssh-nginx-1", WWW_CRT
+    )
     # the job id names the directory, so a re-run of the same job never piles up copies of the same path
     assert ssh_targets.backups("ssh-nginx-1") == [f"{BACKUP_ROOT}/{JOB_ID}"]
