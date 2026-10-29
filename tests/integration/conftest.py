@@ -2,15 +2,18 @@ import contextlib
 import functools
 import itertools
 import json
+import re
 import secrets
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import ClassVar
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, ClassVar
 
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import Session
 from testcontainers.community.postgres import PostgresContainer
 
@@ -18,8 +21,14 @@ from app.crypto.keys import public_key_sha256
 from tests.fixtures.git_inventory import InventoryRepo, make_bare_repo, write_vaulted
 from tests.fixtures.ssh_targets import VHOSTS
 
+if TYPE_CHECKING:
+    from app.models import Job
+
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE = "postgres:16-bookworm@sha256:0ea6700a3b4f0ae6ce746519073558aed4d88a79d8d07622a9a644946c7319c4"
+# The one Postgres Testcontainer of the session, so ``staging_restore`` can run ``pg_dump``/``pg_restore``
+# inside it exactly as §11.4's restore drill does (Plan 3 Task 20).
+_POSTGRES: dict[str, PostgresContainer] = {}
 
 
 @pytest.fixture(scope="session")
@@ -32,6 +41,7 @@ def database_urls():
         dbname="cert_dashboard",
         driver="psycopg",
     ) as postgres:
+        _POSTGRES["container"] = postgres
         owner = create_engine(postgres.get_connection_url())
         with owner.begin() as conn:
             conn.exec_driver_sql(
@@ -2049,3 +2059,708 @@ def deploy_ready(ssh_targets, fresh_targets, queue_factory, ansible_worker, inve
         )
     finally:
         shutil.rmtree(artifacts, ignore_errors=True)
+
+
+# --- The §10.4 acceptance stack (Plan 3 Task 20) ------------------------------------------------
+#
+# One environment for the whole manual checklist (spec §10.4, Contract decision 24): a real web app and a
+# real worker on the same private database, the SSH targets as the managed hosts, the ``targets`` profile's
+# SMTP capture as the relay and the fixture CA as the CA portal. Every step of the scenario goes through the
+# HTTP client or the services an operator's browser and the worker use; nothing writes rows to fake a step.
+
+ACCEPTANCE_NOW = datetime(2026, 10, 19, 12, 0, tzinfo=UTC)
+STAGING_DATABASE = "cert_dashboard_restore"
+ACCEPTANCE_ADMIN = "acceptance-admin"
+ACCEPTANCE_ADMIN_PASSWORD = "acceptance-admin-pass-2026"
+ACCEPTANCE_ADMIN_EMAIL = "acceptance@example.internal"
+ACCEPTANCE_PFX_PASSWORD = "acceptance-pfx-1"
+ACCEPTANCE_EXPORT_PASSWORD = "export-pfx-pass-1"
+ACCEPTANCE_VAULT_PASSWORD = "acceptance-vault-pass-9"
+ACCEPTANCE_SMTP_PASSWORD = "acceptance-smtp-pass-7"
+# The §10.2/§6.4 fault: the nginx master is stopped, so ``nginx -s reload`` succeeds while its workers keep
+# serving the certificate they already loaded.
+ACCEPTANCE_VHOSTS = VHOSTS
+
+
+class AcceptanceClock:
+    """A deterministic clock: the scenario advances it only where TOTP steps must not be reused."""
+
+    def __init__(self, value=ACCEPTANCE_NOW):
+        self.value = value
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, **delta):
+        self.value += timedelta(**delta)
+
+
+def _csrf_token(html: str) -> str:
+    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
+    if match is None:
+        raise AssertionError(f"no CSRF token in the page: {html[:400]}")
+    return match.group(1)
+
+
+def _location_id(response, pattern: str) -> int:
+    match = re.search(pattern, response.headers.get("location", ""))
+    if match is None:
+        raise AssertionError(f"unexpected redirect {response.headers.get('location')!r}: {response.text[:400]}")
+    return int(match.group(1))
+
+
+class AcceptanceStack:
+    """The §10.4 acceptance environment plus the form-level helpers the ordered scenario uses."""
+
+    def __init__(self, *, factory, ssh, smtp, ca, keyring, directory, artifacts, web_app, worker, settings):
+        self.factory = factory
+        self.ssh = ssh
+        self.smtp = smtp
+        self.ca = ca
+        self.keyring = keyring
+        self.directory = directory
+        self.artifacts_root = artifacts
+        self.settings = settings
+        self.worker = worker
+        self.app = web_app
+        self.clock = web_app.state.clock
+        self.database_name = factory.kw["bind"].url.database
+        self.client = None
+        self.csrf = ""
+        self.admin_password = ACCEPTANCE_ADMIN_PASSWORD
+        self.totp_secret: str | None = None
+        self.secrets = SimpleNamespace(
+            admin=ACCEPTANCE_ADMIN_PASSWORD,
+            pfx=ACCEPTANCE_PFX_PASSWORD,
+            export=ACCEPTANCE_EXPORT_PASSWORD,
+            vault=ACCEPTANCE_VAULT_PASSWORD,
+            smtp=ACCEPTANCE_SMTP_PASSWORD,
+        )
+
+    # -- plumbing --------------------------------------------------------------------------------
+
+    def open(self) -> "AcceptanceStack":
+        from fastapi.testclient import TestClient
+
+        self.client = TestClient(
+            self.app, base_url="https://testserver", client=("192.0.2.42", 4000), raise_server_exceptions=False
+        )
+        self.client.__enter__()
+        return self
+
+    def close(self) -> None:
+        if self.client is not None:
+            self.client.__exit__(None, None, None)
+            self.client = None
+
+    def ready(self) -> None:
+        """Tick the worker so its ``worker.start`` row has a fresh heartbeat (the screens gate on it)."""
+        self.worker.tick()
+
+    def get(self, path: str, **kwargs):
+        response = self.client.get(path, **kwargs)
+        if "text/html" in response.headers.get("content-type", ""):
+            match = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
+            if match is not None:
+                self.csrf = match.group(1)
+        return response
+
+    def post(self, path: str, data=None, files=None, *, csrf: bool = True, **kwargs):
+        body = dict(data or {})
+        if csrf:
+            body["csrf_token"] = self.csrf
+        response = self.client.post(path, data=body, files=files, follow_redirects=False, **kwargs)
+        if "text/html" in response.headers.get("content-type", ""):
+            match = re.search(r'name="csrf_token" value="([^"]+)"', response.text)
+            if match is not None:
+                self.csrf = match.group(1)
+        return response
+
+    def job(self, job_id):
+        from app.models import Job
+
+        return fetch(self.factory, Job, job_id)
+
+    def rows(self, model):
+        with self.factory() as db:
+            return list(db.scalars(select(model)))
+
+    def run_worker(self, timeout: float = 900.0) -> None:
+        self.ready()
+        self.worker.run_queued(timeout=timeout)
+
+    def latest_job(self, job_type, action: str | None = None):
+        """The newest committed job of ``job_type`` (a ``JobType`` or its value) with ``action``."""
+        from app.models import Job
+        from app.models.enums import JobType
+
+        job_type = JobType(job_type)
+        with self.factory() as db:
+            query = select(Job).where(Job.type == job_type).order_by(Job.created_at.desc(), Job.id.desc())
+            for job in db.scalars(query):
+                if action is None or job.payload.get("action") == action:
+                    return job
+        raise AssertionError(f"no {job_type} job with action {action!r} was enqueued")
+
+    def wait_for_job(self, job_id, *, allowed=("succeeded",)) -> "Job":
+        job = self.job(job_id)
+        if job.status not in allowed:
+            raise AssertionError(f"job {job_id} ended {job.status}: {job.error_class} {job.error_message} {job.result}")
+        return job
+
+    # -- 1. authentication -----------------------------------------------------------------------
+
+    def bootstrap_admin_with_cli(self) -> None:
+        """§11.2 step 4: the real ``app.cli bootstrap-admin`` with ``BOOTSTRAP_ADMIN_PASSWORD``."""
+        import base64
+        import os
+
+        from app import cli as cli_module
+
+        url = self.factory.kw["bind"].url
+        secrets_dir = self.directory / "cli-secrets"
+        secrets_dir.mkdir(exist_ok=True)
+        (secrets_dir / "master_key").write_text(
+            json.dumps({"active": 1, "keys": {"1": base64.b64encode(bytes(range(32))).decode()}})
+        )
+        (secrets_dir / "db_password").write_text(url.password)
+        environment = {
+            "SECRETS_DIR": str(secrets_dir),
+            "DB_HOST": url.host,
+            "DB_PORT": str(url.port),
+            "DB_NAME": url.database,
+            "DB_USER": url.username,
+            "BOOTSTRAP_ADMIN_PASSWORD": ACCEPTANCE_ADMIN_PASSWORD,
+        }
+        previous = {name: os.environ.get(name) for name in environment}
+        os.environ.update(environment)
+        try:
+            code = cli_module.main(
+                ["bootstrap-admin", "--username", ACCEPTANCE_ADMIN, "--email", ACCEPTANCE_ADMIN_EMAIL]
+            )
+        finally:
+            for name, value in previous.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        assert code == 0, "bootstrap-admin failed"
+        assert "BOOTSTRAP_ADMIN_PASSWORD" not in os.environ
+
+    def login(self, *, with_totp: bool = False) -> None:
+        page = self.get("/login")
+        assert page.status_code == 200, page.text[:400]
+        first = self.post(
+            "/login", {"username": ACCEPTANCE_ADMIN, "password": ACCEPTANCE_ADMIN_PASSWORD}
+        )
+        if not with_totp:
+            assert first.status_code == 303 and first.headers["location"] == "/", first.text[:400]
+            self.get("/account")  # a fresh authenticated page carries this session's CSRF token
+            return
+        assert first.status_code == 303 and first.headers["location"] == "/login/2fa", first.text[:400]
+        second = self.get("/login/2fa")
+        assert second.status_code == 200
+        import pyotp
+
+        code = pyotp.TOTP(self.totp_secret).at(self.clock())
+        done = self.post("/login/2fa", {"code": code})
+        assert done.status_code == 303 and done.headers["location"] == "/", done.text[:400]
+        self.get("/account")
+
+    def logout(self) -> None:
+        response = self.post("/logout")
+        assert response.status_code == 303, response.text[:400]
+
+    def enroll_totp(self) -> str:
+        """Enrol 2FA from the account page and confirm it with the secret the page shows once."""
+        import pyotp
+
+        page = self.get("/account")
+        assert page.status_code == 200
+        enrolled = self.post("/account/totp/enroll", {"current_password": ACCEPTANCE_ADMIN_PASSWORD})
+        assert enrolled.status_code == 200, enrolled.text[:400]
+        match = re.search(r"data-secret>([A-Z2-7]+)<", enrolled.text)
+        assert match is not None, enrolled.text[:800]
+        self.totp_secret = match.group(1)
+        self.clock.advance(seconds=30)  # a new TOTP step for the confirmation
+        confirmed = self.post("/account/totp/confirm", {"code": pyotp.TOTP(self.totp_secret).at(self.clock())})
+        assert confirmed.status_code == 303, confirmed.text[:400]
+        self.get("/account")
+        self.clock.advance(seconds=30)  # the login below must not reuse the confirmation step
+        assert self.totp_secret is not None
+        return self.totp_secret
+
+    # -- 2. SMTP and the expiry alert ------------------------------------------------------------
+
+    def configure_smtp(self) -> None:
+        host, port = self.smtp.address("smtp")
+        response = self.post(
+            "/settings/smtp",
+            {
+                "host": host,
+                "port": str(port),
+                "security": "none",
+                "from": "cert-dashboard@example.internal",
+                "username": "",
+                "tls_verify": "false",
+            },
+        )
+        assert response.status_code == 303, response.text[:800]
+        response = self.post(
+            "/settings/alerts",
+            {
+                "thresholds_days": "30,7,1",
+                "recipients": "ops@example.internal",
+                "digest_enabled": "false",
+                "expiry_check_enabled": "true",
+            },
+        )
+        assert response.status_code == 303, response.text[:800]
+
+    def messages(self) -> list:
+        return self.smtp.messages()
+
+    def send_test_email(self) -> int:
+        """POST the SMTP test form, run the job the worker claims, return how many messages arrived."""
+        before = len(self.messages())
+        response = self.post("/settings/smtp/test")
+        assert response.status_code == 303, response.text[:400]
+        self.run_worker(timeout=600)
+        job = self.wait_for_job(self.latest_job("alert_expiry", "smtp_test").id)
+        assert job.result.get("delivered") is True, job.result
+        return len(self.messages()) - before
+
+    def run_expiry_check(self) -> "Job":
+        from app.jobs.queue import SYSTEM_ACTOR, enqueue
+        from app.models.enums import JobType
+
+        with self.factory.begin() as db:
+            job = enqueue(db, JobType.ALERT_EXPIRY, {}, SYSTEM_ACTOR, priority=40, run_after=self.clock())
+        self.run_worker(timeout=600)
+        return self.wait_for_job(job.id)
+
+    def mail_for(self, certificate_id: int):
+        """The newest captured message that names the certificate's common name."""
+        from app.models import Certificate
+
+        with self.factory() as db:
+            name = db.get(Certificate, certificate_id).common_name
+        matching = [message for message in self.messages() if name in message.as_string()]
+        assert matching, f"no mail mentioned {name}"
+        return matching[-1]
+
+    # -- certificates through the import form ----------------------------------------------------
+
+    def upload_trust_anchor(self) -> None:
+        """The fixture root as the trusted anchor, through Settings → Trust anchors (§5.8)."""
+        response = self.post(
+            "/settings/trust-anchors",
+            {"pem": self.ca.root_pem.decode("ascii"), "notes": "acceptance fixture root"},
+        )
+        assert response.status_code == 303, response.text[:800]
+
+    def import_pem(self, *, common_name: str, not_after, not_before=None, owner_email="ada@example.internal"):
+        """§10.4 step 2: import a certificate (public part only) through the upload form."""
+        from cryptography.hazmat.primitives.asymmetric import ec
+
+        key = ec.generate_private_key(ec.SECP256R1())
+        pem = self.ca.issue(
+            public_key=key.public_key(),
+            common_name=common_name,
+            sans=[common_name],
+            not_before=not_before or self.clock() - timedelta(days=1),
+            not_after=not_after,
+        )
+        response = self.post(
+            "/certificates/import/upload",
+            {
+                "format": "pem",
+                "file_text": pem.decode("ascii"),
+                "owner_name": "Ada",
+                "owner_email": owner_email,
+                "team": "web",
+            },
+        )
+        assert response.status_code == 303, response.text[:800]
+        return _location_id(response, r"/certificates/(\d+)$"), pem
+
+    def import_pfx(self, data: bytes, *, password: str, owner_email="ada@example.internal") -> int:
+        response = self.post(
+            "/certificates/import/upload",
+            {"format": "pfx", "password": password, "owner_name": "Ada", "owner_email": owner_email, "team": "web"},
+            files={"file": ("acceptance.pfx", data, "application/x-pkcs12")},
+        )
+        assert response.status_code == 303, response.text[:800]
+        return _location_id(response, r"/certificates/(\d+)$")
+
+    def export_pfx(self, certificate_id: int, *, pfx_password: str) -> bytes:
+        """§10.4 step 4: the re-authenticated export form; the response is the PKCS#12 file."""
+        response = self.post(
+            f"/certificates/{certificate_id}/export.pfx",
+            {
+                "password": ACCEPTANCE_ADMIN_PASSWORD,
+                "pfx_password": pfx_password,
+                "pfx_password_confirm": pfx_password,
+            },
+        )
+        assert response.status_code == 200, (response.status_code, response.text[:400])
+        assert response.content[:1] == b"\x30", "the export did not return a DER PKCS#12 file"
+        return response.content
+
+    # -- 3. inventory and discovery --------------------------------------------------------------
+
+    def build_inventory_repository(self) -> str:
+        """A bare inventory repository served over SSH by ``ssh-nginx-1`` (the deploy-key path)."""
+        import json as jsonlib
+
+        from tests.fixtures.git_inventory import make_bare_repo, write_vaulted
+
+        root = self.directory / "inventory-repo"
+        root.mkdir(exist_ok=True)
+        hosts = self.ssh.inventory_hosts()
+        document = {
+            "all": {
+                "hosts": {
+                    name: {key: value for key, value in variables.items() if key != "groups"}
+                    for name, variables in hosts.items()
+                },
+                "children": {"canary_ring": {"hosts": {"web01.example.internal": {}}},
+                             "ring_a": {"hosts": {"web02.example.internal": {}, "web03.example.internal": {}}}},
+            }
+        }
+        repo = make_bare_repo(root / "inventory.git", {"inventory/hosts.yml": jsonlib.dumps(document)})
+        staging = root / "vault-staging"
+        (staging / "group_vars/all").mkdir(parents=True, exist_ok=True)
+        write_vaulted(staging / "group_vars/all/vault.yml", {"inventory_note": "vaulted"}, ACCEPTANCE_VAULT_PASSWORD)
+        repo.commit({"inventory/group_vars/all/vault.yml": (staging / "group_vars/all/vault.yml").read_text()})
+        self.ssh.copy_in("ssh-nginx-1", repo.path, "/home/cdeploy/inventory.git", "cdeploy")
+        port = self.ssh.hosts["ssh-nginx-1"].ssh_port
+        return f"ssh://cdeploy@127.0.0.1:{port}/home/cdeploy/inventory.git"
+
+    def configure_inventory_over_ssh(self) -> str:
+        url = self.build_inventory_repository()
+        response = self.post(
+            "/settings/inventory",
+            {"repo_url": url, "ref": "main", "path": "inventory", "webserver_var": "webserver_type"},
+        )
+        assert response.status_code == 303, response.text[:800]
+        return url
+
+    def test_pull(self) -> "Job":
+        response = self.post("/settings/inventory/test-pull")
+        assert response.status_code == 303, response.text[:400]
+        self.run_worker(timeout=600)
+        return self.wait_for_job(self.latest_job("discover", "test_pull").id)
+
+    def discover_all(self) -> "Job":
+        response = self.post("/servers/discover", {"scope": "all"})
+        assert response.status_code == 303, response.text[:400]
+        self.run_worker(timeout=1200)
+        return self.wait_for_job(self.latest_job("discover").id)
+
+    def discover(self, hostname: str) -> "Job":
+        response = self.post("/servers/discover", {"scope": "host", "hostname": hostname})
+        assert response.status_code in (303, 404), response.text[:400]
+        self.run_worker(timeout=1200)
+        return self.wait_for_job(self.latest_job("discover").id)
+
+    def bindings(self, hostname: str | None = None) -> list:
+        """The active bindings (with their server) as the discovery left them."""
+        from app.models import Binding, Server
+
+        with self.factory() as db:
+            query = (
+                select(Server.hostname, Binding)
+                .join(Server, Server.id == Binding.server_id)
+                .where(Binding.is_active.is_(True))
+                .order_by(Binding.id)
+            )
+            if hostname is not None:
+                query = query.where(Server.hostname == hostname)
+            return list(db.execute(query).all())
+
+    def binding_directives(self) -> dict[str, set[tuple[str, str]]]:
+        """Per inventory host, the discovered ``(vhost, certificate path)`` pairs (the §10.4 spot check)."""
+        found: dict[str, set[tuple[str, str]]] = {}
+        for hostname, binding in self.bindings():
+            found.setdefault(hostname, set()).add((binding.vhost_name, binding.cert_path))
+        return found
+
+    # -- 4/5. PFX round trip and renewal ---------------------------------------------------------
+
+    def renew(self, source_id: int) -> tuple:
+        """§10.4 step 5: the whole wizard with this session's fixture CA standing in for the CA portal."""
+        from app.models import Renewal
+
+        created = self.post(f"/renewals/new?from={source_id}")
+        assert created.status_code == 303, created.text[:800]
+        renewal_id = uuid.UUID(re.search(r"/renewals/([0-9a-f-]{36})", created.headers["location"]).group(1))
+        generated = self.post(f"/renewals/{renewal_id}/generate-csr", {"key_algorithm": "ecdsa-p256"})
+        assert generated.status_code == 303, generated.text[:800]
+        submitted = self.post(f"/renewals/{renewal_id}/submit", {"order_reference": "ACCEPTANCE-1"})
+        assert submitted.status_code == 303, submitted.text[:800]
+        csr = self.get(f"/renewals/{renewal_id}/csr.pem")
+        assert csr.status_code == 200 and csr.text.startswith("-----BEGIN CERTIFICATE REQUEST-----")
+        issued = self.ca.issue(csr.text)
+        uploaded = self.post(
+            f"/renewals/{renewal_id}/issued",
+            {"leaf_text": issued.decode("ascii"), "chain_text": self.ca.chain_pem.decode("ascii")},
+        )
+        assert uploaded.status_code == 303, uploaded.text[:800]
+        with self.factory() as db:
+            renewal = db.get(Renewal, renewal_id)
+            return renewal_id, renewal.certificate_id
+
+    def renewal_state(self, renewal_id) -> str:
+        from app.models import Renewal
+
+        with self.factory() as db:
+            return str(db.get(Renewal, renewal_id).state)
+
+    # -- 6/7. deploy and its report --------------------------------------------------------------
+
+    def deploy(self, certificate_id: int, *, binding_ids, batch_percent: int = 100, pause_after_canary: bool = True):
+        """Preview and confirm on the real start screen; the plan hash must round-trip (§6.6, §8.7)."""
+        query = [f"certificate_id={certificate_id}"]
+        query += [f"binding_id={binding_id}" for binding_id in binding_ids]
+        query += [f"batch_percent={batch_percent}", "pause_after_canary=true" if pause_after_canary else "pause_after_canary=false"]
+        page = self.get("/deploy?" + "&".join(query))
+        assert page.status_code == 200, page.text[:800]
+        plan = re.search(r'name="plan_sha256" value="([0-9a-f]{64})"', page.text)
+        assert plan is not None, page.text[:800]
+        response = self.post(
+            "/deploy",
+            {
+                "certificate_id": str(certificate_id),
+                "plan_sha256": plan.group(1),
+                "confirm": "yes",
+                "batch_percent": str(batch_percent),
+                "pause_after_canary": "true" if pause_after_canary else "false",
+                "binding_id": [str(binding_id) for binding_id in binding_ids],
+            },
+        )
+        assert response.status_code == 303, response.text[:800]
+        return uuid.UUID(response.headers["location"].rsplit("/", 1)[1])
+
+    def continue_deploy(self, job_id) -> None:
+        response = self.post(f"/deploy/{job_id}/continue")
+        assert response.status_code == 303, response.text[:800]
+        self.run_worker(timeout=1200)
+
+    def report(self, job_id) -> dict:
+        response = self.get(f"/deploy/{job_id}/report.json")
+        assert response.status_code == 200, response.text[:400]
+        return response.json()
+
+    def report_host(self, job_id, hostname: str) -> dict:
+        report = self.report(job_id)
+        [host] = [host for host in report["hosts"] if host["hostname"] == hostname]
+        vhost = _binding_vhost(host)
+        served = self.ssh.served_fingerprint(self.service_of(hostname), vhost) if vhost else None
+        return {
+            "status": host["status"],
+            "reason": host["reason"],
+            "files_restored": report["files_restored"],
+            "served": served,
+        }
+
+    def service_of(self, hostname: str) -> str:
+        for service, host in self.ssh.hosts.items():
+            if host.inventory_name == hostname:
+                return service
+        raise KeyError(hostname)
+
+    # -- 6. scans and the digest -----------------------------------------------------------------
+
+    def scan_all(self) -> "Job":
+        response = self.post("/scans/run", {"scope": "all"})
+        assert response.status_code == 303, response.text[:400]
+        self.run_worker(timeout=900)
+        return self.wait_for_job(self.latest_job("scan").id)
+
+    def scan_status_for(self, hostname: str, vhost: str) -> str:
+        from app.models import Binding, Endpoint, Server
+
+        with self.factory() as db:
+            endpoint = db.scalars(
+                select(Endpoint)
+                .join(Binding, Binding.id == Endpoint.binding_id)
+                .join(Server, Server.id == Binding.server_id)
+                .where(Server.hostname == hostname, Binding.vhost_name == vhost, Binding.is_active.is_(True))
+            ).first()
+            assert endpoint is not None, f"no endpoint for {hostname} {vhost}"
+            return str(endpoint.last_scan_status) if endpoint.last_scan_status else ""
+
+    def digest(self) -> dict:
+        from app.services.digest import collect_digest, digest_counts
+
+        with self.factory() as db:
+            return digest_counts(collect_digest(db, self.clock()))
+
+    # -- 8. restore drill ------------------------------------------------------------------------
+
+    def decrypt_one_key_from(self, restored) -> SimpleNamespace:
+        """``verify-key`` semantics against the restored database and the **same** keyring, then one PFX.
+
+        Mirrors ``python -m app.cli verify-key --certificate-id <id>``: unwrap the private key, compare the
+        DER SPKI hash with the leaf's public key, print nothing secret. The PFX export is the §11.4 drill's
+        second half: a restored stack must still be able to hand a key back to an operator.
+        """
+        from cryptography import x509
+
+        from app.crypto.keys import public_key_sha256
+        from app.models import Certificate, PrivateKey
+        from app.services.audit import Actor
+        from app.services.certificates import export_pfx, unwrap_key
+
+        with restored() as db:
+            keyed = db.scalars(
+                select(Certificate).where(Certificate.key_id.is_not(None)).order_by(Certificate.id.desc())
+            ).first()
+            assert keyed is not None, "the restored database has no keyed certificate"
+            row = db.get(PrivateKey, keyed.key_id)
+            key = unwrap_key(row, self.keyring)
+            try:
+                leaf = x509.load_pem_x509_certificate(keyed.pem.encode("ascii"))
+                fingerprint = public_key_sha256(key.public_key())
+                assert fingerprint == row.public_key_sha256
+                assert public_key_sha256(leaf.public_key()) == fingerprint
+            finally:
+                del key
+            certificate_id = keyed.id
+        with restored.begin() as db:
+            bundle = export_pfx(db, certificate_id, self.keyring, ACCEPTANCE_EXPORT_PASSWORD, Actor(None, "restore-drill"))
+        return SimpleNamespace(certificate_id=certificate_id, public_key_sha256=fingerprint, pfx=bundle)
+
+    # -- 7. the forced-rollback drill -------------------------------------------------------------
+
+    def restore_previous_material(self, service: str = "ssh-nginx-1") -> None:
+        """Put the pre-renewal certificate back on the host and make the webserver serve it.
+
+        Afterwards the on-disk state is exactly what a redeploy of the new certificate will overwrite, so the
+        rollback has something real to restore (spec §10.4 "force a rollback on a test host").
+        """
+        self.ssh.put(service, "/etc/nginx/ssl/www.crt", self.ssh.old.fullchain_pem, mode=0o644)
+        self.ssh.put(service, "/etc/nginx/ssl/www.key", self.ssh.old.key_pem, mode=0o600)
+        self.ssh.put(service, "/etc/nginx/ssl/legacy.key", self.ssh.old.key_pem, mode=0o600)
+        self.ssh.exec(service, "nginx", "-t")
+        self.ssh.exec(service, "nginx", "-s", "reload")
+        self.ssh.mark_baseline(service)
+
+    def fingerprint_of(self, material) -> str:
+        """The SHA-256 fingerprint of a target material (``ssh_targets.old`` here)."""
+        return material.fingerprint
+
+
+def _binding_vhost(host: dict) -> str | None:
+    return next((binding["vhost_name"] for binding in host["bindings"] if binding["vhost_name"]), None)
+
+
+@pytest.fixture(scope="module")
+def acceptance_stack(web_factory, ssh_targets, compose_targets, ca):
+    """The §10.4 acceptance environment (Plan 3 Task 20): one web app and one worker on one database.
+
+    The web app is created through ``create_app`` and driven with ``TestClient`` (a real browser's forms);
+    the worker is a real ``Worker`` with the fixture SSH key, the pinned ``known_hosts``, the tmpfs key
+    directory and the fixture CA. The targets are reset once, because the scenario authors its own on-host
+    state (the D3 include move) before discovery.
+    """
+    import shutil
+    import tempfile
+
+    from app.config import Settings
+    from app.crypto.keyring import Keyring
+    from app.jobs.handlers import build_registry
+    from app.jobs.worker import Worker, record_worker_start
+    from app.main import create_app
+    from app.services.deploy import configure_keyring
+
+    keyring = Keyring(1, {1: bytes(range(32))})
+    configure_keyring(keyring)
+    ssh_targets.reset_all()
+    disable_schedules(web_factory, "scan", "trust_recheck", "expiry_check", "digest", "cleanup", "discovery")
+    directory = Path(tempfile.mkdtemp(prefix="cd-acceptance-", dir="/tmp"))
+    artifacts = Path(tempfile.mkdtemp(prefix="cd-", dir="/tmp"))
+    url = web_factory.kw["bind"].url
+    database = {
+        "db_password": url.password.encode(),
+        "db_host": url.host,
+        "db_port": url.port,
+        "db_user": url.username,
+        "db_name": url.database,
+    }
+    web_settings = Settings(
+        profile="web",
+        keyring=keyring,
+        keyring_sha256="0" * 64,
+        session_secret=b"acceptance-session-signing-secret-32b",
+        smtp_password=ACCEPTANCE_SMTP_PASSWORD.encode(),
+        **database,
+    )
+    worker_settings = Settings(
+        profile="worker",
+        keyring=keyring,
+        keyring_sha256="0" * 64,
+        ansible_ssh_key=ssh_targets.client_key,
+        ansible_vault_password=ACCEPTANCE_VAULT_PASSWORD.encode(),
+        smtp_password=ACCEPTANCE_SMTP_PASSWORD.encode(),
+        known_hosts_file=ssh_targets.known_hosts,
+        inventory_root=directory / "inventory",
+        key_staging_dir=directory / "keys",
+        artifacts_root=artifacts,
+        **database,
+    )
+    clock = AcceptanceClock()
+    app = create_app(web_settings)
+    app.state.factory, app.state.clock = web_factory, clock
+    worker = Worker(worker_settings, build_registry(), web_factory, clock=clock)
+    record_worker_start(web_factory, worker_settings, worker.worker_id, clock())
+    stack = AcceptanceStack(
+        factory=web_factory,
+        ssh=ssh_targets,
+        smtp=compose_targets,
+        ca=ca,
+        keyring=keyring,
+        directory=directory,
+        artifacts=artifacts,
+        web_app=app,
+        worker=worker,
+        settings=worker_settings,
+    )
+    stack.open()
+    try:
+        yield stack
+    finally:
+        stack.close()
+        worker.close(grace_seconds=0)
+        shutil.rmtree(artifacts, ignore_errors=True)
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+@pytest.fixture
+def staging_restore(database_urls, acceptance_stack):
+    """``staging_restore() -> sessionmaker[Session]``: ``pg_dump -Fc``/``pg_restore`` inside the container.
+
+    The dump is of the acceptance stack's own database and the restore lands in ``cert_dashboard_restore``
+    in the *same* Postgres Testcontainer, as the owner role — the §11.4 drill in miniature.
+    """
+
+    def restore():
+        from sqlalchemy.orm import sessionmaker
+
+        owner = database_urls[0]
+        container = _POSTGRES["container"].get_wrapped_container()
+        dump = "/tmp/cert-dashboard-acceptance.dump"
+        commands = [
+            ["pg_dump", "-Fc", "-U", owner.username, "-d", acceptance_stack.database_name, "-f", dump],
+            ["psql", "-U", owner.username, "-d", "postgres", "-c", f'DROP DATABASE IF EXISTS "{STAGING_DATABASE}"'],
+            ["psql", "-U", owner.username, "-d", "postgres", "-c", f'CREATE DATABASE "{STAGING_DATABASE}"'],
+            ["pg_restore", "-U", owner.username, "-d", STAGING_DATABASE, "--no-owner", "--no-privileges", dump],
+        ]
+        for argv in commands:
+            result = container.exec_run(argv, user="postgres")
+            assert result.exit_code == 0, (argv, result.output[-2000:])
+        engine = create_engine(owner.set(database=STAGING_DATABASE))
+        return sessionmaker(engine, expire_on_commit=False)
+
+    return restore
