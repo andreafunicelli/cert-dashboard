@@ -11,14 +11,15 @@ preflight; Cancel lets the in-flight hosts finish and starts nothing new; a forg
 ``deploy.pause_expired``; and a single-host retry is a new audited job that leaves the original untouched.
 """
 
+import logging
 import threading
 
 import pytest
 from sqlalchemy import select
 
 from app.jobs.handlers import deploy as deploy_handler
-from app.jobs.queue import InvalidJobState, JobPaused, claim, enqueue, finish, reap
-from app.jobs.worker import timeout_for
+from app.jobs.queue import InvalidJobState, JobFailure, JobPaused, claim, enqueue, finish, reap
+from app.jobs.worker import JobRegistry, timeout_for
 from app.models import AuditLog, Binding, Job, JobHost, Renewal, Server
 from app.models.enums import JobType
 from app.services.audit import Actor
@@ -28,6 +29,7 @@ from tests.integration.conftest import (
     audit_actions,
     create_login_user,
     disable_schedules,
+    enqueue_one,
     fetch,
     set_setting,
 )
@@ -150,6 +152,17 @@ def audit_trail(factory, target_id):
 def drift(ssh_targets, deploy_ready):
     """Overwrite web02's certificate after planning: the on-disk leaf is neither the old nor the new one."""
     ssh_targets.put("ssh-nginx-2", "/etc/nginx/ssl/www.crt", deploy_ready.other_cert_pem, mode=0o644)
+
+
+def claimed_running_deploy(factory, worker, clock, actor):
+    """A deploy job this worker owns with an operator Cancel already committed (the job stays ``running``)."""
+    job_id = enqueue_one(factory, JobType.DEPLOY, {"certificate_id": 1}, priority=300, max_attempts=1)
+    with factory.begin() as db:
+        job = claim(db, worker.worker_id, clock(), timeout_for)
+        assert job is not None and job.id == job_id
+    with factory.begin() as db:
+        assert cancel_deploy(db, job_id, actor, clock()).status == "running"
+    return job_id
 
 
 # --- the canary pause and Continue --------------------------------------------------------------
@@ -402,6 +415,39 @@ def test_cancel_accepted_after_the_handler_check_cannot_race_a_success(
     assert "job.cancelled" in audit_actions(queue_factory, str(job_id))
     assert "job.succeeded" not in audit_actions(queue_factory, str(job_id))
     assert fetch(queue_factory, Renewal, deploy_ready.renewal.id).state == "issued"
+
+
+@pytest.mark.parametrize("handler_outcome", ["succeeded", "failed"])
+def test_execute_and_completion_log_report_the_committed_cancelled_outcome(
+    queue_factory, make_worker, clock, actor, caplog, handler_outcome
+):
+    """An accepted Cancel is the outcome ``_execute`` returns and ``_slot`` logs (Contract decision 20).
+
+    ``_finish`` already persists ``cancelled`` when a committed ``deploy.cancel`` outranks the handler's
+    own success or failure; the value it hands back — and therefore the worker's INFO completion status —
+    must be that committed outcome, never the superseded one. No SSH target is involved: this is the
+    worker runtime's own report, checked on both sides of the accepted-cancel override.
+    """
+
+    def handler(context, payload):
+        if handler_outcome == "failed":
+            raise JobFailure("config_invalid", "rollout stopped")
+        return {"phase": "done"}
+
+    registry = JobRegistry()
+    registry.register(JobType.DEPLOY, handler, validator=dict)
+    worker = make_worker(queue_factory, registry=registry)
+
+    direct = claimed_running_deploy(queue_factory, worker, clock, actor)
+    assert worker._execute(direct) == "cancelled"
+    assert fetch(queue_factory, Job, direct).status == "cancelled"
+
+    logged = claimed_running_deploy(queue_factory, worker, clock, actor)
+    with caplog.at_level(logging.INFO, logger="app.jobs.worker"):
+        worker._slot(logged, JobType.DEPLOY)
+    [finished] = [record for record in caplog.records if record.getMessage() == "job finished"]
+    assert getattr(finished, "status", None) == "cancelled"
+    assert fetch(queue_factory, Job, logged).status == "cancelled"
 
 
 def test_cancel_committed_before_the_pause_transition_ends_cancelled(queue_factory, make_worker, clock, actor):
