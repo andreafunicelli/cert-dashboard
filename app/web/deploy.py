@@ -207,6 +207,18 @@ def _not_before(value: object, timezone_name: str) -> tuple[datetime | None, str
     return parsed.astimezone(UTC), None
 
 
+def _scoped(params, certificate_id: int | None) -> bool:
+    """Whether the request's ticked bindings and canary belong to ``certificate_id``.
+
+    A certificate change re-renders the whole options screen, but a no-JS Preview still submits the previous
+    certificate's ticked ids and canary server: neither is an explicit selection of the new certificate's
+    targets (§8.7). The picker's own GET carries ``selection_for``; bookmarkable URLs and the confirmation
+    POST do not, so their values are trusted as they are.
+    """
+    selection_for = _int(params.get("selection_for"))
+    return selection_for is None or selection_for == certificate_id
+
+
 def _options(params, timezone_name: str) -> tuple[DeployOptions | None, dict[str, str]]:
     """The ``DeployOptions`` a GET or POST asked for, plus the field errors to show instead."""
     errors: dict[str, str] = {}
@@ -219,8 +231,11 @@ def _options(params, timezone_name: str) -> tuple[DeployOptions | None, dict[str
         errors["batch_percent"] = "batch percent must be a whole number between 1 and 100"
     elif batch_percent is not None and not 1 <= batch_percent <= 100:
         errors["batch_percent"] = "batch percent must be between 1 and 100"
-    canary_server_id = _int(params.get("canary_server_id"))
-    if _text(params.get("canary_server_id")) and canary_server_id is None:
+    # The binding checkboxes and the canary choices belong to one certificate: after a picker change the
+    # submitted ones are the previous certificate's and are dropped (the new certificate's default canary).
+    scoped = _scoped(params, certificate_id)
+    canary_server_id = _int(params.get("canary_server_id")) if scoped else None
+    if scoped and _text(params.get("canary_server_id")) and canary_server_id is None:
         errors["canary_server_id"] = "choose a canary server from the list"
     not_before, not_before_error = _not_before(params.get("not_before"), timezone_name)
     if not_before_error is not None:
@@ -231,8 +246,6 @@ def _options(params, timezone_name: str) -> tuple[DeployOptions | None, dict[str
     # become an explicit selection of targets the operator never ticked (the page's htmx picker reloads the
     # server-rendered screen instead). A request without the marker — a bookmarkable URL or the confirmation
     # POST, which echoes the previewed ids — is trusted as is.
-    selection_for = _int(params.get("selection_for"))
-    scoped = selection_for is None or selection_for == certificate_id
     explicit = scoped and (_text(params.get("selection")) == "explicit" or bool(binding_ids))
     group, host = _text(params.get("group")), _text(params.get("host"))
     if certificate_id is None:
@@ -338,6 +351,11 @@ def _start_context(request: Request, params, errors: dict[str, str] | None = Non
         timezone_name = display_timezone(db)
         candidates = deploy_candidates(db, now)
         options, option_errors = _options(params, timezone_name)
+        form_values = _form_values(params)
+        if not _scoped(params, _int(params.get("certificate_id"))):
+            # The picker changed: the previous certificate's canary is not one of the new plan's choices, so
+            # the re-rendered form must show the new certificate's default instead of a value it cannot use.
+            form_values["canary_server_id"] = ""
         collected.update(option_errors)
         collected.update(errors or {})
         if options is None and candidates and not option_errors:
@@ -369,7 +387,7 @@ def _start_context(request: Request, params, errors: dict[str, str] | None = Non
                 "pause_after_canary": "1" if pause_after_canary else "0",
                 "include_unknown": "1" if options.include_unknown else "0",
                 "canary_server_id": canary.server_id if canary is not None else "",
-                "not_before": _form_values(params)["not_before"],
+                "not_before": form_values["not_before"],
                 "binding_ids": [row.binding_id for host in preview.hosts for row in host.bindings],
             }
     return {
@@ -382,7 +400,7 @@ def _start_context(request: Request, params, errors: dict[str, str] | None = Non
         "choices": choices,
         "confirm": confirm,
         "canary": next((host for host in preview.hosts if host.batch_no == 0), None) if preview else None,
-        "form": _form_values(params),
+        "form": form_values,
         # The certificate the checkbox list was rendered for: a later request that names a different one
         # must use that certificate's defaults instead of the ids still in the DOM (see ``_options``).
         "selection_for": preview.certificate.id if preview is not None else "",

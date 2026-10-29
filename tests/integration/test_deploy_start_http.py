@@ -500,9 +500,10 @@ def test_panel_and_start_screen_agree_when_every_binding_is_excluded(signed_in, 
 
 
 def test_changing_the_certificate_recomputes_the_target_choices(signed_in, start_world):
-    """The picker must not preview the new certificate on the previous certificate's ticked bindings."""
+    """The picker must not keep the previous certificate's ticked bindings or its canary server."""
     world, pair = start_world.world, start_world.pair
     stale = world.target_bindings[0].id
+    stale_canary = world.servers["web02.example.internal"].id
 
     fresh = signed_in.get(f"/deploy?certificate_id={pair.new.id}")
     assert f'name="selection_for" value="{pair.new.id}"' in fresh.text
@@ -515,12 +516,23 @@ def test_changing_the_certificate_recomputes_the_target_choices(signed_in, start
     assert 'hx-target="#deploy-screen"' in select.group(0)
     assert 'hx-trigger="change consume"' in select.group(0)  # the form does not double-preview it
 
-    # A no-JS Preview that still carries the previous certificate's ticked ids is not an explicit selection:
-    # the page comes back with the new certificate's own default targets and synchronized controls.
-    changed = signed_in.get(
-        f"/deploy?certificate_id={pair.new.id}&selection=explicit"
-        f"&selection_for={world.new_certificate.id}&binding_id={stale}"
+    # A non-default canary chosen for the old certificate is part of the form the picker includes
+    # (``hx-include="#deploy-options"``): it must be kept while the certificate stays the same.
+    with_canary = signed_in.get(
+        f"/deploy?certificate_id={world.new_certificate.id}&canary_server_id={stale_canary}"
     )
+    assert with_canary.status_code == 200
+    assert f'<option value="{stale_canary}" selected>' in with_canary.text
+    assert 'data-host="web02.example.internal"' in with_canary.text
+
+    # Changing the picker sends the previous certificate's ticked ids *and* its canary server. Neither may
+    # survive: the new certificate's plan must still be computed, with its own canary choices and default.
+    stale_form = (
+        f"certificate_id={pair.new.id}&selection=explicit&selection_for={world.new_certificate.id}"
+        f"&binding_id={stale}&canary_server_id={stale_canary}"
+        f"&batch_percent=10&pause_after_canary=0&include_unknown=0"
+    )
+    changed = signed_in.get(f"/deploy?{stale_form}")
     assert changed.status_code == 200
     assert f'name="selection_for" value="{pair.new.id}"' in changed.text
     assert 'data-total="bindings">1<' in changed.text
@@ -528,6 +540,18 @@ def test_changing_the_certificate_recomputes_the_target_choices(signed_in, start
     assert 'data-host="web01.example.internal"' not in changed.text
     assert f'name="binding_id" value="{pair.bindings["rsa"].id}" checked' in changed.text
     assert f'name="binding_id" value="{stale}"' not in changed.text
+    canary = re.search(r'<select[^>]*id="canary_server_id"[^>]*>.*?</select>', changed.text, re.DOTALL)
+    assert canary is not None
+    assert f'<option value="{pair.server.id}"' in canary.group(0)
+    assert f'value="{stale_canary}"' not in canary.group(0)
+    assert '<option value="" selected>' in canary.group(0)
+
+    # The htmx preview fragment is the same request: the new plan, not the stale canary's refusal.
+    fragment = signed_in.get(f"/deploy/preview?{stale_form}")
+    assert fragment.status_code == 200
+    assert 'data-total="bindings">1<' in fragment.text
+    assert f'data-host="{PAIR_HOST}"' in fragment.text
+    assert "not part of the rollout" not in fragment.text
 
 
 def test_plan_change_between_preview_and_post_shows_the_new_preview(signed_in, start_world):

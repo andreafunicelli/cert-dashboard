@@ -57,7 +57,7 @@
 
   <label for="canary_server_id">Canary server</label>
   <select id="canary_server_id" name="canary_server_id">
-    <option value="">default (first server of the smallest group)</option>
+    <option value=""{% if not form.canary_server_id %} selected{% endif %}>default (first server of the smallest group)</option>
     {% if preview %}{% for host in preview.hosts %}
     <option value="{{ host.server_id }}"{% if form.canary_server_id == host.server_id|string %} selected{% endif %}>{{ host.hostname }}</option>
     {% endfor %}{% endif %}
