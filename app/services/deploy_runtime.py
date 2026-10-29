@@ -446,4 +446,3 @@ def sweep_deploys(db: Session, now: datetime) -> int:
             changed += 1
     db.flush()
     return changed
-

@@ -974,4 +974,3 @@ def retry_host(
     )
     db.flush()
     return job
-
