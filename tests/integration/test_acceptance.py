@@ -122,6 +122,30 @@ def certificate_row(factory, certificate_id: int) -> Certificate:
         return db.get(Certificate, certificate_id)
 
 
+def binding_snapshot(factory) -> dict[tuple[str, str], SimpleNamespace]:
+    """Every active binding, with the fields the acceptance steps compare (D1/D2 and the deploy state)."""
+    with factory() as db:
+        rows = db.execute(
+            select(Server.hostname, Binding)
+            .join(Server, Server.id == Binding.server_id)
+            .where(Binding.is_active.is_(True))
+            .order_by(Server.hostname, Binding.vhost_name, Binding.id)
+        ).all()
+    return {
+        (hostname, binding.vhost_name): SimpleNamespace(
+            cert_path=binding.cert_path,
+            key_path=binding.key_path,
+            chain_path=binding.chain_path,
+            match_state=str(binding.match_state),
+            certificate_id=binding.certificate_id,
+            fingerprint=binding.on_disk_fingerprint,
+            key_hash=binding.on_disk_key_public_sha256,
+            notes=binding.notes,
+        )
+        for hostname, binding in rows
+    }
+
+
 def stored_key_hash(factory, certificate_id: int) -> str:
     """The DER SPKI hash of the key stored for a certificate (D2's ``public_key_sha256``)."""
     with factory() as db:
@@ -202,6 +226,9 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
     record.exported_material = public_material(record.exported, stack.secrets.export)
     # Importing the certificate must match the bindings, which is what makes them deployable at all.
     record.match_discovery = stack.discover_all()
+    # The evidence for step 4 is the state right after the import's discovery, not the state days of deploy
+    # later: later steps legitimately move the bindings onto the new certificate.
+    record.matched = binding_snapshot(factory)
 
     # 5. One real renewal end to end, with the fixture CA standing in for the CA portal.
     record.renewal, record.new_certificate = stack.renew(record.pfx_certificate)
@@ -254,18 +281,7 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
 
     # D1/D2: a fresh discovery after the deploys: every binding matched, key hash equal to the stored one.
     record.verify_discovery = stack.discover_all()
-    record.after_deploy = {
-        host: {
-            (binding.vhost_name, binding.cert_path): SimpleNamespace(
-                match_state=str(binding.match_state),
-                certificate_id=binding.certificate_id,
-                key_hash=binding.on_disk_key_public_sha256,
-                fingerprint=binding.on_disk_fingerprint,
-            )
-            for binding in bindings_of(factory, host)
-        }
-        for host in (WEB01, WEB02, WEB03)
-    }
+    record.after_deploy = binding_snapshot(factory)
 
     record.scan = stack.scan_all()
     record.web02_scan = stack.scan_status_for(WEB02, WWW)
@@ -274,6 +290,7 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
     # 7. Force a rollback on a test host: put the previous certificate back, then deploy into a stopped master.
     stack.restore_previous_material("ssh-nginx-1")
     record.rollback_discovery = stack.discover(WEB01)
+    record.pre_rollback = binding_snapshot(factory)
     ssh_targets.signal_webserver("ssh-nginx-1", "STOP")
     try:
         record.rollback_job = stack.deploy(
@@ -286,6 +303,11 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
     finally:
         ssh_targets.signal_webserver("ssh-nginx-1", "CONT")
     record.rollback = stack.report_host(record.rollback_job, WEB01)
+    record.rollback_host_rows = stack.host_rows(record.rollback_job)
+    # The rollback restored the files; the operator's next step (runbook §11.5) is a discovery, which must
+    # agree with the restored material instead of keeping the deploy's temporary state.
+    record.post_rollback_discovery = stack.discover(WEB01)
+    record.post_rollback = binding_snapshot(factory)
 
     # 8. Restore the database and the same master key into a staging database; decrypt one key, export one PFX.
     record.restored = stack.decrypt_one_key_from(staging_restore())
@@ -346,11 +368,9 @@ def test_v1_acceptance_against_container_targets(acceptance_stack, ssh_targets, 
     # 4. Import a real certificate and its key via PFX; export it again and compare the public material.
     assert s.imported_material == s.exported_material
     assert s.match_discovery.status == "succeeded"
-    matched = {
-        (host, binding.vhost_name): (str(binding.match_state), binding.certificate_id)
-        for host in (WEB01, WEB02, WEB03)
-        for binding in bindings_of(factory, host)
-    }
+    # The state captured right after the import's discovery: every binding (web01 has two vhosts sharing
+    # ``www.crt``) matches the certificate that was just imported.
+    matched = {key: (state.match_state, state.certificate_id) for key, state in s.matched.items()}
     assert set(matched.values()) == {("matched", s.pfx_certificate)}, matched
 
     # 5. One real renewal end to end with the actual CA portal.
@@ -389,13 +409,16 @@ def test_v1_acceptance_against_container_targets(acceptance_stack, ssh_targets, 
     assert s.apache_served == new.sha256_fingerprint
     # D2: after the deploy a fresh discovery reports every binding matched, with the DER SPKI hash of the
     # stored key — the same value an operator's ``openssl ... | sha256sum`` prints on the host.
-    for host, states in s.after_deploy.items():
-        for (vhost, _path), state in states.items():
-            assert state.match_state == "matched", (host, vhost, state.match_state)
-            assert state.certificate_id is not None
-            assert re.fullmatch(r"[0-9a-f]{64}", state.key_hash), (host, vhost, state.key_hash)
-            assert state.key_hash == stored_key_hash(factory, state.certificate_id), (host, vhost)
-            assert state.fingerprint == certificate_row(factory, state.certificate_id).sha256_fingerprint
+    for (host, vhost), state in s.after_deploy.items():
+        assert state.match_state == "matched", (host, vhost, state)
+        assert state.certificate_id is not None, (host, vhost, state)
+        assert re.fullmatch(r"[0-9a-f]{64}", state.key_hash), (host, vhost, state.key_hash)
+        assert state.key_hash == stored_key_hash(factory, state.certificate_id), (host, vhost, state)
+        assert state.fingerprint == certificate_row(factory, state.certificate_id).sha256_fingerprint, (
+            host,
+            vhost,
+            state,
+        )
     # A clean digest: no failed job, no rolled-back host, no mismatch for the deployed vhosts.
     assert s.digest["failed_jobs"] == 0 and s.digest["rolled_back_hosts"] == 0, s.digest
     assert s.digest["new_mismatches"] == 0 and s.digest["mismatches"] == 0, s.digest
@@ -404,12 +427,19 @@ def test_v1_acceptance_against_container_targets(acceptance_stack, ssh_targets, 
     assert s.web02_scan == "ok"
 
     # 7. Force a rollback on a test host and confirm the operator-facing report is accurate.
-    assert s.rollback["status"] == "rolled_back", s.rollback
-    assert s.rollback["reason"] == "verify_failed", s.rollback
-    assert s.rollback["files_restored"] is True, s.rollback
+    assert s.rollback["status"] == "rolled_back", (s.rollback, s.rollback_host_rows, s.pre_rollback)
+    assert s.rollback["reason"] == "verify_failed", (s.rollback, s.rollback_host_rows)
+    assert s.rollback["files_restored"] is True, (s.rollback, s.rollback_host_rows)
     # ``served`` is what the host serves after the rollback: the certificate the backup restored, i.e. the
     # one the renewal replaced (the plan's ``fingerprint_of(renewal)`` read as "the material now on the host").
-    assert s.rollback["served"] == ssh_targets.old.fingerprint, s.rollback
+    assert s.rollback["served"] == ssh_targets.old.fingerprint, (s.rollback, s.rollback_host_rows)
+    # The restored files are what a discovery afterwards must report (runbook §11.5: recover, then Discover).
+    restored = {key: state for key, state in s.post_rollback.items() if key[0] == WEB01}
+    assert {(key[1], state.match_state, state.certificate_id) for key, state in restored.items()} == {
+        (WWW, "matched", s.pfx_certificate),
+        (LEGACY, "matched", s.pfx_certificate),
+    }, (restored, s.rollback_host_rows)
+    assert all(state.fingerprint == ssh_targets.old.fingerprint for state in restored.values()), restored
 
     # 8. Restore the database and the same master key into a staging stack and decrypt one key (§11.6).
     assert s.restored.certificate_id > 0 and len(s.restored.public_key_sha256) == SHA256_LENGTH
