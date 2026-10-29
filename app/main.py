@@ -66,6 +66,7 @@ from app.web.common import (
     require_user,
     unsupported_reason,
 )
+from app.web.deploy import register_deploy_routes
 from app.web.overview import register_overview_routes
 from app.web.renewals import register_renewal_routes
 from app.web.scans import register_scan_routes
@@ -698,6 +699,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.mount("/static", StaticFiles(directory=_ROOT / "static"), name="static")
     _register_auth_routes(app)
     register_certificate_routes(app)
+    register_deploy_routes(app)
     register_overview_routes(app)
     register_renewal_routes(app)
     register_audit_routes(app)
