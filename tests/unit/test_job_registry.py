@@ -297,11 +297,21 @@ def test_register_schedule_rejects_duplicate_keys(monkeypatch):
         (JobType.ALERT_EXPIRY, 300),
         (JobType.DIGEST, 300),
         (JobType.CLEANUP, 600),
-        (JobType.DEPLOY, 900),
     ],
 )
 def test_timeout_for_per_type(job_type, seconds):
     assert worker.timeout_for(None, job_of(job_type, {})) == seconds
+
+
+def test_deploy_timeout_is_computed_from_the_remaining_hosts(monkeypatch):
+    """Plan 3 Task 16 registers the deploy callback: the timeout comes from ``deploy_runtime``."""
+    from app.services import deploy_runtime
+
+    job = job_of(JobType.DEPLOY, {})
+    seen = []
+    monkeypatch.setattr(deploy_runtime, "deploy_timeout_seconds", lambda db, row: seen.append((db, row)) or 2700)
+    assert worker.timeout_for("DB", job) == 2700
+    assert seen == [("DB", job)]
 
 
 def test_deploy_timeout_uses_the_registered_callback(monkeypatch):

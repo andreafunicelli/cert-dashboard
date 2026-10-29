@@ -1884,3 +1884,171 @@ def deploy_material(ca, ssh_targets, runner_secrets, tmp_path):
     finally:
         mismatched_staging.__exit__(None, None, None)
         staging.__exit__(None, None, None)
+
+
+# --- Deploy runtime (Plan 3 Task 16) -------------------------------------------------------------
+
+
+def _import_target_certificate(factory, material, actor, now) -> int:
+    """Import the certificate the SSH targets serve (public part only), as an inventory entry would be."""
+    from cryptography import x509
+
+    from app.crypto.chain import order_chain
+    from app.crypto.parse import parse_certificates
+    from app.services.certificates import CertificateMetadata, save_certificate
+
+    leaf = parse_certificates(material.cert_pem)[0]
+    chain = order_chain(leaf.cert, list(x509.load_pem_x509_certificates(material.chain_pem)))
+    with factory.begin() as db:
+        saved = save_certificate(
+            db,
+            leaf,
+            chain,
+            CertificateMetadata(owner_name="Ada", owner_email="ada@example.test", team="web"),
+            actor,
+            source="upload_pem",
+            validation_time=now,
+        )
+        return saved.certificate.id
+
+
+@pytest.fixture
+def deploy_ready(ssh_targets, fresh_targets, queue_factory, ansible_worker, inventory_repo, keyring, ca, clock, tmp_path):
+    """``deploy_ready``: the Plan 3 Task 16 deploy world, discovered from the real SSH targets.
+
+    A real discovery of all three targets runs once, after importing the certificate they serve, so every
+    binding is ``matched`` and every server knows its webserver. The renewal's new certificate (same vhost
+    names, a new key, issued by the session ``ca``) is stored with its key, the fixture root is uploaded as a
+    trust anchor, and ``start(**options)`` previews and enqueues one deploy job for it with ``confirmed=True``.
+    ``worker`` runs ``deploy/default``; ``build_worker(**overrides)`` builds another worker on the same
+    database (the key-unwrap case needs a keyring without the key version).
+
+    Artifacts go to a short ``/tmp`` directory: ssh refuses a multiplexing socket path of 108+ bytes and a
+    pytest ``tmp_path`` is too deep for ``<artifacts>/<job_id>/run/cp/<40-hex hash>``.
+    """
+    import shutil
+    import tempfile
+    from types import SimpleNamespace
+
+    from cryptography import x509
+
+    from app.crypto.chain import order_chain
+    from app.crypto.parse import parse_certificates
+    from app.jobs.handlers import build_registry
+    from app.jobs.handlers.deploy import deploy_handler_registration
+    from app.jobs.handlers.discover import request_discovery
+    from app.models import Job, Renewal
+    from app.models.enums import RenewalState
+    from app.services.audit import Actor
+    from app.services.certificates import CertificateMetadata, save_certificate, store_key
+    from app.services.deploy import DeployOptions, configure_keyring, preview_deploy, start_deploy
+    from app.services.trust_anchors import add_anchor
+
+    actor = Actor(None, "tester")
+    artifacts = Path(tempfile.mkdtemp(prefix="cd-", dir="/tmp"))
+    configure_keyring(keyring)
+    repo = inventory_repo(queue_factory, hosts=ssh_targets.inventory_hosts())
+    registry = build_registry()
+    deploy_handler_registration(registry)
+
+    def build_worker(**overrides):
+        values = {
+            "ansible_ssh_key": ssh_targets.client_key,
+            "known_hosts_file": ssh_targets.known_hosts,
+            "artifacts_root": artifacts,
+            "keyring": keyring,
+            "key_staging_dir": tmp_path / "keys",
+            # ``build_registry()`` registers ``deploy/default`` in Task 19; until then the fixture wires it.
+            "registry": registry,
+        }
+        return ansible_worker(queue_factory, **{**values, **overrides})
+
+    worker = build_worker()
+
+    def discover() -> None:
+        with queue_factory.begin() as db:
+            job_id = request_discovery(db, {}, actor, clock()).id
+        worker.run_queued(timeout=900)
+        with queue_factory() as db:
+            job = db.get(Job, job_id)
+            if job.status != "succeeded":
+                raise RuntimeError(
+                    f"deploy_ready discovery failed: {job.error_class} {job.error_message} {job.result}"
+                )
+
+    try:
+        with queue_factory.begin() as db:
+            anchor = add_anchor(db, ca.root_pem, "deploy fixture root", actor, clock())
+        # The certificate the targets serve is imported first: one discovery then yields four ``matched``
+        # bindings (importing it afterwards would need a second run of the whole inventory).
+        old_id = _import_target_certificate(queue_factory, ssh_targets.old, actor, clock())
+        discover()
+
+        material = new_deploy_leaf(ca, names=VHOSTS)
+        leaf = parse_certificates(material.cert_pem)[0]
+        chain = order_chain(leaf.cert, list(x509.load_pem_x509_certificates(material.chain_pem)))
+        with queue_factory.begin() as db:
+            key_row = store_key(db, keyring, material.key, "generated", actor)
+            saved = save_certificate(
+                db,
+                leaf,
+                chain,
+                CertificateMetadata(owner_name="Ada", owner_email="ada@example.test", team="web"),
+                actor,
+                source="upload_pem",
+                key_id=key_row.id,
+                renews_id=old_id,
+                validation_time=clock(),
+            ).certificate
+            renewal = Renewal(
+                certificate_id=saved.id,
+                previous_certificate_id=old_id,
+                state=RenewalState.ISSUED,
+                common_name=leaf.common_name,
+                sans=list(leaf.sans),
+                key_id=key_row.id,
+                state_changed_at=clock(),
+            )
+            db.add(renewal)
+            new = SimpleNamespace(
+                id=saved.id,
+                sha256_fingerprint=saved.sha256_fingerprint,
+                key_public_sha256=key_row.public_key_sha256,
+                key_pem=material.key_pem,
+                cert_pem=material.cert_pem,
+            )
+
+        def start(**options):
+            """Preview and enqueue the deploy exactly as the screen does (plan hash echoed, confirmed)."""
+            moment = clock()
+            with queue_factory.begin() as db:
+                deploy_options = DeployOptions(certificate_id=new.id, **options)
+                preview = preview_deploy(db, deploy_options, moment, keyring=keyring)
+                if preview.blocked:
+                    raise RuntimeError(f"deploy refused: {preview.blocked}")
+                return start_deploy(
+                    db,
+                    deploy_options,
+                    plan_sha256=preview.plan_sha256,
+                    confirmed=True,
+                    override_reason=None,
+                    actor=actor,
+                    now=moment,
+                    keyring=keyring,
+                ).id
+
+        yield SimpleNamespace(
+            repo=repo,
+            renewal=renewal,
+            new=new,
+            other_cert_pem=new_deploy_leaf(ca, names=("other.example.internal",)).fullchain_pem,
+            worker=worker,
+            build_worker=build_worker,
+            start=start,
+            anchor=anchor,
+            clock=clock,
+            key_staging_dir=tmp_path / "keys",
+            artifacts_root=artifacts,
+        )
+    finally:
+        shutil.rmtree(artifacts, ignore_errors=True)
