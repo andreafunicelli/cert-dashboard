@@ -97,8 +97,12 @@ Jinja directly with autoescaping; no app import, database, new dependency or JS.
 
 `tests/unit/test_ui_foundation.py` checks token coverage, palette contrast and CSS
 budget using only assets shipped in the test image. `tests/test_ui_previews.py`
-checks auth forms, escaping, banner hooks and preview structure at repository
-level (the preview generator and documentation fixtures are not runtime assets).
+checks auth forms, escaping, banner hooks, the destructive POST/CSRF confirmation
+contract and byte-for-byte equality of every committed preview with regenerated
+output at repository level (fixtures/scripts are not runtime assets). The static
+confirmation submit is disabled, uses a fixture-only CSRF token and a fragment
+action, and explicitly states that no certificate will be deleted; production
+confirmations use the existing destructive POST route and a real CSRF token.
 Existing
 `tests/integration/test_login_account.py` checks CSRF field extraction, unchanged
 POST routes, username retention/no password echo, error copy, MFA/cancel flow,

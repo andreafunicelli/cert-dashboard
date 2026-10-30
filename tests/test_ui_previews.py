@@ -2,7 +2,7 @@
 
 from html.parser import HTMLParser
 
-from scripts.render_previews import environment, fixtures
+from scripts.render_previews import OUTPUT, environment, fixtures, render
 
 
 class Elements(HTMLParser):
@@ -57,3 +57,33 @@ def test_rendering_escapes_user_values():
     assert "<img" not in html and "<script>bad" not in html
 
 
+def test_confirmation_demonstrates_inert_post_and_csrf():
+    template, context = fixtures()["shell"]
+    html = environment().get_template(template).render(context)
+    _, marker, confirmation = html.partition('<details class="confirmation">')
+    assert marker
+    confirmation = confirmation.split("</details>", 1)[0]
+    elements = Elements(confirmation).elements
+    assert [(a["method"], a["action"]) for t, a in elements if t == "form"] == [
+        ("post", "#main-content"),
+    ]
+    assert [a for t, a in elements if t == "input"] == [
+        {"type": "hidden", "name": "csrf_token", "value": "preview-only-not-a-valid-token"},
+    ]
+    assert "Deletion removes this certificate from the inventory." in confirmation
+    assert "Static preview only; no certificate will be deleted." in confirmation
+    assert "Confirm deletion (preview)" in confirmation
+    assert any(t == "button" and a.get("type") == "submit"
+               and a.get("class") == "button-destructive" and "disabled" in a
+               for t, a in elements)
+    assert any(t == "a" and a.get("href") == "shell.html" for t, a in elements)
+
+
+def test_committed_previews_match_renderer(tmp_path):
+    render(tmp_path)
+    expected = {f"{name}.html" for name in fixtures()}
+    assert {path.name for path in OUTPUT.glob("*.html")} == expected
+    for name in expected:
+        generated = (tmp_path / name).read_bytes()
+        assert (OUTPUT / name).read_bytes() == generated, name
+        assert all(line == line.rstrip() for line in generated.splitlines()), name

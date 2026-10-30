@@ -60,14 +60,15 @@ def fixtures():
     return {name: (template, common | context) for name, (template, context) in pages.items()}
 
 
-def render():
+def render(output=OUTPUT):
     env = environment()
-    OUTPUT.mkdir(parents=True, exist_ok=True)
+    output.mkdir(parents=True, exist_ok=True)
     for name, (template, context) in fixtures().items():
         html = env.get_template(template).render(context)
         html = html.replace('href="/static/', 'href="../../../app/static/')
         html = html.replace('src="/static/', 'src="../../../app/static/')
-        (OUTPUT / f"{name}.html").write_text(html + "\n", encoding="utf-8")
+        html = "\n".join(line.rstrip() for line in html.splitlines()).rstrip() + "\n"
+        (output / f"{name}.html").write_text(html, encoding="utf-8")
         print(f"Rendered {name}.html")
 
 

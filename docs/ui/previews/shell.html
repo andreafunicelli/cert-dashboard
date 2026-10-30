@@ -12,28 +12,28 @@
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
   <nav aria-label="Main">
-  
+
     <span aria-current="page"><a href="/">Overview</a></span>
-    
-  
+
+
     <span><a href="/certificates">Certificates</a></span>
-    
-  
+
+
     <span><a href="/servers">Servers</a></span>
-    
-  
+
+
     <span><a href="/deploy">Deploy</a></span>
-    
-  
+
+
     <span><a href="/scans">Scans</a></span>
-    
-  
+
+
     <span><a href="/audit">Audit</a></span>
-    
-  
+
+
     <span><a href="/settings">Settings</a></span>
-    
-  
+
+
   </nav>
   <details class="user-menu"><summary>Fixture operator</summary>
     <div class="user-menu-links">
@@ -45,16 +45,16 @@
 
 <aside role="status" class="banner banner-warning"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
-  
+
 </svg> <strong>Warning:</strong> Key material cannot be decrypted with the configured master key. <a href="/settings?tab=status">Details</a></aside>
 <aside role="status" class="banner banner-critical" data-banner="worker"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
-  
+
 </svg> <strong>Critical:</strong> Worker is not running (last heartbeat > 5 minutes) <a href="/settings?tab=status">Details</a></aside>
 
 <aside role="alert" class="banner banner-critical" data-banner="capability"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
-  
+
 </svg> <strong>Critical:</strong> Discovery and deploy are unavailable: the worker has no known_hosts file. <a href="/settings?tab=status">Details</a></aside>
 <aside role="status" class="notice banner banner-info" data-banner="flash"><p><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
@@ -69,19 +69,19 @@
     <tbody>
       <tr><td>api.internal</td><td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m5 12 4 4 10-10"/>
-  
+
 </svg> Valid</span></td><td class="numeric">120</td><td class="mono">8F:4A:21:CC:09:7D</td></tr>
-    
+
       <tr><td>vpn.internal</td><td><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
-  
+
 </svg> Expiring</span></td><td class="numeric">14</td><td class="mono">8F:4A:21:CC:09:7D</td></tr>
-    
+
       <tr><td>old.internal</td><td><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
-  
+
 </svg> Expired</span></td><td class="numeric">-2</td><td class="mono">8F:4A:21:CC:09:7D</td></tr>
-    
+
       <tr><td>new.internal</td><td><span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
 </svg> Unknown</span></td><td class="numeric">Unknown</td><td class="mono">8F:4A:21:CC:09:7D</td></tr>
@@ -97,14 +97,22 @@
     <label class="checkbox" for="fixture-check"><input id="fixture-check" name="fixture_check" type="checkbox"> Include inactive certificates</label>
     <label for="fixture-error">Invalid value</label><input id="fixture-error" name="fixture_error" aria-invalid="true" aria-describedby="fixture-error-help" value="not a hostname"><p id="fixture-error-help" class="form-error"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
-  
+
 </svg> Enter a host name.</p>
     <div class="actions"><button type="submit">Apply filters</button><a class="button button-secondary" href="shell.html">Clear filters</a><button disabled>Unavailable</button></div>
   </form>
 </section>
 <section class="empty-state"><h2>No matching certificates</h2><p>Clear the filters to see all certificates.</p><a class="button button-secondary" href="shell.html">Clear filters</a></section>
 <h2>Confirmation pattern</h2>
-<details class="confirmation"><summary>Review certificate deletion</summary><p>Deletion removes this certificate from the inventory. Review the certificate before confirming.</p><form method="get" action="#main-content"><div class="actions"><button class="button-destructive" type="submit">Confirm deletion (preview)</button><a class="button button-secondary" href="shell.html">Cancel</a></div></form></details>
+<details class="confirmation">
+  <summary>Review certificate deletion</summary>
+  <p>Deletion removes this certificate from the inventory. Review the certificate before confirming.</p>
+  <p class="help">Static preview only; no certificate will be deleted.</p>
+  <form method="post" action="#main-content">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <div class="actions"><button class="button-destructive" type="submit" disabled>Confirm deletion (preview)</button><a class="button button-secondary" href="shell.html">Cancel</a></div>
+  </form>
+</details>
 </main>
 
 </body>

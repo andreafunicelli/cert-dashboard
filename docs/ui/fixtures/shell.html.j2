@@ -25,5 +25,13 @@
 </section>
 <section class="empty-state"><h2>No matching certificates</h2><p>Clear the filters to see all certificates.</p><a class="button button-secondary" href="shell.html">Clear filters</a></section>
 <h2>Confirmation pattern</h2>
-<details class="confirmation"><summary>Review certificate deletion</summary><p>Deletion removes this certificate from the inventory. Review the certificate before confirming.</p><form method="get" action="#main-content"><div class="actions"><button class="button-destructive" type="submit">Confirm deletion (preview)</button><a class="button button-secondary" href="shell.html">Cancel</a></div></form></details>
+<details class="confirmation">
+  <summary>Review certificate deletion</summary>
+  <p>Deletion removes this certificate from the inventory. Review the certificate before confirming.</p>
+  <p class="help">Static preview only; no certificate will be deleted.</p>
+  <form method="post" action="#main-content">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="actions"><button class="button-destructive" type="submit" disabled>Confirm deletion (preview)</button><a class="button button-secondary" href="shell.html">Cancel</a></div>
+  </form>
+</details>
 {% endblock %}
