@@ -137,10 +137,10 @@
   <form class="retry" method="post" action="/deploy/fixture-deploy-job/hosts/1/retry" hx-post="/deploy/fixture-deploy-job/hosts/1/retry" hx-target="#deploy-job-live" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
     <h3>Retry edge-01.example.test</h3>
-    <p class="hint">A retry is a new audited job for this host only, with its own guardrails and trust check.</p>
+    <p class="hint">A retry is a new audited job for this host only, with its own guardrails and trust check. It can replace certificate files and reload the service again; review the host and enter a reason before confirming.</p>
     <label>Reason <input name="reason" maxlength="500" required></label>
     <label>Override reason (only when the chain is not trusted) <input name="override_reason" maxlength="500"></label>
-    <button type="submit">Retry host</button>
+    <button type="submit" class="button-destructive">Retry host</button>
   </form>
 
 </section>
