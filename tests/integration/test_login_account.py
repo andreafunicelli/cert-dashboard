@@ -257,6 +257,77 @@ def test_every_login_route_rejects_missing_or_foreign_csrf(client, plain_user, c
     assert "cd_session" not in client.cookies
 
 
+# --- the login form survives a second tab ----------------------------------------------------------
+# Every GET /login used to mint a new signed cookie and orphan the token on any other open form, so
+# the second tab's POST was rejected with "Access denied."
+
+
+def test_a_second_login_page_keeps_the_first_form_valid(client, plain_user, csrf, clock):
+    first = csrf
+    second = client.get("/login", follow_redirects=False)
+    assert second.status_code == 200 and _token(second.text) == first
+    assert "set-cookie" not in second.headers and client.cookies["cd_login_csrf"] == first
+    response = _login(client, clock, first, plain_user.username, plain_user.password)
+    assert response.status_code == 303 and response.headers["location"] == "/"
+
+
+def test_a_token_without_its_cookie_is_rejected(client, plain_user, csrf, clock):
+    client.cookies.clear()
+    response = _login(client, clock, csrf, plain_user.username, plain_user.password)
+    assert response.status_code == 403 and "cd_session" not in client.cookies
+
+
+def test_a_tampered_signature_is_rejected_even_when_cookie_and_form_agree(client, plain_user, csrf, clock):
+    tampered = csrf[:-1] + ("0" if csrf[-1] != "0" else "1")
+    client.cookies.set("cd_login_csrf", tampered, domain="testserver.local", path="/")
+    response = _login(client, clock, tampered, plain_user.username, plain_user.password)
+    assert response.status_code == 403 and "form expired" in response.text.lower()
+
+
+def test_a_cookie_older_than_ten_minutes_is_rejected_and_replaced(client, plain_user, csrf, clock):
+    clock.advance(seconds=601)
+    response = _login(client, clock, csrf, plain_user.username, plain_user.password)
+    assert response.status_code == 403
+    fresh = client.get("/login", follow_redirects=False)
+    assert fresh.status_code == 200 and _token(fresh.text) != csrf
+    assert client.cookies["cd_login_csrf"] == _token(fresh.text)
+
+
+def test_a_second_correctly_signed_token_does_not_match_the_cookie(client, plain_user, csrf, clock, web_settings):
+    from fastapi import Response
+
+    from app.auth.sessions import issue_login_csrf
+
+    other = issue_login_csrf(Response(), web_settings.session_secret, clock())
+    assert other != csrf
+    response = _login(client, clock, other, plain_user.username, plain_user.password)
+    assert response.status_code == 403
+
+
+def test_csrf_rejection_says_the_form_expired_and_the_request_log_names_it(
+    client, plain_user, csrf, clock, caplog
+):
+    client.cookies.clear()
+    with caplog.at_level(logging.INFO):
+        page = _login(client, clock, csrf, plain_user.username, plain_user.password)
+    assert page.status_code == 403
+    assert "Your form expired. Reload the page and try again." in page.text
+    assert "Access denied." not in page.text and page.headers["X-Request-ID"] in page.text
+    request_log = [record for record in caplog.records if record.getMessage() == "HTTP request"]
+    assert request_log[-1].route == "<unmatched>"
+    assert getattr(request_log[-1], "error_class", None) == "csrf_rejected"
+    body = {"username": plain_user.username, "password": plain_user.password, "csrf_token": csrf}
+    as_json = client.post(
+        "/login", data=body, headers={"Accept": "application/json"}, follow_redirects=False
+    )
+    assert as_json.status_code == 403
+    assert as_json.json() == {
+        "error": "Your form expired. Reload the page and try again.",
+        "request_id": as_json.headers["X-Request-ID"],
+        "code": "csrf_rejected",
+    }
+
+
 def test_login_get_with_existing_session_still_renders_form(client, plain_user, csrf, clock):
     _sign_in(client, clock, plain_user, csrf)
     assert client.get("/login", follow_redirects=False).status_code == 200
