@@ -14,6 +14,28 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run ruff check .
+      # The production files are what operators actually run, and CI used to render only the test
+      # compose. A YAML flow sequence in `tmpfs` (`tmpfs: [/tmp:noexec,nosuid,...]`) renders five
+      # entries, which `config --quiet` accepts and only the daemon rejects at `up`.
+      - name: Production compose renders
+        run: |
+          docker compose -f docker-compose.yml config --quiet
+          docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.credentials.yml config --quiet
+      - name: Production compose tmpfs entries are absolute mount targets
+        run: |
+          docker compose -f docker-compose.yml config --format json > /tmp/prod-compose.json
+          uv run python - <<'PY'
+          import json
+
+          with open("/tmp/prod-compose.json", encoding="utf-8") as handle:
+              services = json.load(handle)["services"]
+          entries = [(name, spec) for name, service in services.items() for spec in service.get("tmpfs") or []]
+          assert entries, "the production compose declares no tmpfs entries"
+          fragments = [(name, spec) for name, spec in entries if not spec.startswith("/")]
+          assert not fragments, f"tmpfs entries are not absolute mount targets: {fragments}"
+          print("rendered tmpfs entries:", entries)
+          PY
       - run: docker compose -f docker-compose.test.yml pull db
       - run: docker compose -f docker-compose.test.yml --profile targets pull tls-nginx tls-apache
       - run: docker compose -f docker-compose.test.yml --profile ssh-targets build ssh-nginx-1 ssh-apache
