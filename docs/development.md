@@ -143,9 +143,10 @@ and reported as `internal`.
 
 Today the registry holds `cleanup/default`, `scan/default`, `scan/import_pull`, `scan/trust_recheck`,
 `alert_expiry/default`, `alert_expiry/smtp_test`, `digest/default`, `discover/default`,
-`discover/test_pull` and `deploy/default`, so no control is gated as unsupported. The web
-application calls `build_registry()` too, but only to gate navigation and controls on registered
-capabilities — the worker is the only dispatcher.
+`discover/test_pull` and `deploy/default`, so no plan control is gated as unsupported; the remaining
+disabled states are live capability reasons (no worker with `ansible_ssh_key`, empty inventory,
+guardrail). The web application calls `build_registry()` too, but only to gate navigation and
+controls on registered capabilities — the worker is the only dispatcher.
 
 ### Scheduler
 

@@ -851,7 +851,7 @@ def test_start_screen_previews_and_enqueues_with_confirmation(signed_in, web_fac
 
 **Interfaces:** Consumes: everything above plus Plan 1 CLI (`bootstrap-admin`, `verify-key`), login/TOTP flows, PFX import/export, renewal wizard; Plan 2 `compose_targets` (`smtp` service), expiry and digest jobs. Produces: fixtures `acceptance_stack` (the web app and one `ansible_worker` on the same private database, `compose_targets` SMTP configured, the inventory served over SSH from `ssh-nginx-1`) and `staging_restore(database_urls) -> sessionmaker[Session]` (`pg_dump -Fc` / `pg_restore` executed inside the Postgres Testcontainer as the owner into `cert_dashboard_restore`).
 
-- [x] Acceptance test written as one ordered scenario per §10.4 item (each step asserts through the HTTP client or the services, never by writing rows directly) (the test file exists on `main` and passes in the required `verify` run — reconciled after the fact, the RED-first run is not preserved):
+- [x] Acceptance test written as one ordered scenario per §10.4 item — each step asserts through the HTTP client or the services, never by writing rows directly; the test file exists on `main` and passes in the required `verify` run (reconciled after the fact, the RED-first run is not preserved):
 
 ```python
 def test_v1_acceptance_against_container_targets(acceptance_stack, ssh_targets, fresh_targets, compose_targets, staging_restore):

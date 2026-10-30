@@ -21,7 +21,8 @@ alerts and a daily digest over SMTP, the renewal wizard through issued and deplo
 discovery of nginx and Apache servers over SSH, canary-first certificate deployment with drift
 protection and automatic per-host rollback, audited downloads, audit browser, users/MFA, typed
 settings, the job queue, the worker and its scheduler, and the Overview, Scans, Servers,
-Bindings and Deploy screens. No feature control renders as "unsupported" any more.
+Bindings and Deploy screens. Every Plan 1–3 control is registered; a control is disabled only
+for a live reason (no worker with `ansible_ssh_key`, empty inventory, guardrail).
 
 ## Architecture
 

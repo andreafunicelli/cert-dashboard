@@ -957,8 +957,8 @@ Everything after step 9 needs the full inventory.
 **Step 8 is run twice.** The first run proves the single host of the first revision was discovered
 read-only; after step 9 (full inventory) repeat the same command on a **second** host, so two real
 hosts are compared against the dashboard — this is the two-host spot-check §10.4 asks for, and both
-results go into §12.3. A one-host comparison is accepted only while the full inventory still has one
-host.
+results go into §12.3. A one-host comparison is not accepted once the full inventory has more than
+one host.
 
 | # | Step | Command / action | Expected result |
 | --- | --- | --- | --- |
