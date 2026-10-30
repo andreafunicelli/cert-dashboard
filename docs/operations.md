@@ -923,7 +923,7 @@ the table at the end of the section and keep it with the installation.
    Nothing else may be in this revision: no second host under `all.hosts`, no second host in any group's
    `hosts` (`host_vars/` and `group_vars/` can add variables but never a host). Test pull counts every
    member of `all`, group children included (`app/services/inventory.py`), so a stray group host silently
-   widens the first discovery. `tests/unit/test_operations_docs.py` lists this exact block with the
+   widens the first discovery. `tests/integration/test_operations_docs.py` lists this exact block with the
    worker's own `ansible-inventory --list` and asserts one host; `web02` and `web03` arrive in the second
    commit of step 9.
 
