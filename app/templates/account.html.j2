@@ -58,7 +58,6 @@
       <input id="disable-password" name="current_password" type="password" autocomplete="current-password" required>
       <div class="actions"><button class="button-destructive" type="submit">Disable two-factor authentication</button><a href="/account">Cancel</a></div>
     </form>
-    <p class="hint">Disabling signs out every other session.</p>
     </details>
   {% else %}
     {% if totp_pending %}

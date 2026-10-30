@@ -139,6 +139,20 @@ def test_operator_posts_keep_csrf_password_privacy_and_destructive_confirmations
             assert any("button-destructive" in button.get("class", "") for button in form["buttons"])
 
 
+def test_user_totp_reset_explains_optional_reenrollment_before_submit():
+    html = preview("users")
+    confirmations = html.split('<details class="confirmation"><summary>Reset two-factor authentication</summary>')[1:]
+    assert len(confirmations) == len(fixtures()["users"][1]["users"])
+    for confirmation in confirmations:
+        explanation = confirmation.split("<form", 1)[0]
+        assert "Removes the authenticator and recovery codes and signs this user out everywhere." in explanation
+        assert (
+            "Future sign-ins will require only a password until the user chooses "
+            "to set up two-factor authentication again."
+        ) in explanation
+        assert "They must set up" not in confirmation.split("</details>", 1)[0]
+
+
 def test_overview_state_precedes_actions_and_details_and_all_counters_link():
     html = preview("overview")
     assert html.index('aria-label="Certificate expiry"') < html.index('data-status-strip="true"')
