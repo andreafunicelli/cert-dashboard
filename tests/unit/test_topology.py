@@ -40,6 +40,24 @@ def test_worker_decrypted_keys_are_tmpfs_only():
     assert worker["command"] == ["python", "-m", "app.jobs.worker"]
 
 
+@pytest.mark.parametrize(
+    "name", ["docker-compose.yml", "docker-compose.migrate.yml", "docker-compose.credentials.yml"]
+)
+def test_every_tmpfs_entry_is_one_absolute_mount_target(name):
+    # A flow sequence (`tmpfs: [/tmp:noexec,nosuid,...]`) is a list split on commas, so the
+    # daemon receives fragments like `mode=1777` and refuses to start the container. Compose
+    # itself does not validate these targets, hence the shape is asserted here and in CI.
+    for service_name, service in compose(name)["services"].items():
+        for entry in service.get("tmpfs") or []:
+            assert isinstance(entry, str), f"{name}:{service_name} tmpfs entry is not a scalar: {entry!r}"
+            assert entry.startswith("/"), f"{name}:{service_name} tmpfs entry is not a mount target: {entry!r}"
+
+
+def test_web_writable_tmp_is_a_single_mount_with_its_flags():
+    web = compose()["services"]["web"]
+    assert web["tmpfs"] == ["/tmp:noexec,nosuid,nodev,size=64m,mode=1777"]
+
+
 def test_application_services_are_hardened():
     services = compose()["services"]
     for name in ("web", "worker"):

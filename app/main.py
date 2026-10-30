@@ -307,15 +307,16 @@ class _WebFoundation:
                 )
         finally:
             route = getattr(scope.get("route"), "path", "<unmatched>")
-            _LOG.info(
-                "HTTP request",
-                extra={
-                    "request_id": request.state.request_id,
-                    "method": request.method,
-                    "route": route,
-                    "status": status,
-                },
-            )
+            fields = {
+                "request_id": request.state.request_id,
+                "method": request.method,
+                "route": route,
+                "status": status,
+            }
+            error_class = getattr(request.state, "error_class", None)
+            if error_class is not None:
+                fields["error_class"] = error_class
+            _LOG.info("HTTP request", extra=fields)
 
 
 def _submitted_token(request: Request) -> str:

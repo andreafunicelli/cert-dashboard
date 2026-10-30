@@ -16,6 +16,9 @@ from app.models import User, UserSession
 _TOKEN = re.compile(r"[0-9a-f]{64}\Z")
 SESSION_COOKIE = "cd_session"
 LOGIN_CSRF_COOKIE = "cd_login_csrf"
+# Pre-auth double-submit token lifetime; the cookie carries the same max-age.
+_CSRF_MAX_AGE = 600
+CSRF_REJECTED = "csrf_rejected"
 
 
 def _aware(now: datetime) -> None:
@@ -133,9 +136,54 @@ def issue_login_csrf(response: Response, secret: bytes, now: datetime) -> str:
     payload = f"{int(now.timestamp())}.{secrets.token_hex(32)}"
     token = payload + "." + _signature(payload, secret)
     response.set_cookie(
-        LOGIN_CSRF_COOKIE, token, max_age=600, path="/", secure=True, httponly=True, samesite="lax"
+        LOGIN_CSRF_COOKIE, token, max_age=_CSRF_MAX_AGE, path="/", secure=True, httponly=True, samesite="lax"
     )
     return token
+
+
+def valid_login_csrf(token: object, secret: bytes, now: datetime) -> bool:
+    """True when ``token`` is a pre-auth double-submit value this server signed under 600 s ago."""
+    _aware(now)
+    if not isinstance(token, str) or not token.isascii() or len(token) > 256:
+        return False
+    try:
+        issued, nonce, signature = token.split(".")
+        instant = int(issued)
+    except (ValueError, UnicodeError):
+        return False
+    payload = issued + "." + nonce
+    age = int(now.timestamp()) - instant
+    return (
+        bool(_TOKEN.fullmatch(nonce))
+        and 0 <= age < _CSRF_MAX_AGE
+        and hmac.compare_digest(signature, _signature(payload, secret))
+    )
+
+
+def login_csrf_token(request: Request, secret: bytes, now: datetime) -> tuple[str, str | None]:
+    """The pre-auth token to render, reusing the caller's cookie for as long as it is valid.
+
+    Reuse is what keeps a form open in another tab usable: minting on every ``GET /login`` replaced
+    the cookie and orphaned every token already rendered. Returns ``(token, set_cookie)``, where
+    ``set_cookie`` is the ``Set-Cookie`` header value only when a new cookie had to be minted.
+    """
+    existing = request.cookies.get(LOGIN_CSRF_COOKIE, "")
+    if valid_login_csrf(existing, secret, now):
+        return existing, None
+    holder = Response()
+    return issue_login_csrf(holder, secret, now), holder.headers["set-cookie"]
+
+
+class CsrfRejected(HTTPException):
+    """A non-GET request whose CSRF token did not match its session token or signed cookie.
+
+    The check runs in middleware, before routing, so the request log would otherwise only show
+    ``route: "<unmatched>"``. The distinct type lets the error page name the real cause and the log
+    line carry ``error_class: "csrf_rejected"``; the status stays 403.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(status_code=403, detail=CSRF_REJECTED)
 
 
 def _equal(first: object, second: str) -> bool:
@@ -157,22 +205,14 @@ def check_csrf(request: Request, session: UserSession | None) -> None:
         valid = _equal(supplied, session.csrf_token)
     else:
         cookie = request.cookies.get(LOGIN_CSRF_COOKIE, "")
-        valid = False
-        if _equal(supplied, cookie):
-            try:
-                issued, nonce, signature = cookie.split(".")
-                instant = int(issued)
-                age = int(request.app.state.clock().timestamp()) - instant
-                payload = issued + "." + nonce
-                valid = (
-                    bool(_TOKEN.fullmatch(nonce))
-                    and 0 <= age < 600
-                    and _equal(signature, _signature(payload, request.app.state.settings.session_secret))
-                )
-            except (ValueError, UnicodeError):
-                valid = False
+        valid = _equal(supplied, cookie) and valid_login_csrf(
+            cookie, request.app.state.settings.session_secret, request.app.state.clock()
+        )
     if not valid:
-        raise HTTPException(403)
+        # Like require_user's password_change_required: name the cause where it is decided, so both
+        # the error page and the "<unmatched>" request log line can say what happened.
+        request.state.error_class = CSRF_REJECTED
+        raise CsrfRejected()
 
 
 def _address(value: str):

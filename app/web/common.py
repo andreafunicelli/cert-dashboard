@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.base import UserRecord
 from app.auth.local import PasswordChangeError, allow_login_attempt
-from app.auth.sessions import issue_login_csrf
+from app.auth.sessions import CSRF_REJECTED, login_csrf_token
 from app.jobs.worker import worker_capabilities
 from app.models.enums import JobType
 from app.services.audit import Actor
@@ -43,6 +43,8 @@ _MESSAGES = {
     500: "An unexpected error occurred.",
     503: "Service temporarily unavailable.",
 }
+# A rejected CSRF check means the form (or the tab it came from) is stale, not that access is denied.
+_CSRF_EXPIRED = "Your form expired. Reload the page and try again."
 
 
 FLASH_COOKIE = "cd_flash"
@@ -140,7 +142,11 @@ def _error_response(request: Request, status: int, headers=None):
         elif "application/json" not in request.headers.get("Accept", ""):
             return RedirectResponse("/login", status_code=303)
     message = _MESSAGES.get(status, "Request could not be completed.")
-    if status == 403 and getattr(request.state, "password_change_required", False):
+    code = None
+    if status == 403 and getattr(request.state, "error_class", None) == CSRF_REJECTED:
+        # The double-submit check runs before routing, so the route is "<unmatched>"; say what happened.
+        message, code = _CSRF_EXPIRED, CSRF_REJECTED
+    elif status == 403 and getattr(request.state, "password_change_required", False):
         # must_change_password: send the user to the only screen that can clear the flag.
         message = "Change your password to continue."
         if request.headers.get("HX-Request", "").lower() == "true":
@@ -148,7 +154,10 @@ def _error_response(request: Request, status: int, headers=None):
         elif "application/json" not in request.headers.get("Accept", ""):
             return RedirectResponse("/account", status_code=303)
     if "application/json" in request.headers.get("Accept", ""):
-        return JSONResponse({"error": message, "request_id": request_id}, status, response_headers)
+        payload = {"error": message, "request_id": request_id}
+        if code is not None:
+            payload["code"] = code
+        return JSONResponse(payload, status, response_headers)
     content = request.app.state.templates.get_template("error.html.j2").render(
         request=request,
         status=status,
@@ -238,17 +247,17 @@ def _render(request: Request, name: str, status: int = 200, **context) -> HTMLRe
 def _form_page(request: Request, name: str, status: int = 200, token: str | None = None, **context):
     """Render a pre-account form with the right CSRF token for the caller's current state."""
     session = request.state.session
-    mint = token is None and session is None
+    cookie = None
     if token is None:
-        holder = Response()
-        token = (
-            issue_login_csrf(holder, request.app.state.settings.session_secret, request.app.state.clock())
-            if mint
-            else session.csrf_token
-        )
+        if session is not None:
+            token = session.csrf_token
+        else:
+            token, cookie = login_csrf_token(
+                request, request.app.state.settings.session_secret, request.app.state.clock()
+            )
     response = _render(request, name, status, csrf_token=token, **context)
-    if mint:
-        response.headers.append("set-cookie", holder.headers["set-cookie"])
+    if cookie is not None:
+        response.headers.append("set-cookie", cookie)
     return response
 
 
