@@ -243,9 +243,9 @@ Discovery shares the two-job `MAX_PARALLEL_JOBS` cap with scans; a deploy job ta
 slot and is serialized instead by `deploy:global` (one deploy at a time) and `deploy.concurrency`
 (hosts per batch). A deploy job also holds `inventory:pull`; a paused deploy holds no claim, no slot,
 no lock and no `timeout_at`, so it is never reaped. At startup the worker writes one `worker.start`
-audit row with five booleans (`ssh_key_present`, `known_hosts_present`, `vault_password_present`,
-`inventory_token_present`) and never a value; the web enables or disables the discovery/deploy
-controls from the newest row of a worker with a fresh heartbeat.
+audit row with the worker id and four presence booleans (`ssh_key_present`, `known_hosts_present`,
+`vault_password_present`, `inventory_token_present`) and never a value; the web enables or disables
+the discovery/deploy controls from the newest row of a worker with a fresh heartbeat.
 
 ### Shutdown and in-flight writes
 
@@ -610,8 +610,9 @@ only after `verified` and only under `{{ backup_root }}`. CI enforces 85 % cover
 
 ### Local gate and known-flaky tests
 
-The `ssh-targets` profile is CI-only (see *SSH targets* above: built once by the CI setup step, then
-started with `up -d --wait --no-build --pull never`). Locally there is no Docker: the gate stays
+The `ssh-targets` profile is CI-only (see *SSH targets* under *Test fixtures* for the build step,
+the services and the fixture API): built once by the CI setup step, then started with
+`up -d --wait --no-build --pull never`. Locally there is no Docker: the gate stays
 `uv run ruff check .` plus `uv run pytest -q tests/unit` (and `-k 'not test_topology'` on a
 Docker-less machine), and the SSH-target, Testcontainers and acceptance tests run only in GitHub CI.
 
