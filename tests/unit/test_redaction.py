@@ -9,6 +9,7 @@ import pytest
 
 HASH = "0123456789abcdef" * 4
 BLOB = base64.b64encode(bytes(range(96))).decode()
+JOB_ID = "fb04310c-2a61-4b7e-9f2e-6d3c1a5e8b40"
 PRIVATE_PEM = "-----BEGIN PRIVATE KEY-----\nfixture-private-material\n-----END PRIVATE KEY-----"
 CERT_PEM = "-----BEGIN CERTIFICATE-----\nfixture-public-material\n-----END CERTIFICATE-----"
 
@@ -579,3 +580,48 @@ def test_schemeless_url_credentials_are_redacted():
     assert redact("//:p4ss@host") == "//:[REDACTED]@host"
     assert redact("user:pass@host") == "user:pass@host"
     assert redact("http://host:8080/path") == "http://host:8080/path"
+
+
+def test_job_type_structured_log_field_survives_redaction_for_every_member():
+    from app.models.enums import JobType
+    from app.services.audit import SecretRedactionFilter
+
+    for job_type in JobType:
+        record = logging.LogRecord("app.jobs.worker", logging.INFO, __file__, 1, "job started", (), None)
+        record.job_id = JOB_ID  # type: ignore[attr-defined] - extra fields are how the worker logs
+        record.job_type = job_type.value  # type: ignore[attr-defined]
+        assert SecretRedactionFilter().filter(record) is True
+        assert record.job_type == job_type.value  # type: ignore[attr-defined]
+        assert record.job_id == JOB_ID  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize("key", ["job_type", "type"])
+def test_every_job_type_value_survives_redaction_as_a_bare_value(key):
+    from app.models.enums import JobType
+    from app.services.audit import redact
+
+    for job_type in JobType:
+        assert redact({key: job_type.value}) == {key: job_type.value}
+        assert redact(job_type.value) == job_type.value
+
+
+@pytest.mark.parametrize(
+    "value,secret",
+    [
+        ("Bearer fixture-token", "fixture-token"),
+        ("password=fixture-password", "fixture-password"),
+        (PRIVATE_PEM, "fixture-private-material"),
+        ("Digest username=\"fixture-user\", response=\"fixture-response\"", "fixture-response"),
+    ],
+)
+def test_credential_shaped_job_type_values_are_still_redacted(value, secret):
+    from app.services.audit import SecretRedactionFilter, redact
+
+    cleaned = redact({"job_type": value})
+    assert isinstance(cleaned, dict)
+    assert secret not in str(cleaned["job_type"]) and "[REDACTED]" in str(cleaned["job_type"])
+    record = logging.LogRecord("app.jobs.worker", logging.INFO, __file__, 1, "job started", (), None)
+    record.job_type = value  # type: ignore[attr-defined] - mirrors the worker's extra field
+    assert SecretRedactionFilter().filter(record) is True
+    scrubbed = str(record.job_type)  # type: ignore[attr-defined]
+    assert secret not in scrubbed and "[REDACTED]" in scrubbed

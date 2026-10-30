@@ -2,7 +2,8 @@
 
 Only labeled secrets, PEM, Bearer/Basic credentials, URL credentials and long
 base64 runs are caught. Unlabeled secrets are not: call sites must pass explicit
-allowlisted metadata and must never submit request/form bodies.
+allowlisted metadata and must never submit request/form bodies. Exact job-type
+values are exempt because `digest` is also an HTTP auth scheme word.
 """
 
 import logging
@@ -18,10 +19,15 @@ from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, JSONValue
+from app.models.enums import JobType
 
 _REDACTED = "[REDACTED]"
 _TEXT_LIMIT = 65_536
 _TRUNCATED = "…[TRUNCATED]"
+# Job types are closed enum members logged as structured fields, never as prose. They are exempt
+# from the free-text scanners because `digest` is also an HTTP auth scheme word: a bare scheme word
+# carries no credential, while anything shaped like one still matches.
+_JOB_TYPE_VALUES = frozenset(job_type.value for job_type in JobType)
 _SAFE_METADATA = {
     "sha256fingerprint",
     "publickeysha256",
@@ -33,6 +39,7 @@ _SAFE_METADATA = {
     "keytype",
     "keysize",
     "totpenabled",
+    "jobtype",
 }
 _SENSITIVE_PARTS = (
     "password",
@@ -150,6 +157,10 @@ def _inline_text(value: str) -> str:
 
 
 def _text(value: str) -> str:
+    # An exact job-type value is a closed enum member, not free text: the auth-scheme barrier
+    # would otherwise scrub `digest` (and only `digest`) out of every structured log field.
+    if value in _JOB_TYPE_VALUES:
+        return value
     # Bound every regex's input, including unstructured logging/tracebacks.
     suffix = _TRUNCATED if len(value) > _TEXT_LIMIT else ""
     value = value[:_TEXT_LIMIT]
