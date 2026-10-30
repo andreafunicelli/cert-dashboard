@@ -6,6 +6,7 @@ created through ``start_deploy`` -- guardrails, plan hash and host rows included
 are then written directly, so every phase of a rollout can be shown without running Ansible.
 """
 
+import json
 import re
 from datetime import timedelta
 from types import SimpleNamespace
@@ -870,7 +871,7 @@ def test_pending_rows_of_a_terminal_job_render_not_run(signed_in, deploy_job_wor
     text = signed_in.get(f"/deploy/{job_id}").text
     # nothing ran, so every host row is still pending: the screen says so instead of showing "pending"
     assert 'data-status="pending"' in text
-    assert '<td>not run</td>' in text
+    assert re.search(r'<td>\s*<span class="badge badge-info">.*?</svg>not run</span>', text, re.DOTALL)
     assert ">pending<" not in text
     assert totals_of(text) == {"succeeded": 0, "failed": 0, "rolled_back": 0, "skipped": 0, "pending": 3}
     # a finished job stops polling whatever its rows say
@@ -945,17 +946,18 @@ def after_htmx_swap(page: str, fragment: str) -> str:
 def test_refused_control_swaps_visibly_for_htmx(signed_in, deploy_job_world):
     """htmx drops 4xx bodies by default, so the page must opt a 422 into the visible live-region swap.
 
-    A refusal from the control forms is a 422 fragment; without the ``htmx:beforeSwap`` handler the operator
+    A refusal from the control forms is a 422 fragment; without the HTMX responseHandling config the operator
     would see nothing at all. The test runs the swap htmx performs (target selector -> response root) and
     looks for the reason in the resulting document, then keeps the no-JavaScript behaviour intact.
     """
     job_id = deploy_job_world.stopped()
     server_id = deploy_job_world.world.servers[WEB02].id
     page = signed_in.get(f"/deploy/{job_id}").text
-    # the page ships the handler the repository's other inline forms use
-    assert 'document.body.addEventListener("htmx:beforeSwap"' in page
-    assert "event.detail.xhr.status === 422" in page
-    assert "event.detail.shouldSwap = true" in page and "event.detail.isError = false" in page
+    # Vendored HTMX 2 swaps validation failures without an inline script.
+    config = re.search(r'<meta name="htmx-config" content=\'(.*?)\'', page)
+    assert config is not None
+    handling = json.loads(config.group(1))["responseHandling"]
+    assert {"code": "422", "swap": True, "error": False} in handling
     # the form targets the region the refusal replaces, so the swap lands where the reason is rendered
     assert 'hx-target="#deploy-job-live"' in page
     refusal = signed_in.post(

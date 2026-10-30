@@ -1,5 +1,6 @@
 {% extends "base.html.j2" %}
 {% block title %}Deploy · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/deploy.css">{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
 <h1>Deploy</h1>
 <p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.</p>
@@ -11,6 +12,7 @@
 </section>
 {% else %}
 <div id="deploy-screen">
+<details class="deploy-options"><summary>Change certificate, targets and rollout options</summary>
 <form id="deploy-options" class="panel wide" method="get" action="/deploy"
       hx-get="/deploy/preview" hx-target="#deploy-preview" hx-swap="innerHTML" hx-trigger="change, submit">
   <h2>Plan</h2>
@@ -69,18 +71,11 @@
 
   <button type="submit">Preview</button>
 </form>
+</details>
 
 <div id="deploy-preview">
 {% include "deploy/_preview.html.j2" %}
 </div>
 </div>
 {% endif %}
-{% endblock %}
-{% block scripts %}
-<script>
-  // htmx ignores 4xx bodies by default; a refused plan answers 422 with the re-rendered preview.
-  document.body.addEventListener("htmx:beforeSwap", function (event) {
-    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
-  });
-</script>
 {% endblock %}

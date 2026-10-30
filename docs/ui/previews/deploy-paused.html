@@ -1,0 +1,149 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Deploy fixture-deploy-job · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/deploy.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span aria-current="page"><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<p><a href="/overview">← Overview</a></p>
+<h1>Deploy <a href="/certificates/42">gateway.ops.example.test</a></h1>
+
+
+<div id="deploy-job-live" data-status="paused">
+
+
+
+
+<section class="panel wide banner-warning" role="alert" data-banner="approval" aria-label="Waiting for approval">
+  <h2><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> Canary succeeded — continue?</h2>
+  <p>The rollout is waiting for approval since <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time>.
+  23 hours left before automatic cancellation.</p>
+  <p>No worker, slot or lock is held while the job waits; resuming re-checks drift on every host.</p>
+</section>
+
+
+<section class="panel wide" id="deploy-header" aria-label="Deploy job">
+  <dl class="fields">
+    <dt>Status / phase</dt><dd><span data-job-status="paused">
+<span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>paused</span></span> <span class="chip" data-phase="canary">canary</span></dd>
+    <dt>Job</dt><dd><code>fixture-deploy-job</code></dd>
+    <dt>Started by</dt><dd>Fixture operator · <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></dd>
+    <dt>Elapsed</dt><dd class="mono">18 s</dd>
+    <dt>Inventory revision</dt><dd><code>dddddddddddddddddddddddddddddddddddddddd</code></dd>
+  </dl>
+  <p class="hint">Rollback is automatic when a canary fails after writing files. Continue, cancel and per-host retry are the operator controls; there is no manual rollback action.</p>
+  <p><a href="/deploy/fixture-deploy-job">Refresh progress</a> if live updates are unavailable. No automatic scrolling.</p>
+</section>
+
+<div id="deploy-progress">
+  <section class="panel wide" aria-label="Totals">
+    <h2>Totals</h2>
+    <ul class="totals">
+      <li data-total="succeeded">Succeeded <strong>0</strong></li>
+      <li data-total="failed">Failed <strong>0</strong></li>
+      <li data-total="rolled_back">Rolled back <strong>1</strong></li>
+      <li data-total="skipped">Skipped <strong>0</strong></li>
+      <li data-total="pending">Pending <strong>0</strong></li>
+    </ul>
+  </section>
+
+  <details class="panel wide batch" data-batch="0">
+    <summary>Batch 1 — canary · 1 host</summary>
+    <div class="table-wrap"><table class="deploy-hosts">
+      <thead><tr><th scope="col">Host</th><th scope="col">Bindings</th><th scope="col">Status</th><th scope="col">Old → new fingerprint</th><th scope="col">Duration</th><th scope="col">Rollback</th><th scope="col">Backup</th><th scope="col">Log</th></tr></thead>
+      <tbody>
+
+      <tr class="deploy-host" data-host="edge-01.example.test" data-status="succeeded">
+        <td>edge-01.example.test</td>
+        <td>gateway.ops.example.test:443</td>
+        <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>succeeded</span><br><small>healthcheck_failed</small></td>
+        <td><code title="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb">bbbbbbbbbbbb…</code>
+            → <code title="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">aaaaaaaaaaaa…</code></td>
+        <td class="numeric">18</td>
+        <td>—</td>
+        <td><input class="copy-path" type="text" readonly value="/var/backups/cert-dashboard/fixture-job" aria-label="Backup path on edge-01.example.test"></td>
+        <td><details><summary>Excerpt</summary><pre>TLS verification failed after reload; backup restored.</pre></details></td>
+      </tr>
+
+      </tbody>
+    </table></div>
+  </details>
+
+</div>
+
+<section class="panel wide" id="deploy-controls" aria-label="Controls">
+  <h2>Controls</h2>
+
+
+  <form class="inline" method="post" action="/deploy/fixture-deploy-job/continue" hx-post="/deploy/fixture-deploy-job/continue" hx-target="#deploy-job-live" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <button type="submit">Continue</button>
+  </form>
+
+
+  <details class="confirmation" id="deploy-cancel-confirmation" hx-preserve><summary>Cancel this rollout</summary>
+  <p>No further host will be started. This does not undo hosts already deployed.</p>
+  <form class="inline" method="post" action="/deploy/fixture-deploy-job/cancel" hx-post="/deploy/fixture-deploy-job/cancel" hx-target="#deploy-job-live" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <button type="submit" class="button-destructive">Cancel job</button>
+  </form>
+  <a href="/deploy/fixture-deploy-job">Keep rollout</a>
+  </details>
+
+  <p><a href="/deploy/fixture-deploy-job/report.json" download="deploy-fixture-deploy-job.json">Download the per-host report as JSON</a></p>
+
+</section>
+</div>
+</main>
+
+</body>
+</html>

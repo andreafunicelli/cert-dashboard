@@ -109,6 +109,72 @@ be applied as those pages come into scope.
 
 ## Preview and verification
 
+### Deploy, settings and outbound email
+
+`deploy.css`, `settings.css` and `email.css` are opt-in area styles. No shared
+palette, button, badge or table implementation is forked, and `app.css` is unchanged.
+`deploy/_ui.html.j2` maps worker states to the canonical icon + badge + label.
+The guardrail verdict precedes the preview details; rollout options are a native
+disclosure so the verdict is not buried under the options form. Start still requires
+the explicit plan checkbox, plan hash and existing POST/CSRF. Cancel is a native
+confirmation; `hx-preserve` keeps that disclosure open through live progress swaps.
+Failure host, reason code and recovery links precede job metadata. Failed/restored
+batches open automatically; no scroll behaviour is added. Rollback is automatic,
+not an operator command. Its per-host state and old fingerprint come from the
+worker's view; rollback time is not exposed by this view and is labelled unavailable.
+
+SMTP test results remain on the page, including timestamps, step/reply codes and
+failure details, with an ordinary refresh link for non-HTMX use. Test send uses
+saved settings. “Delivered” is the existing recorded SMTP outcome, not a claim
+that the message arrived in the recipient's inbox. Outbound HTML mail uses native
+semantic headings, row headers and text links without scripts, styles, remote
+assets or a second email palette. Its text/plain alternatives remain unchanged.
+Mail-client default fonts/colours are intentional: these messages must remain
+readable without fetching LAN-only CSS and without relying on CSS support.
+
+#### Approved settings progressive-enhancement exception
+
+The operator approved one dependency-free script, `app/static/settings.js`, because
+full tab navigations otherwise discard unsaved configuration. Only settings loads
+it, with `defer`. It uses no inline handler, `eval`, HTML injection, auto-submit or
+submit interception. It works with `script-src 'self'`; CSP policy itself is not
+changed. HTMX 422 behaviour uses the existing declarative `enhanced_forms()` macro.
+
+- Tabs with pending drafts retain a visible “unsaved draft” label, including when
+  a different section is open. Text/select/checkbox changes get a warning-colour boundary **and** visible
+  “Unsaved change” text, plus a persistent section status.
+- Explicit tab navigation asks before leaving; other exits use `beforeunload`
+  (browser-controlled wording; browser may suppress prompts without interaction).
+- Non-secret configuration drafts and their initial values are scoped per section
+  in this browser tab's `sessionStorage`. Returning restores the draft and dirty
+  indicators. A successful save marker clears only that section's draft; HTTP 422
+  retains it and preserves server-rendered validation values. A consumed `saved`
+  URL flag is removed so reload does not clear a subsequently edited draft.
+- Password controls, hidden/file inputs and any field name containing `secret`,
+  `key` or `token` are never read or stored. Repository URLs are also never stored:
+  even an invalid URL can contain credentials. Their changes are marked but must
+  be saved before switching. Trust uploads, typed destructive confirmations and
+  CLI key rotation are not configuration drafts and are not persisted.
+- No draft is a server-side save. Closing the browser tab ends its drafts; anyone
+  using that same browser tab can read its non-secret drafts. Storage denial is
+  reported visibly and falls back to save-before-navigation. The always-visible
+  no-JavaScript notice explains that unsaved values are lost across sections.
+
+Extend `scripts/render_previews.py` via `operations_fixtures()`; do not create a
+second renderer. New previews cover allowed/blocked deploys, failed/running/paused
+jobs, all ten settings tabs, queued/succeeded SMTP outcomes and both outbound HTML
+messages. `tests/test_operations_previews.py` checks native forms, hooks, escaping,
+fragments, state hierarchy, confirmation and the script/CSS boundaries. Run
+`node --test tests/settings_drafts.test.cjs` for dependency-free draft lifecycle,
+secret exclusion, navigation guard, 422/success and storage-denial tests. Node is
+a test-only tool, not a runtime dependency or a build step.
+
+Structural checks passed; visual verification pending on the deployed instance.
+Static preview inspection is not deployed application, email-client, inbox-delivery
+or complete WCAG proof. On deployment, verify no-HTMX saves/422s, actual SMTP
+results, keyboard focus, both themes, narrow layouts, slow live swaps and canary
+failure restoration using synthetic demo data.
+
 ### Inventory, renewals, import and scans
 
 These areas load `certificates.css`, `renewals.css`, `import.css`, `scans.css` via
@@ -179,7 +245,8 @@ Run `uv run python scripts/render_previews.py`, then open
 `shell.html`. Assets resolve relative to the repository, including the unchanged
 vendored HTMX. Shell fixtures exercise every core component and all banner kinds.
 Forms/links are fixture demonstrations, not a running service. The generator uses
-Jinja directly with autoescaping; no app import, database, new dependency or JS.
+Jinja directly with autoescaping; no app import, database or new dependency. Only
+settings previews load the approved settings-only enhancement described above.
 
 `tests/unit/test_ui_foundation.py` checks token coverage, palette contrast and CSS
 budget using only assets shipped in the test image. `tests/test_ui_previews.py`
