@@ -1,5 +1,6 @@
 import hashlib
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -360,9 +361,28 @@ def test_two_supplied_roots_and_a_duplicate_leaf(certs):
     }
 
 
-def test_thirty_cross_sign_candidates_finish_quickly(certs):
-    import time
+@pytest.fixture
+def signature_verifications(monkeypatch):
+    """Record every real signature check ``order_chain`` performs.
 
+    ``order_chain`` memoises ``_verifies`` per (child, issuer) fingerprint pair, so
+    each recorded call is one ``verify_directly_issued_by`` - the expensive step whose
+    count must stay linear in the number of candidates.
+    """
+    from app.crypto import chain as chain_module
+
+    checked: list[tuple[str, str]] = []
+    real_verifies = chain_module._verifies
+
+    def counting(child, issuer):
+        checked.append((_fp(child), _fp(issuer)))
+        return real_verifies(child, issuer)
+
+    monkeypatch.setattr(chain_module, "_verifies", counting)
+    return checked
+
+
+def test_thirty_cross_sign_candidates_scan_linearly(certs, signature_verifications):
     candidates = []
     for index in range(30):
         root_key = ec.generate_private_key(ec.SECP256R1())
@@ -372,10 +392,17 @@ def test_thirty_cross_sign_candidates_finish_quickly(certs):
         )
     started = time.monotonic()
     result = order_chain(certs.leaf, candidates)
-    assert time.monotonic() - started < 0.5
+    elapsed = time.monotonic() - started
+    # Contract: at most one signature check per candidate (the memoised leaf->candidate
+    # pair), i.e. linear scanning, not all-pairs verification.
+    checks = len(signature_verifications)
+    assert 0 < checks <= len(candidates), checks
     assert len(result.fingerprints) == 1
     assert len(result.alternates) == 29
     assert result.missing_issuer is not None
+    # Smoke alarm only: ~500x the 4 ms this takes locally. The exact wall clock is not
+    # the contract - the verification count above is.
+    assert elapsed < 2.0
 
 
 def _deep_chain(length: int):
@@ -406,9 +433,7 @@ def test_parse_rejects_more_than_32_certificates_before_decoding(certs):
     assert len(parse_certificates(pem * 32)) == 32
 
 
-def test_thirty_two_same_subject_candidates_are_fast(certs):
-    import time
-
+def test_thirty_two_same_subject_candidates_scan_linearly(certs, signature_verifications):
     missing_key = ec.generate_private_key(ec.SECP256R1())
     missing_root = _issue("Missing Root", missing_key, None, None, ca=True)
     candidates = [
@@ -417,14 +442,18 @@ def test_thirty_two_same_subject_candidates_are_fast(certs):
     ]
     started = time.monotonic()
     result = order_chain(certs.leaf, candidates)
-    assert time.monotonic() - started < 0.2
+    elapsed = time.monotonic() - started
+    # Contract: a shared subject must not multiply the work - one memoised signature
+    # check per candidate keeps the scan linear.
+    checks = len(signature_verifications)
+    assert 0 < checks <= len(candidates), checks
     assert len(result.fingerprints) == 1
     assert len(result.alternates) == 31
+    # Smoke alarm only: ~500x the 4 ms this takes locally; the count above is the contract.
+    assert elapsed < 2.0
 
 
-def test_sixteen_hundred_direct_candidates_finish_under_a_second(certs):
-    import time
-
+def test_sixteen_hundred_direct_candidates_scan_linearly(certs, signature_verifications):
     missing_key = ec.generate_private_key(ec.SECP256R1())
     missing_root = _issue("Missing Root", missing_key, None, None, ca=True)
     candidates = [
@@ -433,9 +462,16 @@ def test_sixteen_hundred_direct_candidates_finish_under_a_second(certs):
     ]
     started = time.monotonic()
     result = order_chain(certs.leaf, candidates)
-    assert time.monotonic() - started < 1.0
+    elapsed = time.monotonic() - started
+    # Contract: 1600 candidates cost 1600 signature checks, not 1600 * 1599 (all-pairs).
+    checks = len(signature_verifications)
+    assert 0 < checks <= len(candidates), checks
     assert len(result.fingerprints) == 1
     assert len(result.alternates) == 1599
+    # Smoke alarm only: ~40x the 0.25 s this takes locally and ~10x the slowest CI run
+    # seen (1.04 s on a loaded runner). The exact wall clock is not the contract - the
+    # quadratic scan it would take to breach it would be thousands of times slower.
+    assert elapsed < 10.0
 
 
 def test_depth_limit_reports_truncation_without_a_missing_issuer():
