@@ -809,7 +809,9 @@ The two digests must be identical; that value is what the dashboard shows on the
 discovery. A binding is `matched` only when the certificate fingerprint **and** this hash agree.
 
 **TLS directives are read inline and from includes (D3).** nginx is read from `nginx -T`, which already
-concatenates every `include`. Apache is read as the union of the files `apachectl -S` names, the main
+concatenates every `include`; the parser resolves each `include` reference against those already-dumped
+sections to attach the directive to its enclosing block, and never reads a file from the target. Apache is
+read as the union of the files `apachectl -S` names, the main
 configuration and a recursive expansion of `Include`/`IncludeOptional` (globs sorted, a directory means
 every file below it, cycles cut by real path, depth ≤ 16), and the parser attributes every directive to
 the enclosing `<VirtualHost>` even when the directive sits in a file included inside that block. The limits
