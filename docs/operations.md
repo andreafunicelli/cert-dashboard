@@ -885,7 +885,7 @@ the table at the end of the section and keep it with the installation.
    ```
 
    A host reached on a non-default port (`ansible_port: 2222`) is written `[10.0.0.11]:2222` and looked up
-   the same way; hash the bare inventory hostname only for a host with **no** `ansible_host`, because that
+   the same way; pin the bare inventory hostname only for a host with **no** `ansible_host`, because that
    is the address the worker then connects to.
 
    **The inventory Git remote is a second address.** The worker fetches the repository with the same key
@@ -920,12 +920,12 @@ the table at the end of the section and keep it with the installation.
            web01.example.internal: {}
    ```
 
-   Nothing else may be in this revision: no other entry under `all.hosts`, no host in a group's `hosts`,
-   nothing in `host_vars/` or `group_vars/`. Test pull counts every member of `all`, group children
-   included (`app/services/inventory.py`), so a stray group host silently widens the first discovery.
-   `tests/unit/test_operations_docs.py` lists this exact block with the worker's own
-   `ansible-inventory --list` and asserts one host; `web02` and `web03` arrive in the second commit of
-   step 9.
+   Nothing else may be in this revision: no second host under `all.hosts`, no second host in any group's
+   `hosts` (`host_vars/` and `group_vars/` can add variables but never a host). Test pull counts every
+   member of `all`, group children included (`app/services/inventory.py`), so a stray group host silently
+   widens the first discovery. `tests/unit/test_operations_docs.py` lists this exact block with the
+   worker's own `ansible-inventory --list` and asserts one host; `web02` and `web03` arrive in the second
+   commit of step 9.
 
    Hostnames are inventory names, `ansible_host` is the address the worker connects to (the one the
    `known_hosts` entry of item 4 must name), and the groups drive the canary and the batches. Add vaulted
