@@ -16,6 +16,7 @@ from uuid import UUID
 from sqlalchemy import Integer, and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.jobs.queue import ALLOWED_ERROR_CLASSES, TIMEOUT_MESSAGE
 from app.models import Binding, Certificate, Job, JobHost, PrivateKey, Renewal, Server, User
 from app.models.enums import CertificateStatus, JobHostStatus, JobStatus, JobType, RenewalState
 from app.services.deploy import _EXCLUDED_MATCH_STATES, pause_deadline
@@ -67,6 +68,58 @@ PRE_WRITE_STEPS = frozenset({"preflight", "backed_up"})
 # Contract decision 18: the handler fails the job with ``rollout stopped: <hostname> failed (<reason>)``.
 _STOPPED_MESSAGE = re.compile(r"^rollout stopped: (?P<host>\S+) failed \(")
 _NEVER = datetime.max.replace(tzinfo=UTC)
+
+# §8.7's failure banner shows "the reason for stopping". A job-level refusal — the execution-time trust, key
+# or inventory gate — stops the deploy before any host row fails, so no ``HostView`` carries a reason and the
+# job's own failure is the only persisted evidence (Contract decisions 7 and 16). The banner renders one of
+# these fixed texts verbatim and nothing else: an exact allowlist, never a filter, so a free-text message (a
+# path, a host's stderr, a future handler's message) cannot reach the screen even when it slipped past
+# ``safe_error_message``. Each entry is the literal this codebase writes on ``job.error_message``.
+JOB_FAILURE_REASONS = frozenset(
+    {
+        # execution-time gate (app.services.deploy_runtime, Contract decision 16)
+        "the deploy job does not name a certificate",
+        "the planned certificate no longer exists",
+        "certificate trust changed since the deploy was planned; plan it again",
+        "the certificate expired before the deploy started",
+        "the certificate is not valid yet",
+        "the certificate has no stored private key",
+        "the certificate's private key cannot be unwrapped with the configured keyring",
+        *(f"the certificate is {status.value}; only an active certificate can be deployed" for status in CertificateStatus),
+        # the handler's own pre-run checks (app.jobs.handlers.deploy)
+        "the stored certificate cannot be parsed",
+        "the certificate and its stored private key do not match",
+        "the inventory was not prepared",
+        "job not found",
+        # the shared Ansible context (app.jobs.handlers.ansible_context, Contract decision 7)
+        "inventory repository is not configured",
+        "SSH known_hosts file is missing",
+        "the worker has no ansible_ssh_key",
+        "inventory path is outside the checkout",
+        "the job artifact directory is not a plain directory",
+        # the inventory service's fixed failures (app.services.inventory): the checkout refresh runs before
+        # any host, and each text is one this codebase writes itself — never git or ansible output
+        "inventory checkout directory is not empty and not a git checkout",
+        "inventory checkout could not be updated and is in an unknown state",
+        "inventory checkout is not available yet",
+        "inventory checkout is older than 24 hours and no pull was allowed",
+        "inventory pull failed and no checkout is available",
+        "inventory pull failed and the last good checkout is older than 24 hours",
+        "inventory checkout does not match its recorded revision",
+        "inventory could not be read",
+        "inventory listing timed out",
+        # the worker's own outcomes (app.jobs.worker, app.jobs.queue)
+        "invalid job payload",
+        "no handler registered for this job",
+        "master key unavailable for this record",
+        "internal error",
+        TIMEOUT_MESSAGE,
+    }
+)
+# What the banner says when the persisted message is not on that allowlist: still that no host stopped the
+# rollout, plus the job's error class — a closed, already-sanitized token (§9.1) — never the message itself.
+_JOB_FAILURE_FRAME = "No host stopped the rollout: "
+_JOB_FAILURE_UNKNOWN = "the job itself failed"
 
 
 # The JSON report is an allowlist: every ``HostView`` field except the (redacted) log excerpt, whose text stays
@@ -135,6 +188,7 @@ class DeployJobView:
     pause_deadline: datetime | None
     first_failed_host: str | None
     files_restored: bool | None
+    job_failure_reason: str | None
     inventory_rev: str | None
 
     @property
@@ -366,6 +420,20 @@ def _state(host: HostView) -> str:
     return UNVERIFIED if host.needs_attention else NOTHING_WRITTEN
 
 
+def _job_failure_reason(job: Job) -> str:
+    """The safe reason of a rollout that no host stopped (§8.7), from the job's own persisted failure.
+
+    Only a message that is exactly one of ``JOB_FAILURE_REASONS`` is rendered; anything else — a free-text
+    message, a known text with something appended, a message a future handler writes — becomes the
+    class-only fallback. The screen therefore never echoes a message it does not know.
+    """
+    message = job.error_message if isinstance(job.error_message, str) else None
+    if message in JOB_FAILURE_REASONS:
+        return f"{_JOB_FAILURE_FRAME}{message.rstrip('.')}."
+    error_class = job.error_class if job.error_class in ALLOWED_ERROR_CLASSES else None
+    return f"{_JOB_FAILURE_FRAME}{_JOB_FAILURE_UNKNOWN}" + (f" ({error_class})." if error_class else ".")
+
+
 def _stopper(job: Job, hosts: list[HostView], rows: list[tuple[JobHost, Server, Binding | None]]) -> HostView | None:
     """The host that stopped the rollout: the one the handler named, else the failure that completed first.
 
@@ -428,6 +496,9 @@ def _snapshot(
     first_failed = stopper.hostname if stopper is not None else None
     restoration = None if stopper is None else _state(stopper)
     files_restored = True if restoration == RESTORED else False if restoration == RESTORE_FAILED else None
+    # Only a failed job with no stopping host falls back to its own failure: when a host did stop the
+    # rollout the banner names that host and its restoration instead (§8.7).
+    job_failure_reason = _job_failure_reason(job) if status is JobStatus.FAILED and stopper is None else None
     view = DeployJobView(
         job_id=job.id,
         status=status.value,
@@ -443,6 +514,7 @@ def _snapshot(
         pause_deadline=deadline,
         first_failed_host=first_failed,
         files_restored=files_restored,
+        job_failure_reason=job_failure_reason,
         inventory_rev=_inventory_rev(job),
     )
     return view, rows

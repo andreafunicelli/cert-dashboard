@@ -239,6 +239,25 @@ class DeployJobWorld:
             job.error_message = "certificate trust changed since the deploy was planned; plan it again"
         return job_id
 
+    def job_level_failure(self, *, message: str, error_class: str = "config_invalid", rows: str = "pending"):
+        """A job-level refusal: the job failed before any host row could fail.
+
+        ``rows`` is what the handler leaves behind: ``skipped``/``job_failed`` when the execution gate
+        refuses the plan (Contract decision 16's ``_gate_failure``) and ``pending`` when the job never
+        reached its rows at all (an inventory or worker-level failure).
+        """
+        job_id = self.start(batch_percent=50, pause_after_canary=False)
+        with self.factory.begin() as db:
+            if rows == "skipped":
+                for hostname in (WEB01, WEB02, WEB03):
+                    self._write(db, job_id, hostname, "skipped", reason="job_failed")
+            job = db.get(Job, job_id)
+            job.status = JobStatus.FAILED
+            job.finished_at = self.clock()
+            job.error_class = error_class
+            job.error_message = message
+        return job_id
+
     def needs_attention(self):
         """A timed-out host: the worker cannot know whether writes started, so the host needs a human."""
         job_id = self.stopped()
@@ -710,6 +729,115 @@ def test_failure_banner_names_the_host_that_stopped_the_rollout(signed_in, deplo
     assert f"The first failed host is <strong>{WEB03}</strong>" in page
     assert f"The first failed host is <strong>{WEB02}</strong>" not in page
     assert signed_in.get(f"/deploy/{job_id}/report.json").json()["first_failed_host"] == WEB03
+
+
+@pytest.mark.parametrize("rows", ["pending", "skipped"])
+@pytest.mark.parametrize(
+    ("message", "error_class", "expected"),
+    [
+        (
+            "certificate trust changed since the deploy was planned; plan it again",
+            "config_invalid",
+            "No host stopped the rollout: certificate trust changed since the deploy was planned; plan it again.",
+        ),
+        (
+            "Job exceeded its time limit or its worker stopped responding.",
+            "timeout",
+            "No host stopped the rollout: Job exceeded its time limit or its worker stopped responding.",
+        ),
+        (
+            "the certificate is superseded; only an active certificate can be deployed",
+            "config_invalid",
+            "No host stopped the rollout: the certificate is superseded; only an active certificate can be deployed.",
+        ),
+        (
+            "inventory pull failed and the last good checkout is older than 24 hours",
+            "transient_network",
+            "No host stopped the rollout: inventory pull failed and the last good checkout is older than 24 hours.",
+        ),
+    ],
+)
+def test_job_level_failure_shows_its_persisted_reason(signed_in, deploy_job_world, rows, message, error_class, expected):
+    """§8.7: the banner shows the reason for stopping even when no host row failed.
+
+    A trust/key/inventory refusal stops the job before any host runs, so ``_stopper`` is ``None``; the only
+    persisted evidence is the job's own failure. It is an allowlist of the fixed texts this codebase writes,
+    rendered verbatim, and it reaches the polled live region with the rest of the banner.
+    """
+    job_id = deploy_job_world.job_level_failure(message=message, error_class=error_class, rows=rows)
+    page = signed_in.get(f"/deploy/{job_id}")
+    assert page.status_code == 200
+    banner = failure_banner(page.text)
+    assert 'data-failure="job"' in banner
+    assert expected in banner
+    assert "The first failed host is" not in banner  # no host stopped this rollout
+    fragment = signed_in.get(f"/jobs/{job_id}/progress", headers={"HX-Request": "true"})
+    assert fragment.status_code == 200 and expected in failure_banner(fragment.text)
+
+
+# Every fixed inventory failure the worker can persist on a deploy job (``app.services.inventory``): the
+# checkout refresh runs before any host, so the banner must show the persisted reason instead of the
+# class-only fallback. None of these texts carries git or Ansible output.
+INVENTORY_JOB_FAILURES = [
+    "inventory checkout directory is not empty and not a git checkout",
+    "inventory checkout could not be updated and is in an unknown state",
+    "inventory checkout is not available yet",
+    "inventory checkout is older than 24 hours and no pull was allowed",
+    "inventory pull failed and no checkout is available",
+    "inventory pull failed and the last good checkout is older than 24 hours",
+    "inventory checkout does not match its recorded revision",
+    "inventory could not be read",
+    "inventory listing timed out",
+]
+
+
+@pytest.mark.parametrize("message", INVENTORY_JOB_FAILURES)
+def test_job_level_inventory_failure_shows_the_persisted_reason(signed_in, deploy_job_world, message):
+    """§8.7/§9.1.3: an inventory refusal before any host runs is actionable on the job screen."""
+    job_id = deploy_job_world.job_level_failure(message=message, error_class="transient_network", rows="pending")
+    banner = failure_banner(signed_in.get(f"/deploy/{job_id}").text)
+    assert f"No host stopped the rollout: {message}." in banner
+    assert "the job itself failed" not in banner  # the class-only fallback, not the persisted reason
+    assert "The first failed host is" not in banner  # no host stopped this rollout
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "cannot stage the job secrets: /run/secrets/deploy_key.pem: Permission denied",
+        "certificate trust changed since the deploy was planned; plan it again (key=abcd1234)",
+        "the inventory was not prepared; token=abcd1234",
+    ],
+)
+def test_job_level_failure_never_echoes_a_non_allowlisted_message(signed_in, deploy_job_world, message):
+    """The redaction control: only an exact allowlisted text reaches the screen.
+
+    ``job.error_message`` is redacted when it is persisted, but the screen must not depend on that filter: a
+    free-text message (a path, a host's stderr), a known text with anything appended to it, or a message a
+    future handler writes is replaced by the class-only fallback and never echoed.
+    """
+    job_id = deploy_job_world.job_level_failure(message=message, error_class="internal", rows="pending")
+    page = signed_in.get(f"/deploy/{job_id}").text
+    banner = failure_banner(page)
+    assert "No host stopped the rollout: the job itself failed (internal)." in banner
+    for leaked in (
+        "deploy_key.pem",
+        "/run/secrets",
+        "cannot stage the job secrets",
+        "key=abcd1234",
+        "token=abcd1234",
+    ):
+        assert leaked not in page
+    report = signed_in.get(f"/deploy/{job_id}/report.json")
+    assert "deploy_key.pem" not in report.text and "abcd1234" not in report.text
+
+
+def test_a_host_stopped_rollout_keeps_the_host_wording(signed_in, deploy_job_world):
+    """A host that stopped the rollout keeps the first-failed-host and restoration wording (§8.7)."""
+    banner = failure_banner(signed_in.get(f"/deploy/{deploy_job_world.stopped()}").text)
+    assert f"The first failed host is <strong>{WEB02}</strong>" in banner
+    assert "files were restored" in banner
+    assert "No host stopped the rollout" not in banner
 
 
 # --- host states that need a human ---------------------------------------------------------------
