@@ -662,6 +662,11 @@ commit) and `inventory_rev_date`, which is what the Overview's status strip and 
 - **Servers → a server → Discover** (`POST /servers/{id}/discover`) — one host;
 - **Servers → Discover by group** — one inventory group.
 
+A per-host or per-group discovery needs the `server` row, and only a discovery creates one: on a brand-new
+installation the first run is **Discover all** over a one-host inventory, and the remaining hosts are added
+afterwards (the staging in section 12.1/12.2). A discovery always syncs the whole inventory into `server`
+rows but connects only to the hosts its scope selects.
+
 Discovery and deployment share two worker slots with scans and are claimable only by a worker that has
 `ansible_ssh_key` (without it the screens show "Discovery and deploy are unavailable: the worker has no
 ansible_ssh_key" and the buttons are disabled). A discovery is read-only: it writes no file on the host
@@ -732,8 +737,10 @@ section 12.
    the current time unless the operator supplies a reason (audited as `deploy.chain_override`; the
    override never bypasses key, validity, drift or config-test checks).
 5. The canary runs first. With *pause after canary* the job releases its claim, its slot and its locks and
-   waits: **Continue** re-checks the trust gate and every host's drift, **Cancel** stops it; a forgotten
-   pause is cancelled automatically after `deploy.pause_timeout_hours` with `deploy.pause_expired`. The
+   waits — but only when another host is still `pending`: a selection that reduces the rollout to the canary
+   alone has no later batch, runs to completion and never pauses (a one-host job cannot be Continued).
+   **Continue** re-checks the trust gate and every host's drift, **Cancel** stops it; a forgotten pause is
+   cancelled automatically after `deploy.pause_timeout_hours` with `deploy.pause_expired`. The
    remaining batches run `deploy.concurrency` hosts at a time; the first failed host stops the rollout and
    the hosts that were never started become `skipped` (`rollout_stopped`).
 6. Hosts whose `deploy:<hostname>` lock is taken are `skipped`, not failed, and never stop the rollout.
@@ -830,15 +837,32 @@ the table at the end of the section and keep it with the installation.
 1. **OS packages**: `openssh-server`, the webserver (`nginx` or `apache2` with `a2enmod ssl`), `sudo`,
    `python3`, `openssl`, `procps` (`pgrep`), `git` where the host also serves the inventory,
    `policycoreutils` only where SELinux is enforcing (`restorecon` is probed and skipped when absent).
-2. **Service user and key**: create the dedicated user, lock its password, install the **public** half of
-   the deploy key into its `authorized_keys`:
+2. **Service user and deploy key.** The private key is a secret: create and keep it **outside the repository
+   checkout**, in the root-only secret directory of section 2.1, and transfer only its **public half** to the
+   targets. As root on the dashboard host:
 
    ```sh
-   ssh-keygen -t ed25519 -a 100 -N '' -C cert-dashboard-deploy -f ./ansible_ssh_key   # on the dashboard host
-   useradd --create-home --shell /bin/bash --uid 2000 cdeploy                          # on every target
+   install -d -m 0700 /root/cert-dashboard-keygen
+   ssh-keygen -t ed25519 -a 100 -N '' -C cert-dashboard-deploy -f /root/cert-dashboard-keygen/ansible_ssh_key
+   install -m 0400 -o 10001 -g 10001 /root/cert-dashboard-keygen/ansible_ssh_key /etc/cert-dashboard/secrets/ansible_ssh_key
+   install -m 0644 -o root -g root /root/cert-dashboard-keygen/ansible_ssh_key.pub /etc/cert-dashboard/ansible_ssh_key.pub
+   shred -u /root/cert-dashboard-keygen/ansible_ssh_key
+   shred -u /root/cert-dashboard-keygen/ansible_ssh_key.pub
+   rmdir /root/cert-dashboard-keygen
+   sh scripts/install-secrets.sh /etc/cert-dashboard/secrets    # re-asserts the canonical owners and modes
+   ```
+
+   `/etc/cert-dashboard/secrets/ansible_ssh_key` is what `docker-compose.credentials.yml` mounts into the
+   worker (read-only, UID 10001); the private key never appears in the checkout, in a compose file or in a
+   `.pub` next to it. Only the public file `/etc/cert-dashboard/ansible_ssh_key.pub` leaves the dashboard
+   host. On every target, as root:
+
+   ```sh
+   useradd --create-home --shell /bin/bash --uid 2000 cdeploy
    passwd -l cdeploy
    install -d -m 0755 -o root -g root /etc/ssh/authorized_keys
-   install -m 0644 -o root -g root ./ansible_ssh_key.pub /etc/ssh/authorized_keys/cdeploy
+   install -m 0644 -o root -g root ansible_ssh_key.pub /etc/ssh/authorized_keys/cdeploy   # the copied public half
+   ssh-keygen -lf /etc/ssh/authorized_keys/cdeploy                                        # compare with the public key you copied
    ```
 
    `sshd` must accept it: `PasswordAuthentication no`, `KbdInteractiveAuthentication no`,
@@ -876,6 +900,14 @@ the table at the end of the section and keep it with the installation.
 
    Hostnames are inventory names, `ansible_host` is what the worker connects to, and the groups drive the
    canary and the batches. Add vaulted group variables only if the playbooks need them.
+
+   **Start the repository with only the first host** (`web01` above) and add the rest in step 9. A discovery
+   always syncs the *whole* inventory into `server` rows but connects **only to the hosts in its scope**
+   (`app/jobs/handlers/discover.py`), and **Servers → a server → Discover** needs that row to exist — for an
+   unknown hostname `app/web/servers.py` answers 404. A per-host discovery is therefore impossible before
+   the very first run, and **Discover all** over the full inventory would already connect to every host,
+   which is exactly what the one-host read-only check must rule out. With a one-host inventory,
+   **Discover all** is that narrow, read-only run.
 6. **Compose credentials override** installed (`docker-compose.credentials.yml`), secrets provisioned
    (section 2), `web` and `worker` running:
    `docker compose -f docker-compose.yml -f docker-compose.credentials.yml up -d web worker`.
@@ -884,25 +916,31 @@ the table at the end of the section and keep it with the installation.
 
 ### 12.2 Ordered steps, commands and expected results
 
+Steps 6–9 stage the inventory on purpose: the repository lists **one** host for the read-only check and the
+rest are added once that check passed (the reason is in 12.1 item 5). Everything after step 9 needs the
+full inventory.
+
 | # | Step | Command / action | Expected result |
 | --- | --- | --- | --- |
 | 1 | Bootstrap the admin | `docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal` | `created admin user_id=... username=admin`; the login page no longer offers bootstrap |
 | 2 | Log in and enrol 2FA | browser → `/login`, then **Account → Set up two-factor authentication**, confirm with a code | "Two-factor authentication is enabled"; the recovery codes are shown once — store them |
 | 3 | Log out, log back in with 2FA | browser | the second factor is asked and the dashboard opens |
 | 4 | SMTP | **Settings → SMTP** (host, port, security, from, optional username), **Send test email** | the relay answers and the message arrives; the tab shows the step list and reply codes |
-| 5 | Inventory | **Settings → Inventory**: URL, ref, path, web server variable → save, then **Test pull** | resolved revision, revision date, host and group counts |
-| 6 | Read-only discovery of **one** host | `touch /tmp/before` on the host, then **Servers → that host → Discover** | the server and its bindings appear; `find /etc /var/backups -newer /tmp/before` on the host prints **nothing** |
-| 7 | Spot-check against reality | on the host: `grep -RE '^[[:space:]]*(ssl_certificate\|SSLCertificateFile)[[:space:]]' /etc/nginx /etc/apache2` | the `(vhost, certificate path)` pairs equal the bindings shown by **Bindings** (`/bindings?server_id=...`) |
-| 8 | Full discovery | **Servers → Discover all** | every host `ok`, `bindings_added` > 0 on the first run, no `parse_suspected`, no `dump_too_large` |
-| 9 | Import a real certificate + key | **Certificates → Import** (PFX with its password) | the detail page shows the key, the chain and `matched` bindings; `key.import` is audited without key material |
-| 10 | Export it again and compare | detail → **Export PFX** (re-enter your password, choose an export password) | the exported PKCS#12 opens and carries the same leaf and public key (`openssl pkcs12 -in export.pfx -nokeys -info`) |
-| 11 | Trust | **Settings → Trust anchors**: upload the issuing root | the certificate's chain status becomes `trusted` on the next recheck |
-| 12 | Renewal end to end | **Certificates → detail → Renew**: generate the CSR, download it, order at the CA portal, paste/upload the issued certificate and chain | the renewal reaches `issued`; the new certificate has a key and `renews_id` pointing at the old one |
-| 13 | First deploy, canary first | **Deploy**, tick that host's bindings, batch 100%, **pause after canary** on → **Start deploy** | the canary succeeds, the job is `paused`, and the host serves the new certificate (`openssl s_client -connect <host>:<port> -servername <vhost> \| openssl x509 -noout -fingerprint -sha256`) |
-| 14 | Continue | **Continue** on the job screen | the remaining batches run; the job is `succeeded`; the renewal is `deployed`; the digest is clean (no failed job, no rolled-back host, no mismatch) |
-| 15 | Forced rollback drill (test host only) | put the previous certificate and key back (`install` from a copy, `nginx -t && nginx -s reload`), run **Discover** for that host, `kill -STOP $(pgrep -o nginx)` (or the Apache parent), deploy the same certificate to that host only, then `kill -CONT` | the host row is `rolled_back` with reason `verify_failed`, `files_restored` true, the previous fingerprint served, and no `needs_attention` |
-| 16 | Manual recovery drill | restore one file from `/var/backups/cert-dashboard/<job_id>/…` as in section 11.5, config test, reload, then **Discover** | the binding is `matched` again and the served fingerprint equals the file's |
-| 17 | Restore drill | section 4.2: `pg_restore` into a staging database, start a staging stack with the **same** `master_key`, open a certificate, **Export PFX**, then `python -m app.cli verify-key --certificate-id <id>` in a `web` one-shot container | the key decrypts with the same keyring, `verify-key` prints `verified certificate_id=... public_key_sha256=...`, and the PFX opens |
+| 5 | Expiry alert for a certificate 7 days out | issue (or pick) a certificate whose `notAfter` is 7 days away and import it with **Certificates → Import**, format **PEM**, pasting the certificate (public part only); **Settings → Alerts**: at least one recipient, a threshold list containing 7 (default `60,30,14,7,1,0`) and *Run the daily expiry check* ticked; **Settings → Schedule**: set *Expiry check* a few minutes ahead (UTC) | the next scheduler tick (≤ 30 s) enqueues `alert_expiry`; the recipient receives `Certificate <CN> expires in 7 days` and **Settings → Alerts** records the delivery; set the schedule back to 07:00 |
+| 6 | Inventory, **first host only** | **Settings → Inventory**: URL, ref, path, web server variable → save, then **Test pull** | resolved revision, revision date, **hosts 1** and the group count; Test pull creates no `server` row, which is why the repository starts with one host |
+| 7 | Read-only discovery of **one** host | `touch /tmp/before` on the host, then **Servers → Discover all** (the inventory holds only this host, so the job contacts only it) | the server and its bindings appear; `find /etc /var/backups -newer /tmp/before` on the host prints **nothing** |
+| 8 | Spot-check against reality | on the host: `grep -RE '^[[:space:]]*(ssl_certificate\|SSLCertificateFile)[[:space:]]' /etc/nginx /etc/apache2` | the `(vhost, certificate path)` pairs equal the bindings shown by **Bindings** (`/bindings?server_id=...`) |
+| 9 | Full inventory | add the remaining hosts to the inventory repository, commit, push, then **Settings → Inventory → Test pull** and **Servers → Discover all** | the revision and host count follow the repository; every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
+| 10 | Import a real certificate + key | **Certificates → Import** (PFX with its password, or PEM plus its key) | the detail page shows the key and the chain; `key.import` is audited without key material |
+| 11 | Rediscover, then check `matched` (D2) | **Servers → the host that serves that certificate → Discover** (or **Discover all**) | its bindings become `matched`, each with `on_disk_key_public_sha256` equal to the key's `public_key_sha256` (DER, section 11.6); the match state is computed *by discovery*, so right after the import the bindings still show the previous state |
+| 12 | Export it again and compare | detail → **Export PFX** (re-enter your password, choose an export password) | the exported PKCS#12 opens and carries the same leaf and public key (`openssl pkcs12 -in export.pfx -nokeys -info`) |
+| 13 | Trust | **Settings → Trust anchors**: upload the issuing root | the tab reports the chain recheck and the certificate's chain status becomes `trusted`; if it does not, press **Recheck** and wait for the job |
+| 14 | Renewal end to end | **Certificates → detail → Renew**: generate the CSR, download it, order at the CA portal, paste/upload the issued certificate and chain | the renewal reaches `issued`; the new certificate has a key and `renews_id` pointing at the old one |
+| 15 | First deploy, canary first | **Deploy**: choose the issued renewal, tick the bindings of **at least two hosts** (a one-host job has no later batch and never pauses), designate the canary host, batch 100%, **pause after canary** on → **Start deploy** | the canary host `succeeded`, the job is `paused`, and the canary serves the new certificate (`openssl s_client -connect <canary>:<port> -servername <vhost> \| openssl x509 -noout -fingerprint -sha256` equals the certificate's SHA-256 fingerprint) |
+| 16 | Continue | **Continue** on the job screen | the remaining hosts run; the job is `succeeded`; the renewal is `deployed`; after a **Discover all** every deployed binding is `matched`; the digest is clean (no failed job, no rolled-back host, no mismatch) |
+| 17 | Forced rollback drill (test host only) | put the previous certificate and key back (`install` from a copy, `nginx -t && nginx -s reload`), run **Discover** for that host, `kill -STOP $(pgrep -o nginx)` (or the Apache parent), deploy the same certificate **to that host only** (a one-host job finishes without pausing — expected here), then `kill -CONT` | the host row is `rolled_back` with reason `verify_failed`, `files_restored` true, the previous fingerprint served, and no `needs_attention` |
+| 18 | Manual recovery drill | restore one file from `/var/backups/cert-dashboard/<job_id>/…` as in section 11.5, config test, reload, then **Discover** | the binding is `matched` again and the served fingerprint equals the file's |
+| 19 | Restore drill | section 4.2: `pg_restore` into a staging database, start a staging stack with the **same** `master_key`, open a certificate, **Export PFX**, then `python -m app.cli verify-key --certificate-id <id>` in a `web` one-shot container | the key decrypts with the same keyring, `verify-key` prints `verified certificate_id=... public_key_sha256=...`, and the PFX opens |
 
 ### 12.3 Evidence to record
 
@@ -912,11 +950,14 @@ this table.
 
 | Item | Value | Operator | Date |
 | --- | --- | --- | --- |
-| Test pull revision (`inventory_rev`) | | | |
+| Test pull revision (`inventory_rev`), first host only | | | |
 | Discovery job id (single host) | | | |
 | Bindings vs `grep` spot-check (host, pairs) | | | |
+| Test pull revision and host count (full inventory) | | | |
 | Discovery job id (full inventory) | | | |
+| Expiry drill: certificate, subject, delivered at, threshold | | | |
 | Imported certificate id / fingerprint | | | |
+| Post-import rediscovery: `matched` bindings, `on_disk_key_public_sha256` | | | |
 | Exported PFX fingerprint (public material equal) | | | |
 | Renewal id / new certificate fingerprint | | | |
 | Deploy job id (canary + Continue) | | | |

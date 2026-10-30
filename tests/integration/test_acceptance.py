@@ -26,7 +26,7 @@ from types import SimpleNamespace
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.serialization import pkcs12
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.crypto.keys import public_key_sha256
 from app.crypto.pfx import build_pfx
@@ -199,6 +199,12 @@ def run_scenario(stack, ssh_targets, compose_targets, staging_restore) -> Simple
     # 3. The real inventory over SSH, set through the validated form; Test pull; discovery; spot-check.
     record.inventory_url = stack.configure_inventory_over_ssh()
     record.pull = stack.test_pull()
+    # The runbook scopes its first discovery with a one-host inventory, because **Servers → Discover** needs a
+    # ``server`` row and only a discovery creates one. Test pull must therefore leave the table empty.
+    with factory() as db:
+        assert db.scalar(select(func.count()).select_from(Server)) == 0, (
+            "Test pull created server rows: the runbook's one-host first discovery relies on it not doing that"
+        )
     record.includes = move_key_directives_into_includes(ssh_targets)  # D3: before the first discovery
     record.discovery = stack.discover_all()
     record.grep = ssh_targets.grep_ssl_certificate()

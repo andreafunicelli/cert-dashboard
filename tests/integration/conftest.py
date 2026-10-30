@@ -2081,9 +2081,6 @@ ACCEPTANCE_PFX_PASSWORD = "acceptance-pfx-1"
 ACCEPTANCE_EXPORT_PASSWORD = "export-pfx-pass-1"
 ACCEPTANCE_VAULT_PASSWORD = "acceptance-vault-pass-9"
 ACCEPTANCE_SMTP_PASSWORD = "acceptance-smtp-pass-7"
-# The §10.2/§6.4 fault: the nginx master is stopped, so ``nginx -s reload`` succeeds while its workers keep
-# serving the certificate they already loaded.
-ACCEPTANCE_VHOSTS = VHOSTS
 
 
 class AcceptanceClock:
@@ -2097,13 +2094,6 @@ class AcceptanceClock:
 
     def advance(self, **delta):
         self.value += timedelta(**delta)
-
-
-def _csrf_token(html: str) -> str:
-    match = re.search(r'name="csrf_token" value="([^"]+)"', html)
-    if match is None:
-        raise AssertionError(f"no CSRF token in the page: {html[:400]}")
-    return match.group(1)
 
 
 def _location_id(response, pattern: str) -> int:
@@ -2498,13 +2488,6 @@ class AcceptanceStack:
                 query = query.where(Server.hostname == hostname)
             return list(db.execute(query).all())
 
-    def binding_directives(self) -> dict[str, set[tuple[str, str]]]:
-        """Per inventory host, the discovered ``(vhost, certificate path)`` pairs (the §10.4 spot check)."""
-        found: dict[str, set[tuple[str, str]]] = {}
-        for hostname, binding in self.bindings():
-            found.setdefault(hostname, set()).add((binding.vhost_name, binding.cert_path))
-        return found
-
     # -- 4/5. PFX round trip and renewal ---------------------------------------------------------
 
     def renew(self, source_id: int) -> tuple:
@@ -2669,10 +2652,6 @@ class AcceptanceStack:
         self.ssh.exec(service, "nginx", "-t")
         self.ssh.exec(service, "nginx", "-s", "reload")
         self.ssh.mark_baseline(service)
-
-    def fingerprint_of(self, material) -> str:
-        """The SHA-256 fingerprint of a target material (``ssh_targets.old`` here)."""
-        return material.fingerprint
 
 
 def _binding_vhost(host: dict) -> str | None:
