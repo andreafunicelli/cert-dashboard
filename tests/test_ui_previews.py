@@ -42,7 +42,9 @@ def test_preview_templates_and_form_contracts():
             assert "<form" not in html and "csrf_token" not in html
             assert "python -m app.cli bootstrap-admin" in html
         if name == "shell":
-            assert 'href="/" aria-current="page"' in html
+            assert '<span aria-current="page"><a href="/">Overview</a></span>' in html
+            for item in context["navigation"]:
+                assert f'<a href="{item["url"]}">{item["label"]}</a>' in html
             for hook in ("worker", "capability", "flash"):
                 assert f'data-banner="{hook}"' in html
 

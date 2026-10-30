@@ -74,7 +74,7 @@ These palette checks are not a complete accessibility audit.
 | Pagination | `<nav class="pager" aria-label="Pagination">`; `aria-current="page"`; unavailable Previous/Next are text with `aria-disabled="true"`, not live links |
 | Confirmation | Native `<details class="confirmation">` with explicit destructive summary, consequences, final POST form/CSRF and `.button-destructive`, and Cancel link to current safe page; no JS needed. This is an inline confirmation disclosure, **not** a modal dialog; never claim modal semantics/focus trapping. |
 | Skip link | `.skip-link` targets `main#main-content[tabindex="-1"]` |
-| Header / user menu | `.site-header`, `.brand`, native `details.user-menu`, `.user-menu-links`; main nav uses `aria-current="page"` for exact and descendant paths |
+| Header / user menu | `.site-header`, `.brand`, native `details.user-menu`, `.user-menu-links`; main nav marks the current item's wrapper with `aria-current="page"` for exact and descendant paths, preserving the existing anchor markup |
 | Auth / setup / errors | `.panel.narrow.auth-panel`, `.panel.narrow.bootstrap-panel`, `.error`, `.error-status`; messages, request IDs and bootstrap command remain visible |
 
 `button.link`, `.notice`, `.secret-once`, `.warning-note`, `.filters`, `.counter*`,
