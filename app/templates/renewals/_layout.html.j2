@@ -1,11 +1,4 @@
 {% extends "base.html.j2" %}
 {% block title %}Renewal · Cert Dashboard{% endblock %}
+{% block extra_css %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}<link rel="stylesheet" href="/static/pages/renewals.css">{% endblock %}
 {% block content %}{% block panel %}{% endblock %}{% endblock %}
-{% block scripts %}
-<script>
-  // htmx ignores 4xx bodies by default; inline validation answers 422 with the re-rendered panel.
-  document.body.addEventListener("htmx:beforeSwap", function (event) {
-    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
-  });
-</script>
-{% endblock %}

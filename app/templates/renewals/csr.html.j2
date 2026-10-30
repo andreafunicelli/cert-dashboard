@@ -1,15 +1,16 @@
 {% extends "renewals/_layout.html.j2" %}
 {% block title %}CSR · {{ r.common_name }} · Cert Dashboard{% endblock %}
 {% block panel %}
+{% from "_inventory_ui.html.j2" import identifier %}
 {% from "renewals/_macros.html.j2" import field_error, header, general_errors, cancel_form %}
 <section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
   {{ header(r, state, step, steps, previous, tz) }}
   {{ general_errors(errors) }}
   <h2>Certificate signing request</h2>
-  <p>Names: <strong>{{ r.common_name }}</strong>{% if r.sans %} ({{ r.sans | join(", ") }}){% endif %}. They can no longer be changed.</p>
-  <pre id="csr-pem" tabindex="0" style="user-select: all">{{ r.csr_pem }}</pre>
+  <div class="bounded" tabindex="0" role="region" aria-label="Frozen certificate names"><p>Names: <strong>{{ r.common_name }}</strong>{% if r.sans %} ({{ r.sans | join(", ") }}){% endif %}. They can no longer be changed.</p></div>
+  <pre class="material" id="csr-pem" tabindex="0" role="region" aria-label="Certificate signing request PEM">{{ r.csr_pem }}</pre>
   <p><a class="button" href="/renewals/{{ r.id }}/csr.pem">Download CSR</a></p>
-  <p>SHA-256: <code>{{ r.csr_sha256 }}</code></p>
+  <p>SHA-256: {{ identifier(r.csr_sha256) }}</p>
   <p class="hint">Compare this hash with the request shown in the CA portal; it proves you submitted the right CSR.</p>
 
   <h2>At the CA</h2>

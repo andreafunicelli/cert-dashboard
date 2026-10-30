@@ -1,0 +1,277 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>gateway.ops.example.test · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config"><link rel="stylesheet" href="../../../app/static/pages/certificates.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span aria-current="page"><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+<p><a href="/certificates">All certificates</a></p>
+<nav class="lineage" aria-label="Lineage">
+  <span>No previous certificate</span>
+  <span aria-hidden="true">→</span>
+  <strong>gateway.ops.example.test</strong>
+  <span aria-hidden="true">→</span>
+  <span>No later certificate</span>
+</nav>
+
+
+<section class="panel wide" id="summary-panel">
+  <h1>gateway.ops.example.test</h1>
+  <p class="actions">
+<span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>Expiring</span>
+
+     <span class="chip chip-warning mono"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>20 days</span>
+
+<span class="badge badge-warn badge-chain-incomplete"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>Incomplete chain</span> <small>Inventory: active</small></p>
+  <dl class="fields">
+    <dt>Subject alternative names</dt>
+    <dd><div class="bounded" tabindex="0" role="region" aria-label="Subject alternative names"><ul class="plain"><li>DNS:gateway-0.ops.example.test</li><li>DNS:gateway-1.ops.example.test</li><li>DNS:gateway-2.ops.example.test</li><li>DNS:gateway-3.ops.example.test</li><li>DNS:gateway-4.ops.example.test</li><li>DNS:gateway-5.ops.example.test</li><li>DNS:gateway-6.ops.example.test</li><li>DNS:gateway-7.ops.example.test</li><li>DNS:gateway-8.ops.example.test</li><li>DNS:gateway-9.ops.example.test</li><li>DNS:gateway-10.ops.example.test</li><li>DNS:gateway-11.ops.example.test</li><li>DNS:gateway-12.ops.example.test</li><li>DNS:gateway-13.ops.example.test</li><li>DNS:gateway-14.ops.example.test</li><li>DNS:gateway-15.ops.example.test</li><li>DNS:gateway-16.ops.example.test</li><li>DNS:gateway-17.ops.example.test</li><li>DNS:gateway-18.ops.example.test</li><li>DNS:gateway-19.ops.example.test</li><li>DNS:gateway-20.ops.example.test</li><li>DNS:gateway-21.ops.example.test</li><li>DNS:gateway-22.ops.example.test</li><li>DNS:gateway-23.ops.example.test</li><li>DNS:gateway-24.ops.example.test</li><li>DNS:gateway-25.ops.example.test</li><li>DNS:gateway-26.ops.example.test</li><li>DNS:gateway-27.ops.example.test</li><li>DNS:gateway-28.ops.example.test</li><li>DNS:gateway-29.ops.example.test</li><li>DNS:gateway-30.ops.example.test</li><li>DNS:gateway-31.ops.example.test</li><li>DNS:gateway-32.ops.example.test</li><li>DNS:gateway-33.ops.example.test</li><li>DNS:gateway-34.ops.example.test</li><li>DNS:gateway-35.ops.example.test</li><li>DNS:gateway-36.ops.example.test</li><li>DNS:gateway-37.ops.example.test</li><li>DNS:gateway-38.ops.example.test</li><li>DNS:gateway-39.ops.example.test</li></ul></div></dd>
+    <dt>Subject</dt><dd><div class="bounded" tabindex="0" role="region" aria-label="Subject distinguished name"><code>CN=gateway.ops.example.test,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,</code></div></dd>
+    <dt>Issuer</dt><dd>Operations Intermediate CA <div class="bounded" tabindex="0" role="region" aria-label="Issuer distinguished name"><code>CN=Operations Intermediate CA,O=Example Operations</code></div></dd>
+    <dt>Serial number</dt><dd><code class="identifier" tabindex="0" title="1234567890abcdef1234567890abcdef — Select the entire value to copy; use Ctrl+C or Command+C"><span class="identifier-group">1234</span><span class="identifier-group">5678</span><span class="identifier-group">90ab</span><span class="identifier-group">cdef</span><span class="identifier-group">1234</span><span class="identifier-group">5678</span><span class="identifier-group">90ab</span><span class="identifier-group">cdef</span></code></dd>
+    <dt>Valid from</dt><dd><time datetime="2026-01-03T12:00:00Z">2026-01-03 12:00 UTC</time></dd>
+    <dt>Valid until</dt><dd><time datetime="2026-11-19T12:00:00Z">2026-11-19 12:00 UTC</time></dd>
+    <dt>SHA-256 fingerprint</dt><dd><code class="identifier" tabindex="0" title="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef — Select the entire value to copy; use Ctrl+C or Command+C"><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span></code><p class="hint">Select the full fingerprint to copy. The exact value is preserved.</p></dd>
+    <dt>Source</dt><dd><code>upload</code></dd>
+    <dt>Owner</dt><dd>Operations team &lt;ops@example.test&gt;</dd>
+    <dt>Team</dt><dd>Infrastructure</dd>
+    <dt>Notes</dt><dd class="notes">Fixture only. Review chain before deployment.</dd>
+    <dt>Added</dt><dd><time datetime="2026-01-03T12:00:00Z">2026-01-03 12:00 UTC</time></dd>
+    <dt>Last changed</dt><dd><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="actions-panel">
+  <h2>Actions</h2>
+  <div class="actions">
+    <a class="button" href="/certificates/42/edit">Edit details</a>
+    <a class="button" href="/certificates/42/leaf.pem">Download certificate</a>
+    <button type="button" disabled title="No intermediate chain is stored for this certificate">Download chain</button>
+    <a class="button" href="/certificates/42/fullchain.pem">Download full chain</a>
+    <a class="button" href="/certificates/42/export.pfx">Export PFX</a>
+    <a class="button" href="/renewals/new?from=42">Start renewal</a>
+
+    <a class="button" href="/deploy?certificate_id=42">Deploy</a>
+
+    <form class="inline" method="post" action="/certificates/42/scan">
+      <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+      <button type="submit">Scan now</button>
+    </form>
+
+  </div>
+
+
+
+
+  <p class="hint">Public downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployments and scans are audited too.</p>
+</section>
+
+
+<section class="panel wide" id="deploy-panel">
+  <h2>Deployments</h2>
+
+
+
+  <p class="notice" data-error="chain">A trusted chain is required.</p>
+
+
+
+  <p>No deploy has run for this certificate yet.</p>
+
+</section>
+
+<section class="panel wide" id="validation-panel">
+  <h2>Validation</h2>
+  <p>
+<span class="badge badge-warn badge-chain-incomplete"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>Incomplete chain</span></p>
+
+  <p>Stored chain status: <span class="badge badge-chain-incomplete"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>incomplete</span>
+    · no intermediate chain stored</p>
+
+  <p class="hint">Re-assessed just now against the enabled trust anchors: <strong>incomplete</strong>.</p>
+
+
+
+  <ul class="warnings"><li>The issuer certificate is missing from the chain.</li></ul>
+
+
+  <p class="warning-note">This does not block use of the certificate, but deployment requires a trusted chain.
+    <a href="/settings?tab=trust">Review trust anchors in Settings</a>, or import the missing chain below.</p>
+
+  <dl class="fields">
+    <dt>Leaf certificate</dt><dd><a href="/certificates/42/leaf.pem">Download certificate</a> — stored public certificate</dd>
+    <dt>Intermediate chain</dt><dd>No intermediate chain stored. <a href="#chain-panel">Import missing intermediates</a>.</dd>
+    <dt>Trust anchors</dt><dd><a href="/settings?tab=trust">Review enabled trust anchors</a></dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="key-panel">
+  <h2>Private key</h2>
+
+  <dl class="fields">
+    <dt>Key present</dt><dd><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>yes</span></dd>
+    <dt>Type</dt><dd>RSA <span class="mono">2048</span>-bit</dd>
+    <dt>Public key SHA-256</dt><dd><code class="identifier" tabindex="0" title="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 — Select the entire value to copy; use Ctrl+C or Command+C"><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span></code></dd>
+    <dt>Created</dt><dd><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></dd>
+    <dt>Origin</dt><dd>generated</dd>
+    <dt>Master key version</dt><dd class="mono">1</dd>
+  </dl>
+  <p class="hint">The key is stored encrypted and is never displayed.</p>
+
+</section>
+
+<section class="panel wide" id="bindings-panel">
+  <h2>Bindings</h2>
+
+  <p>No bindings recorded for this certificate. Bindings appear once server discovery is available (a later plan).</p>
+
+</section>
+
+<section class="panel wide" id="endpoints-panel">
+  <h2>Endpoints</h2>
+
+  <p>No endpoints expect this certificate yet. Add one to watch where this certificate is served.</p>
+
+  <p><a class="button" href="/scans?expected_certificate_id=42#add-endpoint">Add endpoint</a></p>
+</section>
+
+<section class="panel wide" id="history-panel">
+  <h2>History</h2>
+  <h3>Renewals</h3>
+  <p>No renewals recorded.</p>
+  <h3>Recent activity</h3>
+  <p>No activity recorded.</p>
+</section>
+
+<section class="panel wide" id="metadata-panel">
+  <h2>Edit owner, team and notes</h2>
+
+  <form method="post" action="/certificates/42/edit"
+        hx-post="/certificates/42/edit" hx-target="#metadata-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="owner_name">Owner name</label>
+    <input id="owner_name" name="owner_name" value="Operations team" maxlength="200">
+    <label for="owner_email">Owner email</label>
+    <input id="owner_email" name="owner_email" value="ops@example.test" maxlength="254">
+    <label for="team">Team</label>
+    <input id="team" name="team" value="Infrastructure" maxlength="200">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="4" cols="60" maxlength="10000">Fixture only. Review chain before deployment.</textarea>
+    <p class="hint">Notes are shown to every administrator; do not store secrets here.</p>
+    <button type="submit">Save details</button>
+  </form>
+</section>
+
+
+<section class="panel wide" id="status-panel">
+  <h2>Status</h2>
+
+
+  <details class="confirmation">
+  <summary>Change the status of gateway.ops.example.test (#42)</summary>
+  <p>This is irreversible. Confirm the selected status and target before continuing. Marking revoked records inventory state; it does not send a revocation request to the CA.</p>
+  <form method="post" action="/certificates/42/status"
+        hx-post="/certificates/42/status" hx-target="#status-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="status">Change status to</label>
+    <select id="status" name="status">
+      <option value="superseded">superseded</option><option value="revoked" selected>revoked</option>
+    </select>
+    <label for="reason">Reason (required)</label>
+    <textarea id="reason" name="reason" rows="3" cols="60" maxlength="1000" required></textarea>
+    <p class="hint">Status changes are one-way and recorded in the audit log together with the reason.</p>
+    <button class="button-destructive" type="submit">Change status</button>
+    <a href="/certificates/42#summary-panel">Cancel</a>
+  </form>
+  </details>
+
+</section>
+
+
+
+<section class="panel wide" id="chain-panel">
+  <h2>Import chain</h2>
+
+  <details class="confirmation">
+  <summary>Replace the stored chain for gateway.ops.example.test (#42)</summary>
+  <form method="post" action="/certificates/42/chain" enctype="multipart/form-data"
+        hx-post="/certificates/42/chain" hx-encoding="multipart/form-data" hx-target="#chain-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="chain_file">Intermediate certificates (PEM or DER file)</label>
+    <input id="chain_file" name="chain_file" type="file">
+    <label for="chain_text">…or paste them (PEM)</label>
+    <textarea id="chain_text" name="chain_text" rows="4" cols="60" spellcheck="false" autocomplete="off"></textarea>
+    <p class="hint">At most 1 MiB. The chain replaces the stored one and the trust status is re-assessed.</p>
+    <button class="button-destructive" type="submit">Import chain</button>
+    <a href="/certificates/42#validation-panel">Cancel</a>
+  </form>
+  </details>
+</section>
+
+</main>
+
+</body>
+</html>

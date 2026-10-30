@@ -1,0 +1,75 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Edit gateway.ops.example.test · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config"><link rel="stylesheet" href="../../../app/static/pages/certificates.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span aria-current="page"><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Edit gateway.ops.example.test</h1>
+<p><a href="/certificates/42">Back to certificate</a></p>
+<section class="panel wide" id="metadata-panel">
+  <h2>Edit owner, team and notes</h2>
+
+  <form method="post" action="/certificates/42/edit"
+        hx-post="/certificates/42/edit" hx-target="#metadata-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="owner_name">Owner name</label>
+    <input id="owner_name" name="owner_name" value="Operations team" maxlength="200">
+    <label for="owner_email">Owner email</label>
+    <input id="owner_email" name="owner_email" value="ops@example.test" maxlength="254">
+    <label for="team">Team</label>
+    <input id="team" name="team" value="Infrastructure" maxlength="200">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" rows="4" cols="60" maxlength="10000">Fixture only. Review chain before deployment.</textarea>
+    <p class="hint">Notes are shown to every administrator; do not store secrets here.</p>
+    <button type="submit">Save details</button>
+  </form>
+</section>
+</main>
+
+</body>
+</html>

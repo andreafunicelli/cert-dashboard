@@ -29,7 +29,8 @@
     <p class="hint">Notes are shown to every administrator; do not store secrets here.</p>
     {{ field_error(errors, "notes") }}
 
-    <h2>Key</h2>
+    <h2>{% if r %}Generate the signing request{% else %}Key generation comes next{% endif %}</h2>
+    {% if r %}<p>Review the saved names above before generating the CSR. Generation freezes the names and creates a new encrypted private key.</p>{% endif %}
     <label for="key_algorithm">Key algorithm</label>
     <select id="key_algorithm" name="key_algorithm"{% if not r %} disabled{% endif %}>
       {% for item in algorithms %}<option value="{{ item.value }}"{% if form.key_algorithm == item.value %} selected{% endif %}>{{ item.label }}</option>{% endfor %}
@@ -52,7 +53,7 @@
   <h2>Names</h2>
   <dl class="fields">
     <dt>Common name</dt><dd>{{ r.common_name }}</dd>
-    <dt>Subject alternative names</dt><dd><ul class="plain">{% for san in r.sans %}<li>{{ san }}</li>{% endfor %}</ul></dd>
+    <dt>Subject alternative names</dt><dd><div class="bounded" tabindex="0" role="region" aria-label="Subject alternative names"><ul class="plain">{% for san in r.sans %}<li>{{ san }}</li>{% endfor %}</ul></div></dd>
     <dt>Certificate authority</dt><dd>{{ r.ca_name or "—" }}</dd>
     <dt>Notes</dt><dd class="notes">{{ r.notes or "—" }}</dd>
   </dl>

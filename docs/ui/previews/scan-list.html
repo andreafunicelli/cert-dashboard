@@ -1,0 +1,170 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Scans · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config"><link rel="stylesheet" href="../../../app/static/pages/scans.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span aria-current="page"><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+<h1>Scans</h1>
+
+<section class="panel wide" id="add-endpoint" aria-label="Add endpoint">
+  <h2>Add endpoint</h2>
+  <p class="hint">Endpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.</p>
+  <form method="post" action="/scans/endpoints" hx-post="/scans/endpoints" hx-target="#add-endpoint" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="add_host">Host name or IP address</label>
+    <input id="add_host" name="host" value="" maxlength="300" required autocomplete="off" spellcheck="false">
+
+    <label for="add_port">Port</label>
+    <input id="add_port" name="port" value="443" inputmode="numeric" maxlength="5" autocomplete="off">
+
+    <label for="add_sni">SNI server name (optional)</label>
+    <input id="add_sni" name="sni" value="" maxlength="300" autocomplete="off" spellcheck="false">
+
+    <label for="add_expected">Expected certificate (optional)</label>
+    <select id="add_expected" name="expected_certificate_id"><option value="">None</option>
+      <option value="42">gateway.ops.example.test (#42, expires 2026-11-19)</option>
+    </select>
+
+    <button type="submit">Add endpoint</button>
+  </form>
+</section>
+
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/scans" class="filters">
+    <label>Search <input type="search" name="search" value="" maxlength="200" placeholder="Host or SNI"></label>
+    <label>Status
+      <select name="status"><option value="">Any</option>
+        <option value="ok">ok</option><option value="expired">expired</option><option value="mismatch">mismatch</option><option value="unreachable">unreachable</option><option value="error">error</option>
+      </select></label>
+    <label>Server
+      <select name="server_id"><option value="">Any</option>
+        <option value="1">edge-01</option>
+      </select></label>
+    <label>Group <input name="group" value="" maxlength="200"></label>
+    <label>Endpoints
+      <select name="active">
+        <option value="true" selected>Active</option>
+        <option value="false">Inactive</option>
+        <option value="all">All</option>
+      </select></label>
+
+    <input type="hidden" name="sort" value="not_after">
+    <input type="hidden" name="page_size" value="50">
+    <button type="submit">Apply filters</button>
+    <a href="/scans">Reset</a>
+  </form>
+
+</section>
+
+<div class="list-summary" data-total="1">1 endpoint
+  · <a href="/certificates/export.json" download="scans.json">Export list as JSON</a>
+  <form class="inline" method="post" action="/scans/run">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="scope" value="all">
+    <button type="submit">Scan all</button>
+  </form>
+  </div>
+
+
+<div class="table-wrap">
+<table class="scans">
+  <thead><tr>
+    <th scope="col"><a href="/certificates?sort=host">Endpoint</a></th>
+    <th scope="col">SNI</th>
+    <th scope="col"><a href="/certificates?sort=server">Server</a></th>
+    <th scope="col"><a href="/certificates?sort=expected">Expected certificate</a></th>
+    <th scope="col">Observed certificate</th>
+    <th scope="col">Expires</th>
+    <th scope="col"><a href="/certificates?sort=status">Status</a></th>
+    <th scope="col"><a href="/certificates?sort=checked_at">Last checked</a></th>
+    <th scope="col">Actions</th>
+  </tr></thead>
+  <tbody>
+
+  <tr data-host="gateway.ops.example.test">
+    <td><a href="/scans/12">gateway.ops.example.test:443</a></td>
+    <td>gateway.ops.example.test</td>
+    <td>edge-01</td>
+    <td><a href="/certificates/42">gateway.ops.example.test</a></td>
+    <td>old-gateway.ops.example.test<br><small>Operations Intermediate CA</small></td>
+    <td><time datetime="2026-11-01T12:00:00Z">2026-11-01 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>Findings: mismatch</span>
+      </td>
+    <td><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+    <td>
+      <a href="/scans/12#history" hx-get="/scans/12/history" hx-target="#history-drawer" hx-swap="innerHTML">History</a>
+      <form class="inline" method="post" action="/scans/run">
+        <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+        <input type="hidden" name="scope" value="endpoint">
+        <input type="hidden" name="endpoint_id" value="12">
+        <button type="submit">Scan now</button>
+      </form>
+    </td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+<div id="history-drawer" aria-live="polite"></div>
+
+<nav class="pager" aria-label="Pages">
+
+  <span>Page 1 of 1</span>
+
+</nav>
+</main>
+
+</body>
+</html>
