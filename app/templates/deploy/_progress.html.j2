@@ -103,10 +103,10 @@
   <form class="retry" method="post" action="/deploy/{{ view.job_id }}/hosts/{{ host.server_id }}/retry" hx-post="/deploy/{{ view.job_id }}/hosts/{{ host.server_id }}/retry" hx-target="#deploy-job-live" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h3>Retry {{ host.hostname }}</h3>
-    <p class="hint">A retry is a new audited job for this host only, with its own guardrails and trust check.</p>
+    <p class="hint">A retry is a new audited job for this host only, with its own guardrails and trust check. It can replace certificate files and reload the service again; review the host and enter a reason before confirming.</p>
     <label>Reason <input name="reason" maxlength="500" required></label>
     <label>Override reason (only when the chain is not trusted) <input name="override_reason" maxlength="500"></label>
-    <button type="submit">Retry host</button>
+    <button type="submit" class="button-destructive">Retry host</button>
   </form>
   {% endfor %}
 </section>
