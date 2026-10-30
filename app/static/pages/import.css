@@ -1,0 +1,11 @@
+/* Both methods remain native forms, independently replaceable by HTMX. */
+.import-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); align-items: start; }
+.import-methods > .panel { max-width: none; min-width: 0; }
+.import-options { margin-top: var(--space-5); border-block: var(--line) solid var(--separator); }
+.import-options summary { font-weight: var(--weight-medium); }
+#import-panel textarea:not([name="notes"]), #pull_port { font-family: var(--font-mono); }
+#import-panel textarea, #pull-panel textarea { resize: vertical; max-height: var(--material-height); }
+#import-progress code { user-select: all; }
+@media (max-width: 719px) {
+  .import-methods { grid-template-columns: minmax(0, 1fr); }
+}

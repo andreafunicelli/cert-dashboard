@@ -1,0 +1,13 @@
+/* Findings and execution failures are distinct words, not just colours. */
+.scans td { overflow-wrap: anywhere; }
+.scans time { white-space: nowrap; font-size: var(--text-sm); }
+.scans .inactive { color: var(--text-muted); }
+#endpoint-panel .fields dd { min-width: 0; }
+#endpoint-panel code, #mismatch code { max-width: 100%; display: inline-block; overflow: auto; white-space: nowrap; overflow-wrap: normal; vertical-align: middle; user-select: all; }
+#endpoint-panel .form-error { max-height: var(--material-height); overflow: auto; }
+#history td { overflow-wrap: anywhere; }
+#history time { white-space: nowrap; }
+#manage-panel h3 { margin-top: var(--space-6); }
+#manage-panel form + form { margin-top: var(--space-4); }
+#manage-panel small { display: block; color: var(--text-muted); margin-top: var(--space-2); }
+.list-summary { margin-block: var(--space-5); }

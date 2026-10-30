@@ -53,6 +53,8 @@
   --label-width: 14rem;
   --menu-width: 12rem;
   --measure: 72ch;
+  --material-height: 16rem;
+  --identifier-width: 36ch;
   --elevation: 0 .5rem 1.5rem #00000040;
   --duration: 120ms;
   --duration-reduced: 0s;
@@ -98,6 +100,11 @@ code { overflow-wrap: anywhere; }
 pre { overflow-x: auto; padding: var(--space-4); background: var(--surface-inset); border-radius: var(--radius); }
 pre code { overflow-wrap: normal; }
 .numeric { text-align: right; }
+.bounded { max-width: 100%; max-height: var(--material-height); overflow: auto; overflow-wrap: anywhere; }
+.identifier { display: inline-block; max-width: 100%; overflow-x: auto; vertical-align: middle; white-space: nowrap; overflow-wrap: normal; user-select: all; font-variant-numeric: tabular-nums; }
+td .identifier { max-width: var(--identifier-width); }
+.identifier-group + .identifier-group { margin-inline-start: var(--space-1); }
+.material { max-width: 100%; max-height: var(--material-height); overflow: auto; white-space: pre; user-select: all; }
 .skip-link { position: absolute; top: var(--space-2); left: var(--space-4); transform: translateY(-200%); padding: var(--space-3); background: var(--surface-raised); z-index: 2; }
 .skip-link:focus { transform: translateY(0); }
 .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); padding: var(--space-4) var(--space-6); background: var(--surface-raised); border-bottom: var(--line) solid var(--separator); }
