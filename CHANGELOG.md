@@ -200,9 +200,9 @@ with the pull request that delivered each group of changes.
 
 **Documentation**
 
-- `README.md`, this changelog, and the Plan 3 developer notes in `docs/development.md` (docs PR).
+- `README.md`, this changelog, and the Plan 3 developer notes in `docs/development.md` (PR #66).
 - `docs/operations.md` §12.2 clarifies the two-host `grep` spot-check and the mandatory PFX round
-  trip of the §10.4 acceptance (docs PR).
+  trip of the §10.4 acceptance (PR #66).
 
 ### Changed
 
