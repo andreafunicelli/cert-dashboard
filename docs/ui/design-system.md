@@ -95,8 +95,11 @@ vendored HTMX. Shell fixtures exercise every core component and all banner kinds
 Forms/links are fixture demonstrations, not a running service. The generator uses
 Jinja directly with autoescaping; no app import, database, new dependency or JS.
 
-`tests/unit/test_ui_foundation.py` checks token coverage, palette contrast, CSS
-budget, auth forms, escaping, banner hooks and preview structure. Existing
+`tests/unit/test_ui_foundation.py` checks token coverage, palette contrast and CSS
+budget using only assets shipped in the test image. `tests/test_ui_previews.py`
+checks auth forms, escaping, banner hooks and preview structure at repository
+level (the preview generator and documentation fixtures are not runtime assets).
+Existing
 `tests/integration/test_login_account.py` checks CSRF field extraction, unchanged
 POST routes, username retention/no password echo, error copy, MFA/cancel flow,
 bootstrap command and absence of registration forms, and only vendored scripts.
