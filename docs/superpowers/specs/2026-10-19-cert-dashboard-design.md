@@ -497,7 +497,7 @@ One row per certificate-consuming directive in a vhost. The same certificate pat
 | `port` | int not null | 443 by default |
 | `config_file` | text not null | Absolute path of the file containing the directive |
 | `cert_path` | text not null | `ssl_certificate` / `SSLCertificateFile` |
-| `chain_path` | text null | `SSLCertificateChainFile` or an extra `ssl_certificate` entry |
+| `chain_path` | text null | `SSLCertificateChainFile`, or an extra `SSLCertificateFile` entry of the same vhost that really verifies the leaf signature (operator decision D1: never set for nginx) |
 | `key_path` | text not null | `ssl_certificate_key` / `SSLCertificateKeyFile` |
 | `cert_owner`, `cert_group`, `cert_mode` | text/text/int | From `stat` at discovery |
 | `key_owner`, `key_group`, `key_mode` | text/text/int | From `stat` at discovery |
@@ -858,9 +858,9 @@ Runs on the target group (whole inventory by default). Per host:
 1. Auto-detect the webserver and its binary paths if the inventory variable is missing.
 2. Capture the full configuration dump:
    - nginx: `nginx -T` (stderr+stdout, because `-T` writes the dump to stderr on older versions), which includes `# configuration file <path>:` markers.
-   - Apache: `apachectl -t -D DUMP_VHOSTS` plus a concatenation of every file the dump references (each with a file marker) using `apachectl -S` output to determine the file list; when the file list cannot be derived, fall back to a recursive read of `Include`d paths from the main config.
+   - Apache: `apachectl -t -D DUMP_VHOSTS` plus a concatenation of every file the dump references (each with a file marker). **Operator decision D3 (2026-10-25):** the file list is always the union of the files named by `apachectl -S`, the main configuration and a recursive read of `Include`/`IncludeOptional` (globs sorted, cycles cut by real path, depth ≤ 16, ≤ 500 files and ≤ 16 MiB in total), because `-S` names only the files that define vhosts and the global-level or included TLS directives can never be derived from it. Exceeding the limits fails the host with `dump_too_large` instead of truncating.
 3. For every certificate path found, `stat` it (owner, group, mode, size, mtime, exists) and compute its fingerprint with `openssl x509 -noout -fingerprint -sha256 -in <path>` (`Assumption`: `openssl` is present on every target; it is present on all supported distributions with nginx or Apache from packages).
-4. For every key path, `stat` it and compute `openssl pkey -in <path> -pubout | openssl dgst -sha256`. This task is `no_log: true`; only the resulting hash leaves the host. If the key is passphrase-protected, record `key_unreadable: true` and skip the hash.
+4. For every key path, `stat` it and compute the SHA-256 of the DER `SubjectPublicKeyInfo` — **operator decision D2 (2026-10-25)**: `openssl pkey -in <path> -pubout -outform DER | sha256sum`; the matching certificate-side command is `openssl x509 -in <cert> -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum`. Hashing the PEM text would never equal `private_key.public_key_sha256`, which §4.5 defines over DER. This task is `no_log: true`; only the resulting hash leaves the host. If the key is passphrase-protected, record `key_unreadable: true` and skip the hash.
 5. Emit one JSON document per host:
 
 ```json
@@ -876,7 +876,7 @@ Runs on the target group (whole inventory by default). Per host:
       "port": 443,
       "config_file": "/etc/nginx/conf.d/www.conf",
       "cert_path": "/etc/nginx/ssl/www.example.com.crt",
-      "chain_path": "/etc/nginx/ssl/www.example.com.chain.pem",
+      "chain_path": null,
       "key_path": "/etc/nginx/ssl/www.example.com.key",
       "cert_owner": "root", "cert_group": "root", "cert_mode": "0644",
       "key_owner": "root", "key_group": "root", "key_mode": "0600",
@@ -890,6 +890,8 @@ Runs on the target group (whole inventory by default). Per host:
 }
 ```
 
+For nginx `chain_path` is always `null` — **operator decision D1 (2026-10-25)** — because the configured `cert_path` file may itself hold the leaf plus its verified bundle, and the deploy writes that file as it is (§6.4). Only an Apache binding whose separate chain file really verifies the leaf signature carries a `chain_path`; the deploy then writes the leaf to `cert_path` and the chain to that file.
+
 6. `ansible-runner` returns one such document per host (`artifacts/<job_id>/<host>/stdout`, parsed as JSON events). The worker parses `nginx -T` and the Apache dumps in `app/ansible/parse_nginx.py` / `parse_apache.py` into this schema, so the parsers are unit-tested rather than trusted in production (Section 10).
 7. Discovery is read-only. It never writes files, never reloads services, and never uses `become` beyond what reading root-owned files requires.
 
@@ -898,14 +900,14 @@ Parsing rules (nginx):
 - Split the dump on `# configuration file <path>:` markers to attribute directives to files.
 - Track `server { ... }` blocks, `listen` (port and `ssl` flag), `server_name`, `ssl_certificate`, `ssl_certificate_key`.
 - Resolve relative paths against the prefix `/etc/nginx` (paths in nginx are relative to the prefix).
-- A `server` block with more than one `ssl_certificate` is an RSA+ECDSA pair; the first is `cert_path`, the second is `chain_path` when its certificate's issuer matches the first's issuer, otherwise both are recorded as separate bindings.
-- `include`d files are expanded by `nginx -T` itself, so no manual include resolution is needed.
+- Every `ssl_certificate` file of a `server` block becomes its own binding, with that file in `cert_path`. **Operator decision D1 (2026-10-25):** the role of a file is decided by verifying the content of that file, never by its position in the block and never by comparing DNs. A file holding one certificate is a leaf candidate; a file holding several certificates is a bundle whose first certificate is the leaf and whose later certificates are chain only when each verifies the previous signature (`issuer`/`subject` **and** signature verification via `app/crypto/chain.py`). `chain_path` therefore stays `null` for nginx: the deploy writes the file as configured — leaf plus its verified bundle — to `cert_path` and no separate chain file is ever created. A same-CA RSA+ECDSA pair stays two bindings, each with its own certificate file; a file whose chain cannot be verified is not treated as a chain.
+- **Operator decision D3 (2026-10-25):** `nginx -T` prints every file — the main configuration and every `include`d file — after its own `# configuration file <path>:` marker; that dump is the parser's only input. The parser attributes a directive to the marker section it appears in and to the enclosing `server` block: a TLS directive written in a file included inside a `server` block belongs to that block exactly like an inline one, and an `http`-level include is inherited as the server default. To reconstruct that enclosing scope, the parser resolves each `include` reference against the already-dumped marker sections (relative paths against the nginx prefix, globs sorted, cycles cut, depth and expansion-count bounded) and splices the included content into the including context; a reference that is not present in the dump is skipped with a warning, and no file is ever read from the target.
 
 Parsing rules (Apache):
 
 - `apachectl -S` gives vhost → file → `ServerName` → port.
-- `SSLCertificateFile`, `SSLCertificateKeyFile`, `SSLCertificateChainFile` are extracted from the defining `<VirtualHost>` block; a global-level directive is recorded as binding `vhost_name = "default"`.
-- Multiple `SSLCertificateFile` entries in one vhost (a chain written as several files) are concatenated into `chain_path` per the issuer-matching rule above.
+- **Operator decision D3 (2026-10-25):** `SSLCertificateFile`, `SSLCertificateKeyFile` and `SSLCertificateChainFile` are attributed to the `<VirtualHost>` block that encloses them, in whichever file they appear: a directive in a file pulled in by `Include`/`IncludeOptional` inside a `<VirtualHost>` belongs to that vhost exactly like an inline one, because the parser expands the includes against the marker sections in the including context. A certificate directive outside every `<VirtualHost>` (main server or a `httpd`-level include) is a server default, recorded as binding `vhost_name = "default"`.
+- Multiple `SSLCertificateFile` entries in one vhost (a chain written as several files) are joined into `chain_path` only when each file verifies the previous signature, per operator decision D1 above; a same-issuer certificate that does not verify the leaf remains a separate binding.
 
 ### 6.3 Discovery reconciliation
 

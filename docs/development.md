@@ -6,8 +6,12 @@ Installation, upgrade, backup and rotation procedures for a deployed host live i
 [`operations.md`](operations.md); this page covers the checkout, the test suite and the
 internals a developer touches. The normative design is
 `docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task-by-task history is
-`docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md` and
-`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md`.
+`docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`,
+`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md` and
+`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md`. Operator and
+production procedures for discovery and deployment are in
+[`operations.md` §11–§12](operations.md#11-discovery-and-deployment); this page keeps only the
+developer view.
 
 ```sh
 uv sync --frozen
@@ -15,15 +19,24 @@ uv run ruff check .
 uv run pytest -q tests/unit -k 'not test_topology'   # the full local gate on a Docker-less machine
 docker compose -f docker-compose.test.yml pull db
 docker compose -f docker-compose.test.yml --profile targets pull tls-nginx tls-apache
+docker compose -f docker-compose.test.yml --profile ssh-targets build ssh-nginx-1 ssh-apache
 docker build --target test -t cert-dashboard:test .
 docker build -t cert-dashboard:local .
-uv run pytest -q --cov=app --cov-report=term-missing --cov-report=json
+uv run pytest -q --cov=app --cov-report=term-missing --cov-report=json --cov-fail-under=70
 uv run coverage report --fail-under=85 --include='app/crypto/*'
+uv run coverage report --fail-under=85 --include='app/ansible/parse_*'
+uv run coverage report --fail-under=85 --include='app/services/renewals.py'
+uv run coverage report --fail-under=85 --include='app/services/deploy.py'
 uv run pip-audit
 docker compose -f docker-compose.test.yml config --quiet
 docker compose -f docker-compose.test.yml --profile targets config --quiet
+docker compose -f docker-compose.test.yml --profile ssh-targets config --quiet
 docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider
 ```
+
+The last four coverage commands are the CI gates exactly as `.github/workflows/ci.yml` runs them:
+the `renewals.py` and `deploy.py` gates are guarded by `[ -f … ]` so the step also works on a
+checkout that predates those modules.
 
 On Windows, use WSL's Linux Docker engine for authoritative tests. Keep its uv
 environment outside the Windows checkout so Linux and Windows venvs stay distinct:
@@ -53,16 +66,21 @@ renewal workflow, audit browser, user administration, typed settings, the
 transactional job queue and the worker runtime are implemented. Plan 2 adds TLS
 observation and scanning, the background trust recheck, worker-only SMTP delivery,
 expiry alerts with a delivery ledger, the daily digest, and the Scans, Servers and
-Bindings screens with the Overview slots that read them.
+Bindings screens with the Overview slots that read them. Plan 3 completes v1 with
+read-only server discovery, reconciliation into servers/bindings/endpoints,
+canary-first certificate deployment with automatic per-host rollback, the Deploy
+screens and the §10.4 acceptance harness; §11–§12 of
+[`operations.md`](operations.md#11-discovery-and-deployment) are its operator view.
 The test Compose app runs unit smoke checks after its owner-only migrate service
 completes; the full integration suite runs on the Docker-enabled host.
 
 The Docker-dependent topology tests (rendered Compose files with and without
-`--profile targets`, the pinned `pg_dump` client, the isolated secrets installer and
-the database bootstrap) need a reachable Docker daemon; the `test_topology` cases
-(27 today) fail or skip without one while the remaining `tests/unit` modules still
-pass, so `uv run pytest -q tests/unit -k 'not test_topology'` is the local gate.
-GitHub CI is authoritative for them and for every integration test.
+`--profile targets` and `--profile ssh-targets`, the pinned `pg_dump` client, the
+isolated secrets installer and the database bootstrap) need a reachable Docker
+daemon; the `test_topology` cases (35 today, 20 of which fail without a daemon) fail
+or skip without one while the remaining `tests/unit` modules still pass, so
+`uv run pytest -q tests/unit -k 'not test_topology'` is the local gate. GitHub CI is
+authoritative for them and for every integration test.
 
 ## Web modules and routes
 
@@ -76,13 +94,14 @@ rules and transactions live in `app/services/`.
 | Module | Owns | Integration tests |
 | --- | --- | --- |
 | `app/web/overview.py` | `GET /` — expiry buckets, TLS health, recent jobs, renewals in flight, status strip and the setup empty state | `test_inventory_http.py`, `test_overview_slots.py` |
-| `app/web/certificates.py` | `/certificates`, `/certificates/export.json`, detail, edit, status and chain forms, `leaf.pem`/`chain.pem`/`fullchain.pem`, `export.pfx`, upload import, pull-import route, `/imports/{job_id}` progress, `POST /certificates/{id}/scan` and the detail page's endpoints panel | `test_inventory_http.py`, `test_upload_import.py`, `test_pull_import.py`, `test_downloads.py`, `test_endpoints_http.py` |
-| `app/web/renewals.py` | `/renewals/{id}` wizard: edit, generate CSR, `csr.pem`, submit, issued, finalize (only from `deployed`, so unreachable until Plan 3), cancel | `test_renewal_wizard.py` |
+| `app/web/certificates.py` | `/certificates`, `/certificates/export.json`, detail, edit, status and chain forms, `leaf.pem`/`chain.pem`/`fullchain.pem`, `export.pfx`, upload import, pull-import route, `/imports/{job_id}` progress, `POST /certificates/{id}/scan`, the detail page's endpoints panel and the certificate deploy panel (guardrail reason, recent deploys, link to `/deploy?certificate_id=…`) | `test_inventory_http.py`, `test_upload_import.py`, `test_pull_import.py`, `test_downloads.py`, `test_endpoints_http.py`, `test_deploy_start_http.py` |
+| `app/web/renewals.py` | `/renewals/{id}` wizard: edit, generate CSR, `csr.pem`, submit, issued, finalize (now reachable from `deployed`), cancel | `test_renewal_wizard.py`, `test_deploy_start_http.py` |
 | `app/web/scans.py` | `/scans`, `/scans/export.json`, `/scans/{id}`, `/scans/{id}/history`, `POST /scans/run` (`scope=all\|endpoint`), `POST /scans/endpoints`, `POST /scans/{id}/expectation`, `POST /scans/{id}/active` | `test_scans_http.py`, `test_endpoints_http.py`, `test_scan_targets.py` |
-| `app/web/servers.py` | `/servers`, `/servers/export.json`, `/servers/{id}`, `/bindings`, `/bindings/export.json`, `/bindings/help` — read-only; discovery controls render disabled | `test_servers_http.py`, `test_bindings_http.py` |
+| `app/web/servers.py` | `/servers`, `/servers/export.json`, `/servers/{id}`, `/servers/{id}/dump`, `/bindings`, `/bindings/export.json`, `/bindings/help`; discovery actions `POST /servers/discover` (`scope=all\|group`) and `POST /servers/{id}/discover`, enqueue-only and CSRF-protected | `test_servers_http.py`, `test_bindings_http.py`, `test_discovery_screens.py`, `test_discovery_jobs.py` |
+| `app/web/deploy.py` | `GET /deploy` (start screen), `GET /deploy/preview` (htmx fragment), `POST /deploy` (plan hash + confirmation), `GET /deploy/{job_id}`, `GET /jobs/{job_id}/progress`, `GET /deploy/{job_id}/report.json`, `POST /deploy/{job_id}/continue`, `POST /deploy/{job_id}/cancel`, `POST /deploy/{job_id}/hosts/{server_id}/retry` | `test_deploy_start_http.py`, `test_deploy_job_http.py`, `test_deploy_controls.py` |
 | `app/web/audit.py` | `/audit` browser and `/audit/export.json` | `test_audit_http.py` |
 | `app/web/users.py` | `/users` administration, password and TOTP resets, deactivation | `test_users_http.py` |
-| `app/web/settings.py` | `/settings` — seven configuration tabs plus trust anchors, status and maintenance; `POST /settings/smtp/test` and `GET /settings/smtp/test/{job_id}` (test-send outcome fragment); `POST /settings/trust-anchors/recheck`; the Alerts tab's failure list and the Status tab's SMTP panel | `test_settings_http.py`, `test_smtp_test_send.py`, `test_settings_alerts_status.py`, `test_trust_recheck_job.py` |
+| `app/web/settings.py` | `/settings` — seven configuration tabs plus trust anchors, status and maintenance; `POST /settings/smtp/test` and `GET /settings/smtp/test/{job_id}` (test-send outcome fragment); `POST /settings/inventory/test-pull` and `GET /settings/inventory/test-pull/{job_id}` (Test pull and its fragment); `POST /settings/trust-anchors/recheck`; the Alerts tab's failure list and the Status tab's SMTP panel | `test_settings_http.py`, `test_smtp_test_send.py`, `test_settings_alerts_status.py`, `test_trust_recheck_job.py`, `test_test_pull.py` |
 | `app/web/common.py` | `require_user`/`require_admin`, error rendering, login rate limit, `unsupported_reason` — no routes | every module above |
 
 `_register_auth_routes(app)` in `app/main.py` owns `/login`, `/login/2fa`, `/logout`
@@ -123,10 +142,11 @@ every failure to a closed class: malformed or unknown `(type, action)` and valid
 and reported as `internal`.
 
 Today the registry holds `cleanup/default`, `scan/default`, `scan/import_pull`, `scan/trust_recheck`,
-`alert_expiry/default`, `alert_expiry/smtp_test` and `digest/default`; only `discover/*` and
-`deploy/*` are still missing (Plan 3), and the disabled controls say so through
-`unsupported_reason(registry, ...)`. The web application calls `build_registry()` too, but only to
-gate navigation and controls on registered capabilities — the worker is the only dispatcher.
+`alert_expiry/default`, `alert_expiry/smtp_test`, `digest/default`, `discover/default`,
+`discover/test_pull` and `deploy/default`, so no plan control is gated as unsupported; the remaining
+disabled states are live capability reasons (no worker with `ansible_ssh_key`, empty inventory,
+guardrail). The web application calls `build_registry()` too, but only to gate navigation and
+controls on registered capabilities — the worker is the only dispatcher.
 
 ### Scheduler
 
@@ -144,7 +164,7 @@ registered:
    still advancing `last_run_at`, so a long outage produces no burst of catch-up jobs;
 4. enqueues the job, then runs `reap` and `retry_due` in their own transactions.
 
-Five schedules are registered, all UTC and all deduplicated by the `scheduler_state` row lock:
+Six schedules are registered, all UTC and all deduplicated by the `scheduler_state` row lock:
 
 | Key | Job | Time setting (default) | Enabled by | Priority |
 | --- | --- | --- | --- | --- |
@@ -153,6 +173,7 @@ Five schedules are registered, all UTC and all deduplicated by the `scheduler_st
 | `trust_recheck` | `scan/trust_recheck` (`{"action": "trust_recheck"}`) | `scan.daily_at` (02:00) | `scan.enabled` | 100 |
 | `expiry_check` | `alert_expiry/default` (`{}`) | `expiry_check.daily_at` (07:00) | `expiry_check.enabled` | 100 |
 | `digest` | `digest/default` (`{}`) | `digest.daily_at` (07:30) | `alert.digest_enabled` | 50 |
+| `discovery` | `discover/default` (`{}`) | `discovery.nightly_at` (03:00) | `discovery.enabled` | 100 |
 
 `trust_recheck` deliberately reuses `scan.daily_at`/`scan.enabled`, so disabling the daily scan
 disables both scan jobs. The `cleanup` handler deletes finished jobs and their `job_host` rows older
@@ -168,13 +189,12 @@ the **Settings → Maintenance** prune (`reason = "manual_prune"`).
 in its own transaction. `register_tick_step(name, step, *, requires=(JobType, action))` in
 `app/jobs/worker.py` stores a `TickStep(name, step(session, now) -> int, requires)`; a step is skipped
 while its handler is not registered, and a failing step is logged by exception class name only and
-never stops the others. Plan 2 registers exactly one:
+never stops the others. Two are registered:
 
 | Step | Requires | What it does |
 | --- | --- | --- |
 | `notification_retry` | `alert_expiry/default` | Enqueues one `alert_expiry/default` job with payload `{"mode": "retry_failed"}` (priority 100, `max_attempts=1`, `scheduled_reason="retry"`) when failed expiry rows created on the current UTC day are due and no `alert_expiry` job is queued or running |
-
-The hook is deliberately generic: Plan 3 registers its paused-deploy sweep the same way.
+| `deploy_sweep` | `deploy/default` | Cancels paused deploy jobs whose `paused_at` is older than `deploy.pause_timeout_hours` (rows `skipped`/`pause_expired`, `deploy.pause_expired` audit) and marks leftover `pending` rows of terminal deploy jobs `skipped`/`job_ended` |
 
 ### Worker process
 
@@ -187,11 +207,17 @@ hard-codes that secret directory. Relevant knobs:
 | `WORKER_CONCURRENCY` | 4 | slots, i.e. maximum concurrently running jobs |
 | `MAX_PARALLEL_JOBS` | 2 | cap on `discover`/`scan` jobs among those slots; the rest stay queued |
 | `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed |
+| `known_hosts` → `/etc/ssh/ssh_known_hosts` (`SSH_KNOWN_HOSTS`) | `/etc/ssh/ssh_known_hosts` | pinned SSH host keys; a missing file fails every `discover`/`deploy` with `config_invalid` before any connection |
+| `ansible_vault_password` (secret) | absent | optional Ansible Vault password; reaches the child as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE=app/ansible/vault_client.py` |
+| `inventory_git_token` (secret) | absent | optional HTTPS Git token; reaches `git` through `app/ansible/git_askpass.py` (username `x-access-token`), never stored in `.git/config` |
 | `smtp_password` (secret) | absent | the SMTP password; worker-only, read from `/run/secrets` (the web profile never loads it). Absent means no AUTH is attempted |
 | `DASHBOARD_URL` (environment) | empty | optional absolute `http(s)` base URL that alert and digest e-mails put in front of dashboard paths; without it the mails carry relative paths such as `/certificates/42`. A URL with credentials, a query or a fragment refuses startup |
 
-Job timeouts are fixed per type: `scan` 1800 s, `alert_expiry` 300 s, `digest` 300 s, `cleanup` 600 s
-(the deploy timeout is the Plan 3 callback).
+Job timeouts are fixed per type: `scan` 1800 s, `discover` 1800 s, `alert_expiry` 300 s, `digest`
+300 s, `cleanup` 600 s. A deploy timeout is computed per claim by the callback registered with
+`register_timeout(JobType.DEPLOY, …)`: distinct `server_id`s still `pending` at or after
+`resume_from_batch` × `deploy.host_timeout_seconds` + 900 s. `release_claim` clears `timeout_at`, so
+a paused or requeued deploy is never reaped.
 
 The process wipes `key_staging_dir` (`/run/cert-keys`, a tmpfs) before anything else; a symlinked or
 non-removable directory refuses startup rather than keeping leftover key material. Worker ID is
@@ -212,10 +238,14 @@ path, while only the CLI honours `SECRETS_DIR` — plus reachable `DB_*` setting
 `make_worker`/`worker_harness` build a `Worker` over the integration database with an injected clock
 and drive `tick()`, `poll()` and `run_queued()` directly.
 
-Because discovery and deploy handlers are not registered yet, the default worker runs cleanup, scan,
-trust-recheck, expiry, digest, SMTP-test and pull-import jobs: the scan-type jobs (including the
-background trust recheck) are capped at `MAX_PARALLEL_JOBS` (2) of its four slots, and the rest stay
-queued until a slot frees up.
+Discovery and deploy are claimable only by a worker with `ansible_ssh_key` (Plan 1's `_SSH_TYPES`).
+Discovery shares the two-job `MAX_PARALLEL_JOBS` cap with scans; a deploy job takes an ordinary free
+slot and is serialized instead by `deploy:global` (one deploy at a time) and `deploy.concurrency`
+(hosts per batch). A deploy job also holds `inventory:pull`; a paused deploy holds no claim, no slot,
+no lock and no `timeout_at`, so it is never reaped. At startup the worker writes one `worker.start`
+audit row with the worker id and four presence booleans (`ssh_key_present`, `known_hosts_present`,
+`vault_password_present`, `inventory_token_present`) and never a value; the web enables or disables
+the discovery/deploy controls from the newest row of a worker with a fresh heartbeat.
 
 ### Shutdown and in-flight writes
 
@@ -316,9 +346,10 @@ UTC clock so an expiring intermediate is noticed without an operator; changed st
 (`POST /settings/trust-anchors/recheck`, priority 200). Anchor upload/delete/toggle keep their
 synchronous recheck. As a `scan`-type job it counts against the two-job cap.
 
-**§7.7 inventory refresh is not a Plan 2 job.** Plan 2 Contract decision 15 places it in Plan 3 as the
-preflight of every `discover`/`deploy` job, together with *Test pull*; nothing in this release refreshes
-the Ansible inventory. `scan/import_pull` is unchanged (it still writes no `scan_result`); the manual
+**§7.7 inventory refresh is not a Plan 2 job.** Plan 2 Contract decision 15 placed it in Plan 3 as the
+preflight of every `discover`/`deploy` job, together with *Test pull*; Plan 3 implements it in
+`app/services/inventory.py` and `app/jobs/handlers/{ansible_context,test_pull}.py` (see *Inventory and
+Test pull* above). `scan/import_pull` is unchanged (it still writes no `scan_result`); the manual
 endpoint expectation it upserts is scanned by `scan/default` like any other endpoint.
 
 ## Expiry alerts, the notification ledger and the digest
@@ -378,8 +409,9 @@ even when nothing is new); unknown certificates found by discovery; servers whos
 failed, never ran or is older than 48 h; jobs failed in the last 24 hours;
 rolled-back hosts in the last 24 hours (a failed rollback says "needs manual attention"); failed
 notifications in the last 24 hours. Every list is capped at `DIGEST_LIST_LIMIT` (50) and says
-"showing 50 of 55"; totals are never capped. The mail always states the inventory revision — "none
-recorded" until Plan 3 writes one. **A digest is sent even when there is nothing to report** ("Nothing
+"showing 50 of 55"; totals are never capped. The mail always states the inventory revision —
+"none recorded" until a discover/deploy job has written one, then the newest succeeded result's
+`inventory_rev` and date. **A digest is sent even when there is nothing to report** ("Nothing
 to report. This mail is the daily heartbeat of the alerting path."), `dedupe_key = digest:<UTC date>`
 makes a second successful run of the same day a no-op. The digest is addressed to the team list only
 (`resolve_recipients(None, addresses)` in `app/jobs/handlers/digest.py`; unlike expiry alerts there is
@@ -391,9 +423,9 @@ no `certificate.owner_email` fallback), so an empty `alert.recipients` records a
 writes one metadata-only `binding.match_state` audit row (`from_state`, `from_fingerprint`, `was_active`,
 `to_state`, `on_disk_fingerprint`, `is_active`, `server_id`, `job_id` — never `notes` or paths) when a
 binding is inserted or its `(match_state, on_disk_fingerprint, is_active)` triple changes, and nothing
-when the same triple is seen again. Plan 2 ships the producer and the digest section that reads it; the
-only caller is Plan 3's discovery reconciliation, so *Unknown certificates found by discovery* stays
-empty until then.
+when the same triple is seen again. Plan 2 ships the producer and the digest section that reads it;
+Plan 3's discovery reconciliation is its only caller, so *Unknown certificates found by discovery*
+stays empty until the first discovery has reconciled a host.
 
 ## SMTP delivery and the test send
 
@@ -443,6 +475,156 @@ rows, so they never count as failures. Settings → Status renders that panel an
 50 newest failed notifications with attempts and the next attempt. See
 [`operations.md`](operations.md#10-alerts-digest-and-scanning) for the operator view.
 
+## Server discovery and certificate deployment
+
+Plan 3 adds the worker-side Ansible path and the operator screens. The operator procedures —
+inventory settings, worker credentials, the sudo rule, the deploy flow, recovery and the §10.4
+real-host runbook — are in [`operations.md` §11–§12](operations.md#11-discovery-and-deployment);
+this section is the module and test map.
+
+**Modules.** `app/ansible/runner.py` wraps `ansible-runner` with `build_env` (a child environment
+built from scratch), event parsing and host classification; `staging.py` writes secret files to the
+tmpfs with `0600`/`O_NOFOLLOW`; `vault_client.py` and `git_askpass.py` are the two executable helpers
+that print a secret from their own environment. `parse_nginx.py` and `parse_apache.py` produce
+`ParsedBinding` candidates, `discovery.py` assembles the §6.2 documents (D1/D2), `deploy.py` stages
+per-host material and parses the playbook outcome. The playbooks are
+`app/ansible/playbooks/{discover.yml,deploy.yml}`, with `tasks/*.yml` and
+`files/{apache_dump.py,prune_backups.py}`. `app/jobs/locks.py` owns the PostgreSQL advisory locks
+(`deploy:global`, `deploy:enqueue`, `inventory:pull`, `deploy:<hostname>`), and the services are
+`inventory.py` (checkout/listing), `discovery.py` (reconciliation), `deploy.py` (rollout, file-write
+planning, preview, start and controls — the coverage-gated module, importing nothing from
+`app/ansible`), `deploy_runtime.py` (worker revalidation, outcomes, sweep, timeout) and
+`deploy_views.py` (read models). Handlers: `ansible_context.py` (job lock session, staging,
+`known_hosts`, clock and audit hook), `test_pull.py`, `discover.py` and `deploy.py`.
+
+**Inventory and Test pull.** `refresh_checkout` fetches `+<ref or HEAD>:refs/cert-dashboard/fetch`
+with `--no-tags`, then `git reset --hard` and `git clean -ffdx`; `last_pull.json` records `rev`,
+`rev_date` and `pulled_at`. A pull inside 60 s of the previous one is a no-op; a failed pull keeps the
+last good checkout while it is younger than 24 h and the job reports `inventory_warning`, otherwise
+the job fails `transient_network`. `list_inventory` runs `ansible-inventory -i <path> --list`, reads
+only `ansible_host` and `inventory.webserver_var`, and never logs or stores stdout/stderr. Git runs
+with list argv, `GIT_ALLOW_PROTOCOL=https:ssh:file`, `GIT_CONFIG_NOSYSTEM=1`,
+`GIT_TERMINAL_PROMPT=0`, an empty credential helper, a 120 s timeout and — only when a key is
+configured — `GIT_SSH_COMMAND` with `StrictHostKeyChecking=yes` and the pinned `known_hosts`. The
+four settings are `inventory.repo_url`, `inventory.ref`, `inventory.path` and
+`inventory.webserver_var`; *Test pull* enqueues `discover/test_pull` and runs the pull plus
+`--list` only, with no SSH to a target.
+
+**Discovery jobs.** `discover/default` payloads are `{}` (whole inventory; schedule and *Discover
+all*), `{"hosts": [...]}` (1–500 names) or `{"groups": [...]}` (1–50 names), validated against
+`[A-Za-z0-9_.-]{1,253}` so `--limit` can never carry Ansible pattern syntax. Priority 200 on demand,
+100 from the `discovery` schedule (`discovery.nightly_at`, default 03:00 UTC; `discovery.enabled`).
+Each targeted server gets one `job_host` row; a host result is `succeeded` or `failed` with reasons
+`unreachable`, `auth`, `dump_failed`, `dump_too_large`, `parse_failed` or `host_timeout` and a
+`precheck` dump summary (`webserver`, `binaries`, `config_files` ≤ 200, `bindings`, `warnings`,
+`parse_suspected`, `dump_bytes`, `dump_sha256`). Unreachable hosts are retried alone — 3 attempts,
+30/120 s — and an SSH authentication failure (`auth`) is never retried; the message tells the
+operator to check `known_hosts` and the deploy key. A host that previously had bindings and now
+yields zero is `parse_suspected`: nothing is deactivated. Discovery is read-only on the target
+(`become` only to read); raw dumps and per-host documents stay on the worker's artifacts volume
+(`<artifacts>/<job_id>/discovery/<hostname>.json`, `0600`, removed by the 30-day cleanup), the UI
+shows only the summary, and `discovery.run` is audited once per attempt.
+
+**Parsers and the D1–D3 rules.** nginx is parsed from `nginx -T` by a tokenizer that follows
+`# configuration file <path>:` markers and the block stack; Apache from the collector's JSON
+document and `apachectl -S` vhosts. Certificate contents are transported with
+`openssl crl2pkcs7 -nocrl -certfile <path> | openssl pkcs7 -print_certs` under `no_log: true`,
+because `openssl x509 -in` reads only the first certificate of a bundle. Chain roles follow operator
+decision D1: every certificate file is parsed on its own and a file is a chain only when its
+certificate verifies the previous signature (`app/crypto/chain.py`); a same-issuer RSA+ECDSA pair is
+two bindings; unreadable or incomplete chains are not used and the binding carries the fixed
+`chain_diagnostic`. Key hashes are the SHA-256 of the DER `SubjectPublicKeyInfo` (D2), the same value
+as `private_key.public_key_sha256`. Apache reads the union of the `apachectl -S` files, the main
+config and the recursive `Include`/`IncludeOptional` tree (≤ 500 files, 16 MiB, depth 16), and
+nginx's included files are attributed through the `nginx -T` markers (D3). The operator-facing
+reproduction commands are in
+[`operations.md` §11.6](operations.md#116-how-the-checks-work-d1-d2-d3-and-what-to-look-at-on-a-host).
+
+**Reconciliation.** Bindings are upserted by
+`(server_id, webserver, config_file, port, vhost_name, cert_path)` under the server row lock.
+`match_state` is `matched` (fingerprint and key hash agree), `key_mismatch`, `unknown`,
+`missing_file` or the binding is deactivated (`is_active=false`) when it disappears from the dump;
+every transition goes through `audit_binding_state` in the same per-server transaction. Servers are
+created from inventory hosts and deactivated when they leave the inventory (bindings and derived
+endpoints deactivated, never deleted). Each binding gets a derived endpoint from
+`(connection_address, port, verify_sni(vhost_name, vhost_names))`; a `matched` binding sets the
+expected certificate, an `unknown` one leaves the expectation empty. A host that previously had
+bindings and now yields zero is not reconciled (see above).
+
+**Deploy planning.** `preview_deploy` resolves the targets (active bindings of active servers of the
+renewed certificate, or an explicit selection), plans the batches and derives each host's writes;
+several bindings sharing a path produce one write, and the same path needed with different content is
+a `FileConflict` that blocks the start. The preview is advisory and carries `plan_sha256`; the POST
+must echo it and confirm the sentence naming the host count and the canary. Guardrails refuse a start
+with a reason: missing key or key version, expired/not-yet-valid/revoked certificate, no target, every
+binding already on the new fingerprint, a deploy already `queued`/`running`/`paused`, or a chain that
+is not `trusted` without an audited override. One deploy at a time is enforced by
+`pg_advisory_xact_lock(hashtext('deploy:enqueue'))` in the web process and `deploy:global` in the
+worker. The trust override is audited as `deploy.chain_override` and never bypasses key presence and
+match, leaf validity, binding state, drift or the config test.
+
+**Rollout and host execution.** Canary first, then batches of
+`max(1, ceil(total_servers × deploy.batch_percent / 100))` (integer `-(-total * percent // 100)`),
+`deploy.concurrency` hosts at a time. After a successful canary the job pauses by default
+(`deploy.pause_after_canary`), releases its claim, slot and locks, and waits; *Continue* requeues at
+batch 1 and re-checks the trust gate and every host's drift; a forgotten pause is cancelled by the
+`deploy_sweep` tick step after `deploy.pause_timeout_hours` (default 24). The first failed host stops
+the rollout: in-flight hosts finish, unstarted rows become `skipped` (`rollout_stopped`); a host whose
+`deploy:<hostname>` lock is taken is `skipped` (`locked`) and does not stop it. `deploy.yml` runs once
+per host with file **paths** and a JSON `targets` array only: preflight (drift versus
+`old_fingerprint`/`new_fingerprint`, free space, baseline config test, staged-key SPKI match), backup
+to `/var/backups/cert-dashboard/<job_id>/<absolute path>` (root `0700`, key backups `0600`,
+certificate backups `old_mode & 0o644`, `manifest.json`, refuse to proceed if a backup is missing),
+atomic write (temp file with final mode, then `mv`), `restorecon` when present, config test, reload,
+on-target verify (3 attempts, 2 s apart) and, on any failure from the first write through
+verification, a **single-attempt** rollback that restores every manifest path. A failed rollback or a
+host timeout is marked *needs manual attention*; a successful rollback is `rolled_back`. Re-runs are
+idempotent (a file already at the new fingerprint is not rewritten), pruning keeps the newest backup
+of each path and `deploy.backup_retention_days` `0` keeps everything. Deploy jobs are never retried
+automatically; *Retry host* creates a new audited job (`deploy.retry_host`, canary-only). The renewal
+is advanced to `deployed` only by the `on_success` hook after a **succeeded** job with at least one
+succeeded binding row carrying the new fingerprint.
+
+**Screens and locks.** The start screen (`GET /deploy`, `GET /deploy/preview`, `POST /deploy`), the
+job screen (`GET /deploy/{job_id}`, `GET /jobs/{job_id}/progress`, `GET /deploy/{job_id}/report.json`)
+and the three controls (`continue`, `cancel`, `retry`) live in `app/web/deploy.py`; discovery actions
+are `POST /servers/discover` and `POST /servers/{id}/discover` in `app/web/servers.py`. All are
+CSRF-protected, POST→303 and htmx-aware; the web process only reads the database, computes previews
+and enqueues.
+
+### Playbook static tests and coverage gates
+
+`tests/unit/test_playbooks_static.py` reads both committed playbooks and enforces the contracts the
+integration tests cannot see: `ansible-playbook --syntax-check`; every task uses a fully qualified
+`ansible.builtin.*` module from the allowlist (`command`, `shell`, `stat`, `copy`, `set_fact`,
+`set_stats`, `fail`, `assert`, `include_tasks`, `slurp`, `file`, `script`, `find`, `debug`) and no
+network module (`get_url`, `uri`, `apt`, `dnf`, `package`, `pip`, `git`); every task whose arguments
+mention key paths, the dump or certificate extraction is `no_log: true`; every `command`/`shell` task
+has `timeout: 60` or less; `discover.yml` writes only to the controller and has exactly one
+target-side `script`; `deploy.yml` obeys the rescue-coverage rule — every task that changes a live
+path or service is inside the main `block`, whose `rescue` includes `tasks/rollback.yml` for every
+write step, `rollback.yml`'s own `rescue` only records `rollback_error` (no retry), and pruning runs
+only after `verified` and only under `{{ backup_root }}`. CI enforces 85 % coverage on
+`app/ansible/parse_*` and `app/services/deploy.py` (and on `app/crypto`, `app/services/renewals.py`),
+70 % overall.
+
+### Local gate and known-flaky tests
+
+The `ssh-targets` profile is CI-only (see *SSH targets* under *Test fixtures* for the build step,
+the services and the fixture API): built once by the CI setup step, then started with
+`up -d --wait --no-build --pull never`. Locally there is no Docker: the gate stays
+`uv run ruff check .` plus `uv run pytest -q tests/unit` (and `-k 'not test_topology'` on a
+Docker-less machine), and the SSH-target, Testcontainers and acceptance tests run only in GitHub CI.
+
+Two tests have a documented history of environment-sensitive failures because they measure target
+reload or wall clock rather than behaviour: the parametrized
+`tests/integration/test_scan_targets.py::test_real_webserver_scan_reports_ok_then_mismatch_then_unreachable`
+(a reload race, hardened in PR #40) and the smoke ceilings in
+`tests/unit/test_parse_chain.py` (hardened to count signature verifications in PR #65). If one of
+them fails on a loaded runner, re-run the failed CI job once (`gh run rerun <run-id> --failed`) and
+record both run URLs on the card; a second failure is a regression, not a flake. Do not loosen the
+assertions to make a run green.
+
 ## Isolated key and PFX parsing
 
 Every upload is capped at `MAX_INPUT_BYTES` (1 MiB, `app/crypto/parse.py`), but a few hundred bytes of
@@ -480,10 +662,18 @@ keys). `tests/integration/conftest.py` builds everything else:
 | `smtp_server` (in `tests/conftest.py`), `configure_smtp` | in-process `CaptureServer` instances (see below) and the settings/SMTP setup that points the worker at one |
 | `expiring` | a certificate issued by the session CA with a chosen number of days to expiry and unique CN |
 | `scan_world`, `server_map`, `count_statements` | seeded endpoints/servers/bindings for the Scans, Servers and Bindings tests, and the SQL-statement counter that proves the query count does not grow with rows |
+| `ssh_targets`, `fresh_targets`, `runner_secrets` | the CI-only SSH-enabled nginx/Apache stack (`ssh-targets` profile), the per-test reset, and the client key plus pinned `known_hosts` as `RunnerSecrets` |
+| `inventory_repo` | a local bare `file://` inventory repository with `hosts.yml`, optional vaulted `group_vars`, `.head`, `.head_date` and `.commit(files)`; it writes the `inventory.*` rows directly because the settings validator accepts only `https`/`ssh`/scp URLs |
+| `ansible_worker` | `make_worker` with the fixture SSH key, `known_hosts_file`, `inventory_root` and `key_staging_dir` |
+| `deploy_world`, `deploy_material`, `deploy_ready` | seeded certificate/renewal/bindings and preview state, staged public/key material, and a job-ready deploy fixture with the queue and Ansible context |
+| `acceptance_stack`, `staging_restore` | the §10.4 acceptance scenario (web app and one Ansible worker over the same private database, SMTP capture, inventory served over SSH) and the `pg_dump -Fc`/`pg_restore` restore drill |
 
-`tests/fixtures/` holds the shared generators: `ca.py` (`FixtureCA.issue`), `certificates.py`
-(`generate_certificates`), `smtp_capture.py` (below) and the PFX child stubs above. Fixtures stay in
-memory; nothing is written to the repository.
+`tests/fixtures/` holds the shared generators and harnesses: `ca.py` (`FixtureCA.issue`),
+`certificates.py` (`generate_certificates`), `smtp_capture.py` (below), `targets/` (the
+`ssh-targets` images and committed webserver configurations), `ssh_targets.py` (the `TargetStack`
+API used by assertions), `git_inventory.py` (the bare inventory repository), `ansible/` (the
+local-connection probe playbook) and the PFX child stubs above. Fixtures stay in memory or in
+`tmp_path`; nothing is written to the repository.
 
 ### Test targets and the SMTP capture server
 
@@ -570,9 +760,16 @@ initial state exactly.
 
 Provision canonical files beneath `/etc/cert-dashboard/secrets` through the
 operator's normal secure process: `master_key`, `session_secret`, `db_password`,
-and a distinct `db_owner_password`. Never commit them. Worker credentials
-`ansible_ssh_key`, `ansible_vault_password`, `inventory_git_token`, `smtp_password`
-are optional; mount only the ones provisioned using the credentials override.
+and a distinct `db_owner_password`. Never commit them. Worker credentials `ansible_ssh_key`, `ansible_vault_password`, `inventory_git_token`, `smtp_password`
+are optional; mount only the ones provisioned using the credentials override. Discovery and
+deployment additionally need `known_hosts`, mounted at `/etc/ssh/ssh_known_hosts`
+(`SSH_KNOWN_HOSTS`): a missing file fails those jobs `config_invalid` before any connection, and an
+unpinned host is refused rather than trusted. The `ANSIBLE_SSH_ARGS` value in
+`docker-compose.credentials.yml` **is no longer read**: `build_env` in `app/ansible/runner.py`
+constructs the child environment from scratch with its own stricter
+`-o StrictHostKeyChecking=yes -o UserKnownHostsFile=<known_hosts> -o IdentitiesOnly=yes
+-o BatchMode=yes -o ControlMaster=auto -o ControlPersist=60s`. Change host-key checking in the file,
+never in that variable.
 `smtp_password` is what lets the worker authenticate to the relay for expiry alerts and the digest:
 without it no AUTH is attempted at all, and a relay that requires authentication rejects the mail with
 `smtp_auth`. `DASHBOARD_URL` is not a secret: it is a plain worker environment value (absolute

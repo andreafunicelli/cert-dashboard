@@ -13,14 +13,16 @@ private keys and TOTP seeds encrypted under a keyring the operators hold.
 | --- | --- |
 | Plan 1 — core (Tasks 1–23) | Merged on `main` (PRs #1–#17) |
 | Plan 2 — TLS observation, scanning and alerts (Tasks 1–17) | Merged on `main` (PRs #21–#38) |
-| Plan 3 — server discovery and automated deploy | Not started |
+| Plan 3 — server discovery and automated deploy (Tasks 1–20) | Merged on `main` (PRs #41–#65, including the follow-up fixes #60, #63 and #65) |
 
 Working today: certificate inventory, upload and pull import, TLS scanning of registered
 endpoints with classified results and history, the daily background trust recheck, expiry
-alerts and a daily digest over SMTP, the renewal wizard up to issued, audited downloads,
-audit browser, users/MFA, typed settings, the job queue, the worker and its scheduler, and the
-Scans, Servers, Bindings and Overview screens. Every control owned by Plan 3 — discovery,
-deployment and *Test pull* — renders disabled together with the reason.
+alerts and a daily digest over SMTP, the renewal wizard through issued and deployed, read-only
+discovery of nginx and Apache servers over SSH, canary-first certificate deployment with drift
+protection and automatic per-host rollback, audited downloads, audit browser, users/MFA, typed
+settings, the job queue, the worker and its scheduler, and the Overview, Scans, Servers,
+Bindings and Deploy screens. Every Plan 1–3 control is registered; a control is disabled only
+for a live reason (no worker with `ansible_ssh_key`, empty inventory, guardrail).
 
 ## Architecture
 
@@ -28,8 +30,9 @@ deployment and *Test pull* — renders disabled together with the reason.
   served htmx, PostgreSQL-backed sessions and CSRF on every mutating request.
 - `worker` — `python -m app.jobs.worker`: four job slots, a 30-second heartbeat, the
   scheduler, retention cleanup, the worker-side pull import, TLS scanning (20 connections in
-  flight), the background trust recheck, and worker-only SMTP delivery for expiry alerts and
-  the digest.
+  flight), the background trust recheck, worker-only SMTP delivery for expiry alerts and
+  the digest, and the Ansible-driven discovery and deploy jobs (read-only collection, then
+  host-atomic writes with backup, config test, reload, verification and rollback).
 - `db` — PostgreSQL 16 holding inventory, jobs, users and the append-only audit log;
   private keys and TOTP seeds are stored encrypted.
 - One image (`cert-dashboard:local`) runs both `web` and `worker`; `migrate` is a separate
@@ -101,6 +104,41 @@ hosts and failed notifications plus the inventory revision — and is sent even 
 report. Mail leaves the worker only, over STARTTLS, SSL/TLS or plaintext as configured, and AUTH is
 attempted only over TLS.
 
+**Discover what is configured.** The worker keeps a read-only checkout of the inventory Git repository
+and, nightly or on demand from Servers, runs Ansible against the listed nginx and Apache hosts to read
+their TLS configuration (never writing, never reloading; `become` only to read). Each host yields one
+§6.2 document: vhost, port, config file, certificate/chain/key paths, owners, modes, fingerprints and
+the key's DER SPKI hash. Certificate roles are decided by verifying content, not position (D1): a
+same-CA RSA+ECDSA pair stays two bindings, a chain file is used only when it really signs the leaf,
+and unreadable or incomplete chains are diagnosed instead of guessed. Apache includes are read
+recursively in addition to `apachectl -S`; nginx includes arrive through `nginx -T` (D3). Key hashes
+use DER, matching `private_key.public_key_sha256` (D2). Reconciliation upserts servers and bindings
+without duplicates, never imports an unknown certificate, never deletes a binding, and treats a
+previously populated host that suddenly yields zero bindings as `parse_suspected` rather than
+deactivating everything. Unreachable hosts are retried (3 attempts, 30/120 s); `auth` failures are
+never retried and tell you to check `known_hosts` and the deploy key. Raw dumps stay on the worker's
+artifacts volume (`0600`, 30-day cleanup); the UI shows only the summary.
+
+**Deploy with rollback.** Choose an issued certificate (or a keyed active one) on the Deploy screen;
+the preview shows every host's current and new identity, the writes and the batch plan, and the POST
+must echo its `plan_sha256` and a confirmation sentence. Guardrails refuse a start without a key, with
+an expired/revoked certificate, with no target, when every binding is already on the new fingerprint,
+when another deploy is queued/running/paused, or when the chain is not `trusted` without an audited
+override — and the override never bypasses key, validity, drift or config-test checks. The rollout is
+canary first, then batches of `max(1, ceil(total × deploy.batch_percent / 100))` hosts; with *pause
+after canary* the job releases its claim and waits for **Continue**, which re-checks drift on every
+host; a forgotten pause auto-cancels after `deploy.pause_timeout_hours`. The first failed host stops
+the rollout and never-started hosts are `skipped`; a host locked by another deploy is skipped without
+stopping it. Each host is backed up to `/var/backups/cert-dashboard/<job_id>/` with a `manifest.json`
+(root `0700`, keys `0600`, certificates `0644` or stricter), written atomically, tested, reloaded and
+verified on the served port; any failure from the first write onwards triggers exactly one automatic
+rollback that restores every backed-up path. Deploy jobs are never retried automatically — **Retry
+host** creates a new audited job — and a renewal becomes `deployed` only after a succeeded job with a
+succeeded binding carrying the new fingerprint. Backups are pruned by `deploy.backup_retention_days`
+(default 30, `0` = keep forever), always keeping the newest copy of each path. The full operator
+runbook, including the first real-host §10.4 acceptance, is
+[`docs/operations.md` §11–§12](docs/operations.md#11-discovery-and-deployment).
+
 **Find and inspect.** The Overview shows disjoint expiry buckets (expired, < 7, 7–< 30,
 30–< 60 days) with setup guidance when the inventory is empty, plus TLS health, recent jobs, renewals
 in flight and a status strip. The certificate, Scans, Servers and Bindings lists have filters, sorting,
@@ -108,15 +146,15 @@ bookmarkable queries, 1–100 rows per page and a JSON export; the certificate d
 fields, key presence/public fingerprint, related audits, lineage, chain status warnings, its endpoints
 panel and editable metadata.
 
-**Renew, up to issued.** A resumable manual-CA wizard walks through CSR generation (RSA
+**Renew, deploy, finalise.** A resumable manual-CA wizard walks through CSR generation (RSA
 2048/3072/4096 or ECDSA P-256/P-384, RSA 2048 by default), download of the CSR, submission to
 the CA, and upload of the issued PEM with optional chain; it then stops at **issued / ready to
 deploy**. The issued-certificate gate checks key **and** CSR SPKI, CN/SAN set and validity
-before accepting. The state machine continues to `deployed` and `done` and both service hooks
-exist (`mark_deployed` verifies deploy-job and binding evidence, `finalize` changes the previous
-certificate's status), but Plan 1 registers no deploy handler, so a renewal cannot leave
-`issued`: deployment and finalisation, including the previous-certificate status change, are
-gated until Plan 3. The ready page says so and offers no manual "deployed" button.
+before accepting. The state machine continues to `deployed` and `done`: Plan 3's deploy handler
+advances a renewal to `deployed` through its success hook only after a **succeeded** job with a
+succeeded binding row carrying the new fingerprint, and `finalize` then changes the previous
+certificate's status. The ready page links the Deploy screen; a paused, failed or cancelled
+deploy never advances the renewal.
 
 **Export.** Leaf, chain and full-chain PEM downloads and a password-protected PFX export
 are audited. The PFX is rebuilt in memory after you re-enter your own password; nothing is
@@ -162,26 +200,53 @@ time/enable setting.
   a STARTTLS server can never make the client fall back to plaintext, and SMTP failures are kept as
   fixed step names plus numeric reply codes — no peer reply text, exception text or AUTH challenge is
   stored, logged or rendered.
+- **SSH and Ansible credentials are file-only.** `ansible_ssh_key`, `known_hosts` (mounted at
+  `/etc/ssh/ssh_known_hosts` via `SSH_KNOWN_HOSTS`), the optional vault password and the optional Git
+  token exist only as read-only file secrets. The runner builds the child environment from scratch;
+  keys reach Ansible and `git` as `0600` files in the tmpfs staging directory and are removed in
+  `finally`; nothing secret appears in argv, extra-vars, `ansible-runner` artifacts, job payloads,
+  results, errors, audit details or logs. The `ANSIBLE_SSH_ARGS` value in
+  `docker-compose.credentials.yml` is **no longer read** — change host-key checking in `known_hosts`,
+  never in that variable. A missing `known_hosts` fails discovery and deploy closed, before any
+  connection.
+- **Discovery only reads.** The playbooks never write on a target and never reload a service; they
+  `become` only to read root-owned configuration, certificates and keys. Raw dumps can contain the
+  target's own inline credentials, so they stay on the worker's artifacts volume (`0600`, 30-day
+  cleanup), are never served to the browser, and the UI renders only a summary.
+- **Deploy is backed up and reversible.** Every host write is preceded by a backup
+  (`/var/backups/cert-dashboard/<job_id>/`, root `0700`, key backups `0600`, certificate backups
+  `0644` or stricter, `manifest.json`), and any failure from the first write through verification
+  triggers exactly one automatic rollback of every manifest path. Drift, config test, key presence
+  and the leaf/key SPKI match are checked on the host; a failed rollback or a host timeout is marked
+  *needs manual attention*. The trust override is audited as `deploy.chain_override` and never
+  bypasses those checks.
 
 ## Documentation
 
 - [`docs/operations.md`](docs/operations.md) — install, secrets, migrate, backup/restore,
-  master-key rotation, operational signals, Settings tabs.
+  master-key rotation, operational signals, Settings tabs, discovery and deployment (§11) and
+  the §10.4 real-host acceptance runbook (§12).
 - [`docs/development.md`](docs/development.md) — checkout and test commands, web modules,
-  job queue/worker internals, isolated PFX parsing, test fixtures.
+  job queue/worker internals, discovery/deploy modules, playbook static rules, test fixtures.
 - [`docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`](docs/superpowers/specs/2026-10-19-cert-dashboard-design.md)
   — the normative design (sections cited throughout the code).
 - [`docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`](docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md)
   — the executed Plan 1 task list and its contract decisions.
 - [`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md`](docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md)
   — the executed Plan 2 task list (scanning, alerts, digest, screens).
+- [`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md`](docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md)
+  — the executed Plan 3 task list (discovery, deployment, the D1–D3 operator decisions and the
+  §10.4 acceptance).
 
 ## Development
 
 Python 3.12 with `uv`. `tests/unit` needs no database and no network; its `test_topology`
-cases (27) additionally need a reachable Docker daemon, so the local gate filters them.
-Integration tests need Docker — PostgreSQL Testcontainers plus the `targets` profile of
-`docker-compose.test.yml` — and run in CI.
+cases (35, of which 20 need a live daemon) additionally need a reachable Docker daemon, so the
+local gate filters them. Integration tests need Docker — PostgreSQL Testcontainers plus the
+`targets` and `ssh-targets` profiles of `docker-compose.test.yml` — and run in CI, where the
+SSH target images are built once and started with `--no-build --pull never`. CI also enforces
+70 % overall coverage and 85 % on `app/crypto`, `app/services/renewals.py`,
+`app/services/deploy.py` and `app/ansible/parse_*`.
 
 ```sh
 uv sync --frozen

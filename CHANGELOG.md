@@ -157,10 +157,69 @@ with the pull request that delivered each group of changes.
 - Documentation: Plan 2 developer notes in `docs/development.md`, the operator chapter
   `docs/operations.md` §10, and the README status.
 
+**Server discovery and automated deploy (Plan 3 Tasks 1–20, PRs #41–#64)**
+
+- Job control: typed `JobPaused`/`JobRequeued`/`JobCancelled` outcomes, `release_claim` with the
+  attempt refund, the `on_success` hook, PostgreSQL advisory locks (`deploy:global`,
+  `deploy:enqueue`, `inventory:pull`, `deploy:<hostname>`) and the `worker.start` capability record
+  (Task 1, PR #41).
+- Ansible runner wrapper: child environment built from scratch, `ansible-runner` events, host and
+  failure classification, file-only secrets in the tmpfs staging area, the vault/Git helper scripts
+  and `SSH_KNOWN_HOSTS` (Task 2, PR #42).
+- CI-only SSH-enabled nginx and Apache targets with pinned host keys, `become` and fault injection
+  (Task 3, PR #43).
+- Inventory checkout by fetch-into-a-private-ref and `reset --hard`, the 60-second no-pull window,
+  the 24-hour staleness rule, fail-closed integrity and `ansible-inventory --list` (Task 4, PR #44),
+  plus the Ansible job context and **Test pull** (Task 5, PR #45).
+- nginx dump parser with D3 include attribution and the 85 % `app/ansible/parse_*` coverage gate
+  (Task 6, PR #46); read-only Apache collector (Task 7A, PR #47) and parser (Task 7B, PR #48).
+- Discovery binding assembly with D1 signature-based chain roles, the fixed `chain_diagnostic` texts
+  and the D2 DER key-hash round trip (Task 8A, PR #49), and `discover.yml` with per-host §6.2
+  documents, the certificate transport via `openssl crl2pkcs7 | openssl pkcs7`, and the static
+  playbook rules (Task 8B, PR #50).
+- Reconciliation into servers/bindings/endpoints with `audit_binding_state`, derived endpoints,
+  cross-server alias ownership and the zero-binding `parse_suspected` guard (Task 9, PR #51).
+- `discover/default` with the nightly `discovery` schedule (03:00 UTC default), per-host retries
+  (unreachable only, 3 attempts at 30/120 s; `auth` never retried) and the Servers discovery actions
+  (Task 10, PR #52); the discovery screens, unknown-certificate list, dump summary and capability
+  banners (Task 11, PR #53).
+- Rollout planning, incremental batch execution and D1 file-write planning (Task 12, PR #54); the
+  preview with `plan_sha256`, guardrails, trust gate and audited enqueue (Task 13, PR #55).
+- `deploy.yml` preflight and backup without a live write, with host-outcome mapping (Task 14,
+  PR #56); the write path with config test, reload, verification, a single-attempt rollback and
+  backup pruning (Task 15, PR #57).
+- `deploy/default`: per-host locks, batched execution, stop at the first failure, row bookkeeping
+  and the `mark_deployed` success hook (Task 16, PR #58); canary pause, Continue, Cancel, pause
+  expiry and single-host retry (Task 17, PR #59), with the completion-log correction PR #60.
+- Deploy job screen and live progress (Task 18, PR #61); deploy start screen, registry registration,
+  navigation and certificate deploy panel (Task 19, PR #62), with the job-level failure reason
+  PR #63.
+- §10.4 acceptance against the container targets and the real-host operations runbook
+  `docs/operations.md` §11–§12 (Task 20, PR #64).
+- Test-only: deterministic parse-chain assertions (PR #65).
+
 **Documentation**
 
-- `README.md`, this changelog, and the Task 12–23 operational and developer notes in
-  `docs/development.md` (PR #18).
+- `README.md`, this changelog, and the Plan 3 developer notes in `docs/development.md` (PR #66).
+- `docs/operations.md` §12.2 clarifies the two-host `grep` spot-check and the mandatory PFX round
+  trip of the §10.4 acceptance (PR #66).
+
+### Changed
+
+- **Operator decisions D1–D3 (2026-10-25) are recorded and the spec is corrected.** D1: certificate
+  chain roles are decided per file by signature verification, never by position or DN equality, so a
+  same-CA RSA+ECDSA pair is two bindings; D2: key identity is the SHA-256 of the DER
+  `SubjectPublicKeyInfo`, so the host command uses `-outform DER` and round-trips with
+  `private_key.public_key_sha256`; D3: TLS material is read both inline and from included files, with
+  Apache always unioning `apachectl -S` and the recursive `Include` tree and nginx relying on
+  `nginx -T`'s own file markers. Spec §6.2 and Plan 3 Contract decision 9 / open questions carry the
+  decision labels and summaries.
+- **`ANSIBLE_SSH_ARGS` in `docker-compose.credentials.yml` is no longer read.** The Ansible runner
+  builds the child environment from scratch with its own stricter
+  `StrictHostKeyChecking=yes`/`UserKnownHostsFile`/`IdentitiesOnly=yes`/`BatchMode=yes` values;
+  change host-key checking in `known_hosts`, never in that variable.
+- `docs/operations.md` §11.1 now states the seeded `discovery.nightly_at` default (03:00 UTC) that
+  `app/services/settings.py` and the migration actually use.
 
 ### Security
 
@@ -208,3 +267,17 @@ with the pull request that delivered each group of changes.
   `alert.recipients` only and has no owner fallback. The ledger's unique dedupe key plus row lock
   keeps a threshold from being announced twice; delivery is at-least-once by design and documented
   as such.
+- Discovery is read-only on the target: the playbooks write no file and reload no service, and
+  `become` is used only to read root-owned configuration, certificates and keys. Raw dumps can
+  contain the target's own inline credentials, so they stay on the worker's artifacts volume
+  (`0600`, 30-day cleanup) and are never served to the browser.
+- Ansible and SSH credentials are file-only: `ansible_ssh_key`, `known_hosts`/`SSH_KNOWN_HOSTS`, the
+  optional vault password and the optional Git token never appear in argv, extra-vars,
+  `ansible-runner` artifacts, job payloads/results/errors, audit details or logs. Keys reach Ansible
+  and `git` as `0600` files in the tmpfs staging area and are removed in `finally`; a missing
+  `known_hosts` fails discovery and deployment closed before any connection.
+- Every deploy host write is preceded by a backup (`/var/backups/cert-dashboard/<job_id>/`, root
+  `0700`, key backups `0600`, `manifest.json`) and any failure from the first write through
+  verification triggers exactly one automatic rollback of every manifest path. The trust override is
+  audited as `deploy.chain_override` and never bypasses key presence/match, leaf validity, drift or
+  the config test; deploy jobs are never retried automatically.
