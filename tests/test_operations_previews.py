@@ -58,6 +58,11 @@ def test_settings_and_smtp_fragments_work_without_parent_imports():
     assert 'Delivered' in fragment('settings-smtp-succeeded', 'smtp_test_result')
     assert 'hx-trigger="every 2s"' in fragment('settings-smtp-queued', 'smtp_test_result')
     assert 'does not guarantee inbox delivery' in rendered('settings-smtp-succeeded')
+    trust = fragment('settings-trust', 'panel', flash=['Public CA bundle excluded.'])
+    assert 'data-settings-saved="true"' in trust
+    assert 'data-settings-draft method="post" action="/settings/trust"' in trust
+    refused = fragment('settings-trust', 'panel', errors={'form': ['Refused.']})
+    assert 'data-settings-saved="false"' in refused and 'data-settings-errors="true"' in refused
 
 
 def test_error_configuration_is_head_only_and_preserves_server_errors():
