@@ -150,6 +150,8 @@ changed. HTMX 422 behaviour uses the existing declarative `enhanced_forms()` mac
   indicators. A successful save marker clears only that section's draft; HTTP 422
   retains it and preserves server-rendered validation values. A consumed `saved`
   URL flag is removed so reload does not clear a subsequently edited draft.
+  The trust-bundle toggle uses its existing one-shot success flash instead of a
+  `saved` URL flag; uploads/deletions do not clear an unrelated pending toggle.
 - Password controls, hidden/file inputs and any field name containing `secret`,
   `key` or `token` are never read or stored. Repository URLs are also never stored:
   even an invalid URL can contain credentials. Their changes are marked but must

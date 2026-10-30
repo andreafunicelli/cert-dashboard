@@ -14,7 +14,8 @@
 {% block panel %}
 {% from "_ui.html.j2" import icon %}
 {% macro disabled_action(label, reason) %}<p class="action-disabled"><button type="button" disabled aria-disabled="true">{{ label }}</button> <span class="hint">{{ reason }}</span></p>{% endmacro %}
-<section class="panel wide" id="settings-panel" data-tab="{{ tab }}" data-settings-saved="{{ 'true' if saved else 'false' }}" data-settings-errors="{{ 'true' if errors else 'false' }}" aria-labelledby="tab-heading">
+{% set draft_saved = saved or (tab == 'trust' and ('Public CA bundle included.' in (flash | default([])) or 'Public CA bundle excluded.' in (flash | default([])))) %}
+<section class="panel wide" id="settings-panel" data-tab="{{ tab }}" data-settings-saved="{{ 'true' if draft_saved else 'false' }}" data-settings-errors="{{ 'true' if errors else 'false' }}" aria-labelledby="tab-heading">
   <h2 id="tab-heading">{{ tab_label }}</h2>
   <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
   {% if saved %}<p class="notice" role="status">Settings saved.</p>{% endif %}
@@ -22,10 +23,13 @@
   {% if tab == "trust" %}
   <p data-public-bundle>Public bundle: certifi {{ bundle.version }}, {{ bundle.roots }} roots, include-public-bundle = {{ "true" if bundle.enabled else "false" }}</p>
   <p class="hint">The public roots are read-only, in-memory entries of the pinned certifi bundle; they are never listed or stored as rows.</p>
-  <form method="post" action="/settings/trust">
+  <form data-settings-draft method="post" action="/settings/trust">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="settings-field">
     <input type="hidden" name="include_public_bundle" value="false">
     <label for="f-include-public-bundle" class="checkbox"><input type="checkbox" id="f-include-public-bundle" name="include_public_bundle" value="true"{% if bundle.enabled %} checked{% endif %}> Trust the public CA bundle</label>
+    <span class="field-change" hidden>Unsaved change</span>
+    </div>
     <p class="help">Disabling this removes public CA roots from chain verification. Certificates relying on those roots may become untrusted.</p>
     <p class="hint">Saving rechecks the stored chain statuses immediately.</p>
     <button type="submit">Save and recheck</button>
@@ -69,6 +73,7 @@
   {% endif %}
 
   <h3>Add an internal root</h3>
+  <p class="help">Trust-anchor upload fields are not kept as drafts. Add the anchor before leaving this page; file selections, pasted PEM and notes are lost on navigation.</p>
   <form method="post" action="/settings/trust-anchors" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="f-anchor-file">PEM file</label>
