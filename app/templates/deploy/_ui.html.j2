@@ -1,0 +1,5 @@
+{% from "_ui.html.j2" import icon %}
+{% macro deploy_state(state) -%}
+{% set kind = 'danger' if state in ('failed', 'restore_failed') else 'ok' if state == 'succeeded' else 'warn' if state in ('rolled_back', 'paused', 'cancelled') else 'info' %}
+<span class="badge badge-{{ kind }}">{{ icon(kind) }}{{ 'not run' if state == 'pending' else state | replace('_', ' ') }}</span>
+{%- endmacro %}

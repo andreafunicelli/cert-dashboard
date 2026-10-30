@@ -1,0 +1,4 @@
+#smtp-test-result { margin-top: var(--space-6); padding-top: var(--space-4); border-top: var(--line) solid var(--separator); overflow-wrap: anywhere; }
+#smtp-test-result[data-test-status="failed"] h3 { color: var(--danger); }
+#smtp-test-result[data-test-status="succeeded"] h3 { color: var(--ok); }
+.smtp-steps { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }

@@ -1,22 +1,26 @@
 <!doctype html>
-<html>
-<body style="font-family: sans-serif; font-size: 14px; color: #222;">
-<h2 style="font-size: 16px;">Certificate {{ common_name }} {{ phrase }}</h2>
-<table style="border-collapse: collapse;">
-<tr><th align="left" style="padding: 2px 12px 2px 0;">Common name</th><td>{{ common_name }}</td></tr>
-<tr><th align="left" style="padding: 2px 12px 2px 0;">SANs</th><td>{{ san_count }}</td></tr>
-<tr><th align="left" style="padding: 2px 12px 2px 0;">Issuer</th><td>{{ issuer }}</td></tr>
-<tr><th align="left" style="padding: 2px 12px 2px 0;">Serial</th><td>{{ serial }}</td></tr>
-<tr><th align="left" style="padding: 2px 12px 2px 0;">Not after</th><td>{{ not_after_local }}{% if not same_zone %} ({{ not_after_utc }}){% endif %}</td></tr>
-<tr><th align="left" style="padding: 2px 12px 2px 0;">Renewal</th><td>{% if renewal_state %}<a href="{{ renewal_url }}">{{ renewal_state }}</a>{% else %}no renewal in progress{% endif %}</td></tr>
-{% if notes %}<tr><th align="left" style="padding: 2px 12px 2px 0;">Notes</th><td>{{ notes }}</td></tr>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Certificate {{ common_name }} {{ phrase }}</title></head>
+<body>
+<h1>Certificate {{ common_name }} {{ phrase }}</h1>
+<p>Review the expiry and renewal below. This message does not deploy or renew a certificate.</p>
+<table>
+<caption>Certificate identity and validity</caption>
+<tr><th scope="row" align="left">Common name</th><td>{{ common_name }}</td></tr>
+<tr><th scope="row" align="left">SANs</th><td><code>{{ san_count }}</code></td></tr>
+<tr><th scope="row" align="left">Issuer</th><td>{{ issuer }}</td></tr>
+<tr><th scope="row" align="left">Serial</th><td><code>{{ serial }}</code></td></tr>
+<tr><th scope="row" align="left">Not after</th><td><code>{{ not_after_local }}{% if not same_zone %} ({{ not_after_utc }}){% endif %}</code></td></tr>
+<tr><th scope="row" align="left">Renewal</th><td>{% if renewal_state %}<a href="{{ renewal_url }}">{{ renewal_state }}</a>{% else %}no renewal in progress{% endif %}</td></tr>
+{% if notes %}<tr><th scope="row" align="left">Notes</th><td>{{ notes }}</td></tr>
 {% endif %}</table>
-<h3 style="font-size: 14px;">Active bindings</h3>
+<h2>Active bindings</h2>
 <ul>
 {% for binding in bindings %}<li>{{ binding }}</li>
 {% else %}<li>none</li>
 {% endfor %}{% if more_bindings %}<li>+{{ more_bindings }} more</li>
 {% endif %}</ul>
-<p><a href="{{ certificate_url }}">{{ certificate_url }}</a></p>
+<p><a href="{{ certificate_url }}">Review this certificate in Cert Dashboard</a></p>
+<p>{{ certificate_url }}</p>
 </body>
 </html>

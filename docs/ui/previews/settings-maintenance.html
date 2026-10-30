@@ -1,0 +1,128 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Settings · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/settings.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  </nav>
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Settings</h1>
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
+<nav class="tabs" aria-label="Settings sections">
+  <ul>
+
+    <li><a href="/settings?tab=smtp">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=inventory">Inventory<span class="field-change" data-settings-tab-draft="inventory" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=deployment">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=scanning">Scanning<span class="field-change" data-settings-tab-draft="scanning" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=schedule">Schedule<span class="field-change" data-settings-tab-draft="schedule" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=general">General<span class="field-change" data-settings-tab-draft="general" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=status">Status<span class="field-change" data-settings-tab-draft="status" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=maintenance" aria-current="page">Maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (unsaved draft)</span></a></li>
+
+  </ul>
+</nav>
+
+
+
+<section class="panel wide" id="settings-panel" data-tab="maintenance" data-settings-saved="false" data-settings-errors="false" aria-labelledby="tab-heading">
+  <h2 id="tab-heading">Maintenance</h2>
+  <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
+
+
+
+
+  <h3>Master key rotation</h3>
+  <p>Rotation is a command-line operation; this page never edits the keyring or rotates keys. Current state:</p>
+  <ul>
+    <li>Active version 1; loaded versions: 1</li>
+    <li>Rows not yet on the active version: 0</li>
+    <li>Versions referenced by stored keys but missing from the keyring: none</li>
+  </ul>
+  <p>Run these on the dashboard host as root (full procedure: <code>docs/operations.md</code>, section 6). Take a database backup first.</p>
+  <ol>
+    <li>Generate the next version into a <strong>new</strong> file in a temporary <code>0700</code> directory owned by the container user, merging the current keyring (live limit: two versions). The current <code>master_key</code> is mounted read-only at <code>/secrets</code> and the new file is written to <code>/out</code>; both paths exist only inside this one <code>docker run</code>:
+      <pre><code>set -eu
+tmp="$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)"
+install -d -m 0700 -o 10001 -g 10001 "$tmp"
+docker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v "$tmp":/out cert-dashboard:local \
+  python -m app.cli generate-master-key --version 2 --merge /secrets/master_key --output /out/master_key.v2.new
+sha256sum "$tmp/master_key.v2.new"</code></pre>
+      The command prints only <code>sha256=&lt;digest&gt; path=&lt;file&gt;</code>; the digest must equal the <code>sha256sum</code> output.</li>
+    <li>Keep a copy of the old file in the backup location, install the verified file as the <code>master_key</code> secret and restart so new writes use it:
+      <pre><code>install -m 0400 -o 10001 -g 10001 "$tmp/master_key.v2.new" /etc/cert-dashboard/secrets/master_key
+shred -u -- "$tmp/master_key.v2.new" &amp;&amp; rmdir -- "$tmp"
+docker compose up -d --force-recreate web worker</code></pre></li>
+    <li>Re-encrypt every key and TOTP seed (batched, idempotent, resumable):
+      <pre><code>docker compose run --rm web python -m app.cli rotate-master-key</code></pre></li>
+    <li>Verify a keyed certificate (metadata only is printed):
+      <pre><code>docker compose run --rm web python -m app.cli verify-key --certificate-id ID</code></pre></li>
+  </ol>
+  <p class="hint">Secret files are read once at startup: replace the file, rerun <code>scripts/install-secrets.sh</code> and restart the service.</p>
+
+  <h3>Prune old jobs</h3>
+  <p>Queues the retention cleanup now: finished jobs older than the retention period, old scan results, expired sessions and old artifacts are removed. Audit rows are never removed.</p>
+  <form method="post" action="/settings/maintenance/prune">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="f-prune-confirm">Type PRUNE OLD JOBS to confirm</label>
+    <input id="f-prune-confirm" name="confirm" autocomplete="off" required>
+    <button type="submit" class="button-destructive">Queue retention cleanup</button>
+  </form>
+
+</section>
+
+</main>
+
+<script src="../../../app/static/settings.js" defer></script>
+
+</body>
+</html>

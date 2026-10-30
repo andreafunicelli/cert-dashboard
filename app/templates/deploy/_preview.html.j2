@@ -3,6 +3,8 @@
    action is a ``PreviewFile`` row from the deploy service — the preview never infers a chain from a path, an
    issuer or a position (D1: the operator sees exactly what will be written). #}
 <div id="deploy-preview-body" data-plan-sha256="{{ preview.plan_sha256 if preview else '' }}">
+{% from "_ui.html.j2" import icon %}
+<h2 class="deploy-verdict" data-verdict="{{ 'blocked' if start_reason or errors or not preview else 'override' if preview.needs_override else 'allowed' }}">{% if start_reason or errors or not preview %}{{ icon('danger') }} Deploy blocked{% elif preview.needs_override %}{{ icon('warn') }} Override required before deployment{% else %}{{ icon('ok') }} Guardrails passed — review before deploying{% endif %}</h2>
 {% for code, message in blocked.items() %}
   <div class="form-error" data-error="{{ code }}" role="alert"><p>{{ message }}{% if code == "active_deploy" and active %} <a href="/deploy/{{ active.job_id }}">Open the active deploy</a>{% endif %}</p></div>
 {% endfor %}
@@ -10,21 +12,22 @@
   <div class="form-error" data-error="{{ code }}" role="alert"><p>{{ message }}</p></div>
 {% endfor %}
 {% if deploy_unavailable %}<p class="hint" data-deploy-unavailable>{{ deploy_unavailable }}</p>{% endif %}
+{% if blocked %}<p><a href="/certificates">Review certificate and chain</a> or <a href="/servers">review discovery and target bindings</a> before generating a new plan.</p>{% endif %}
 
 {% if preview %}
 <section class="panel wide" id="deploy-preview-totals">
-  <h2>Preview</h2>
+  <h2>Certificate and rollout scope</h2>
   <dl class="fields">
     <dt>Certificate</dt>
     <dd><a href="/certificates/{{ preview.certificate.id }}">{{ preview.certificate.common_name }}</a> (#{{ preview.certificate.id }})
       · chain {{ preview.chain_status }} · <code data-certificate-fingerprint>{{ preview.certificate.sha256_fingerprint }}</code>
       · expires {{ time_tag(preview.certificate.not_after, tz) }}</dd>
-    <dt>Hosts</dt><dd data-total="hosts">{{ preview.totals.hosts }}</dd>
-    <dt>Bindings</dt><dd data-total="bindings">{{ preview.totals.bindings }}</dd>
-    <dt>Files</dt><dd data-total="files">{{ preview.totals.files }}</dd>
-    <dt>Groups</dt><dd data-total="groups">{{ preview.totals.groups }}</dd>
+    <dt>Hosts</dt><dd class="mono" data-total="hosts">{{ preview.totals.hosts }}</dd>
+    <dt>Bindings</dt><dd class="mono" data-total="bindings">{{ preview.totals.bindings }}</dd>
+    <dt>Files</dt><dd class="mono" data-total="files">{{ preview.totals.files }}</dd>
+    <dt>Groups</dt><dd class="mono" data-total="groups">{{ preview.totals.groups }}</dd>
     <dt>Batches</dt>
-    <dd data-batches>{% if preview.batches %}{% for size in preview.batches %}batch {{ loop.index0 }}{% if loop.index0 == 0 %} (canary){% endif %}: {{ size }} host{{ "" if size == 1 else "s" }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
+    <dd class="mono" data-batches>{% if preview.batches %}{% for size in preview.batches %}batch {{ loop.index0 }}{% if loop.index0 == 0 %} (canary){% endif %}: {{ size }} host{{ "" if size == 1 else "s" }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}—{% endif %}</dd>
   </dl>
 </section>
 
@@ -84,7 +87,8 @@
 {% endif %}
 
 <section class="panel wide" id="deploy-confirm-panel">
-  <h2>Confirm</h2>
+  <h2>Confirm replacement on the target hosts</h2>
+  <p>Starting this deploy replaces the listed certificate files and may reload the web service. Automatic rollback restores backups if the canary fails after writing files.</p>
   <form id="deploy-confirm" method="post" action="/deploy" hx-post="/deploy" hx-target="#deploy-preview" hx-swap="innerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="certificate_id" value="{{ confirm.certificate_id }}">
@@ -102,8 +106,8 @@
     <label for="override_reason">Override reason — the chain is {{ preview.chain_status }} (1 to 500 characters, audited as <code>deploy.chain_override</code>)</label>
     <textarea id="override_reason" name="override_reason" rows="3" cols="60" maxlength="500" required>{{ form.override_reason }}</textarea>
     {% endif %}
-    <label class="inline"><input type="checkbox" name="confirm" value="yes"> I confirm this plan.</label>
-    <button type="submit"{% if start_reason %} disabled data-start-disabled="{{ start_reason }}"{% endif %}>Start deploy</button>
+    <label class="checkbox"><input type="checkbox" name="confirm" value="yes" required> I confirm this plan.</label>
+    <button type="submit" class="button-destructive"{% if start_reason %} disabled data-start-disabled="{{ start_reason }}"{% endif %}>Start deploy</button>
   </form>
 </section>
 {% endif %}

@@ -1,0 +1,137 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Settings · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/settings.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  </nav>
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Settings</h1>
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
+<nav class="tabs" aria-label="Settings sections">
+  <ul>
+
+    <li><a href="/settings?tab=smtp">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=inventory">Inventory<span class="field-change" data-settings-tab-draft="inventory" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=deployment">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=scanning">Scanning<span class="field-change" data-settings-tab-draft="scanning" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=schedule">Schedule<span class="field-change" data-settings-tab-draft="schedule" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=general">General<span class="field-change" data-settings-tab-draft="general" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=status" aria-current="page">Status<span class="field-change" data-settings-tab-draft="status" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=maintenance">Maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (unsaved draft)</span></a></li>
+
+  </ul>
+</nav>
+
+
+
+<section class="panel wide" id="settings-panel" data-tab="status" data-settings-saved="false" data-settings-errors="false" aria-labelledby="tab-heading">
+  <h2 id="tab-heading">Status</h2>
+  <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
+
+
+
+
+  <h3>Warnings</h3>
+  <p>No warnings.</p>
+
+  <h3>Worker</h3>
+  <ul>
+    <li>State: <strong data-worker-state="healthy">healthy</strong></li>
+    <li>Last heartbeat: <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></li>
+    <li>Heartbeat every 30 seconds; stale after 5 minutes</li>
+    <li>Live workers: 1</li>
+  </ul>
+
+  <h3>Queue</h3>
+  <ul>
+    <li>Queued 0</li>
+    <li>Running 1</li>
+    <li>Paused 0</li>
+    <li>Failed in the last 24 hours 1</li>
+  </ul>
+
+
+  <h3>SMTP delivery</h3>
+  <ul data-smtp-health>
+
+    <li><strong>1 consecutive delivery failure</strong>; last error: <code>Authentication refused</code></li>
+
+    <li>Last successful delivery: never</li>
+    <li>Last test e-mail: failed, <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></li>
+  </ul>
+  <p><a href="/settings?tab=smtp">Send a test email</a> from the SMTP tab to check the connection.</p>
+
+  <h3>Keyring</h3>
+  <ul>
+    <li>Active version 1</li>
+    <li>Loaded versions: 1</li>
+    <li>File SHA-256: <code>eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee</code></li>
+    <li>Versions referenced by stored keys but missing from the keyring: none</li>
+    <li>Rows not yet on the active version: 0</li>
+  </ul>
+
+  <h3>Database</h3>
+  <p>Database size: 12 MiB</p>
+
+  <h3>Last runs</h3>
+  <p>No scheduled run has been recorded yet.</p>
+  <p>No job has finished yet.</p>
+
+</section>
+
+</main>
+
+<script src="../../../app/static/settings.js" defer></script>
+
+</body>
+</html>

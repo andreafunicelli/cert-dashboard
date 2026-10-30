@@ -1,15 +1,16 @@
 <!doctype html>
-<html>
-<body style="font-family: sans-serif; font-size: 14px; color: #222;">
-<h2 style="font-size: 16px;">Cert Dashboard daily digest</h2>
-<p>Period: {{ since }} to {{ generated }}</p>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cert Dashboard daily digest</title></head>
+<body>
+<h1>Cert Dashboard daily digest</h1>
+<p>Period: <code>{{ since }}</code> to <code>{{ generated }}</code></p>
 {% if not sections %}<p>Nothing to report. This mail is the daily heartbeat of the alerting path.</p>
-{% endif %}{% for section in sections %}<h3 style="font-size: 14px;">{{ section.title }}{% if section.shown %} ({{ section.shown }}){% endif %}</h3>
+{% endif %}{% for section in sections %}<h2>{{ section.title }}{% if section.shown %} ({{ section.shown }}){% endif %}</h2>
 {% if section.intro %}<p>{{ section.intro }}</p>
 {% endif %}<ul>
 {% for row in section.rows %}<li>{% if row.url %}<a href="{{ row.url }}">{{ row.text }}</a>{% else %}{{ row.text }}{% endif %}</li>
 {% endfor %}</ul>
 {% endfor %}<p>{{ revision }}</p>
-{% if dashboard_url %}<p><a href="{{ dashboard_url }}">{{ dashboard_url }}</a></p>
+{% if dashboard_url %}<p><a href="{{ dashboard_url }}">Open Cert Dashboard</a></p><p>{{ dashboard_url }}</p>
 {% endif %}</body>
 </html>

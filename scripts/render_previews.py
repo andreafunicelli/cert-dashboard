@@ -26,6 +26,7 @@ def environment():
     env.globals.update(
         time_tag=preview_time, expiry_chip=preview_expiry, hostport=lambda host, port: f"{host}:{port}"
     )
+    env.filters['datetime'] = lambda value, tz='UTC': value.strftime('%Y-%m-%d %H:%M UTC')
     return env
 
 
@@ -178,7 +179,7 @@ def fixtures():
             "user": SimpleNamespace(display_name="Fixture operator"),
         })
     pages.update(inventory_fixtures())
-
+    pages.update(operations_fixtures())
     return {name: (template, common | context) for name, (template, context) in pages.items()}
 
 
@@ -467,6 +468,107 @@ def inventory_fixtures():
         if name in ("import", "import-progress"):
             path = "/certificates/import"
         context["request"] = ns(url=ns(path=path), state=ns(worker_stale=False))
+    return pages
+
+
+def operations_fixtures():
+    """Synthetic deploy/settings/email data; not captured service or delivery results."""
+    ns = SimpleNamespace
+    now = datetime(2026, 10, 30, 12, tzinfo=UTC)
+    cert = ns(id=42, common_name='gateway.ops.example.test', sha256_fingerprint='a' * 64,
+              not_after=now + timedelta(days=180))
+    binding = ns(binding_id=12, vhost_name=cert.common_name, port=443, match_state='matched',
+                 current_common_name=cert.common_name, current_certificate_id=41,
+                 current_fingerprint='b' * 64, current_not_after=now + timedelta(days=2))
+    host = ns(hostname='edge-01.example.test', server_id=1, batch_no=0, groups=['edge'], bindings=[binding],
+              files=[ns(path='/etc/tls/gateway.pem', action='replace', owner='root', group='root', mode='0640')])
+    preview = ns(certificate=cert, chain_status='trusted', totals=ns(hosts=1, bindings=1, files=1, groups=1),
+                 batches=[1], hosts=[host], warnings=[], excluded=[], needs_override=False, plan_sha256='c' * 64)
+    request = ns(url=ns(path='/deploy'), state=ns(worker_stale=False))
+    base = {"preview": preview, "blocked": {}, "errors": {}, "active": None, "notes": {}, "canary": host, "request": request,
+                "candidates": [ns(certificate_id=42, common_name=cert.common_name, renewal_id=None,
+                               chain_status='trusted', not_after=cert.not_after)],
+                "choices": [ns(binding_id=12, hostname=host.hostname, vhost_name=cert.common_name, port=443,
+                            cert_path='/etc/tls/gateway.pem', match_state='matched', checked=True)],
+                "form": {"certificate_id": '42', "group": '', "host": '', "canary_server_id": '', "not_before": '', "override_reason": ''},
+                "confirm": {"certificate_id": 42, "plan_sha256": 'c' * 64, "binding_ids": [12], "include_unknown": '0',
+                             "pause_after_canary": '1', "batch_percent": 10, "canary_server_id": 1, "not_before": ''},
+                "selection_for": 42, "batch_percent": 10, "pause_after_canary": True, "include_unknown": False,
+                "start_reason": '', "deploy_unavailable": '', "tz": 'UTC', "user": ns(display_name='Fixture operator')}
+    pages = {'deploy-allowed': ('deploy/start.html.j2', base),
+             'deploy-blocked': ('deploy/start.html.j2', base | {
+                 'blocked': {'active_deploy': 'Another rollout is active. Finish or cancel it first.'},
+                 'active': ns(job_id='fixture-active-job'), 'start_reason': 'Another rollout is active.'})}
+    failed = ns(server_id=1, hostname=host.hostname, status='rolled_back', bindings=[cert.common_name + ':443'],
+                old_fingerprint='b' * 64, new_fingerprint='a' * 64, duration_seconds=18, rolled_back=True,
+                rollback_error=None, needs_attention=False, reason='healthcheck_failed',
+                log_excerpt='TLS verification failed after reload; backup restored.',
+                backup_dir='/var/backups/cert-dashboard/fixture-job', retryable=True)
+    view = ns(job_id='fixture-deploy-job', certificate_id=42, certificate_cn=cert.common_name,
+              status='failed', phase='canary', actor='Fixture operator', started_at=now, elapsed_seconds=18,
+              totals={"succeeded": 0, "failed": 0, "rolled_back": 1, "skipped": 0, "pending": 0}, batches=[[failed]],
+              hosts=[failed], first_failed_host=host.hostname, failure_reason='healthcheck_failed',
+              failure_restoration='restored', job_failure_reason=None, inventory_rev='d' * 40,
+              polling=False, cancellable=False, paused_at=None)
+    for name, status in [('failure', 'failed'), ('paused', 'paused'), ('running', 'running')]:
+        current = ns(**(vars(view) | {"status": status, "polling": status == 'running',
+                                        "cancellable": status != 'failed', "paused_at": now}))
+        if status != 'failed':
+            current.hosts = [ns(**(vars(failed) | {"status": 'succeeded', "rolled_back": False, "retryable": False}))]
+            current.batches = [current.hosts]
+        pages['deploy-' + name] = ('deploy/job.html.j2', {"view": current, "errors": {}, "hours_left": 23,
+                                                           "tz": 'UTC', "request": request})
+    tabs = [('smtp', 'SMTP'), ('alerts', 'Alerts'), ('inventory', 'Inventory'), ('deployment', 'Deployment'),
+            ('scanning', 'Scanning'), ('schedule', 'Schedule'), ('general', 'General'),
+            ('trust', 'Trust anchors'), ('status', 'Status'), ('maintenance', 'Maintenance')]
+    rows_by_tab = {
+        'smtp': [('host', 'Host', 'text', 'smtp.example.test'), ('port', 'Port', 'text', '587'),
+                 ('security', 'Security', 'select', 'starttls'), ('from', 'From address', 'text', 'alerts@example.test'),
+                 ('username', 'Username', 'text', 'dashboard'), ('tls_verify', 'Verify SMTP TLS certificate', 'checkbox', True)],
+        'alerts': [('thresholds_days', 'Alert thresholds (days)', 'text', '7, 30, 60'),
+                   ('recipients', 'Recipients', 'textarea', 'ops@example.test'), ('digest_enabled', 'Send daily digest', 'checkbox', True),
+                   ('expiry_check_enabled', 'Run expiry check', 'checkbox', True)],
+        'inventory': [('repo_url', 'Repository URL', 'text', 'ssh://git@example.test/inventory.git'),
+                      ('ref', 'Ref', 'text', 'main'), ('path', 'Path', 'text', 'hosts'), ('webserver_var', 'Web server variable', 'text', 'webserver_type')],
+        'deployment': [('batch_percent', 'Batch size (%)', 'text', '10'), ('concurrency', 'Concurrency', 'text', '5'),
+                       ('pause_after_canary', 'Pause after canary', 'checkbox', True), ('pause_timeout_hours', 'Pause timeout (hours)', 'text', '24'),
+                       ('backup_retention_days', 'Backup retention (days)', 'text', '30'), ('host_timeout_seconds', 'Host timeout (seconds)', 'text', '600')],
+        'scanning': [('timeout_seconds', 'Timeout (seconds)', 'text', '10'), ('daily_at', 'Daily scan time', 'text', '02:00'), ('enabled', 'Run daily scan', 'checkbox', True)],
+        'schedule': [('discovery_nightly_at', 'Nightly discovery', 'text', '01:00'), ('discovery_enabled', 'Run nightly discovery', 'checkbox', True),
+                     ('expiry_check_daily_at', 'Expiry check', 'text', '06:00'), ('digest_daily_at', 'Daily digest', 'text', '07:00'),
+                     ('cleanup_daily_at', 'Retention cleanup', 'text', '03:00'), ('cleanup_enabled', 'Run cleanup', 'checkbox', True)],
+        'general': [('timezone', 'Display time zone', 'text', 'UTC'), ('retention_days', 'Job retention (days)', 'text', '90')],
+    }
+    smtp_test = ns(status='failed', job_id='fixture-smtp-job', finished_at=now.isoformat(), requested_at=now.isoformat(),
+                   recipient='ops@example.test', steps=[ns(step='connect', code=220), ns(step='auth', code=535)],
+                   error_class='SMTPAuthenticationError', error_message='Authentication refused. Check the worker SMTP secret.')
+    snapshot = ns(keyring=ns(active_version=1, loaded_versions=[1], file_sha256='e' * 64, missing_versions=[], stale_rows=0),
+                  worker=ns(state='healthy', last_seen_at=now.isoformat(), heartbeat_interval_seconds=30, stale_after_seconds=300, workers=1),
+                  queue=ns(queued=0, running=1, paused=0, failed_24h=1), warnings=[],
+                  smtp=ns(consecutive_failures=1, last_error='Authentication refused', last_success_at=None, last_test=smtp_test), last_runs={}, last_jobs={})
+    for tab, label in tabs:
+        rows = rows_by_tab.get(tab, [])
+        context = {"tab": tab, "tab_label": label, "tabs": [ns(name=n, label=l) for n, l in tabs],
+                       "fields": [ns(name=n, label=l, widget=w, hint='', placeholder='', choices=[('none', 'None'), ('starttls', 'STARTTLS'), ('ssl', 'SSL/TLS')]) for n, l, w, v in rows],
+                       "values": {n: v for n, l, w, v in rows}, "saved": False, "errors": {}, "disabled": {}, "tls_unsafe": False,
+                       "smtp_test": smtp_test, "timezone": 'UTC', "when": lambda value: datetime.fromisoformat(value) if value else None,
+                       "failures": [], "max_attempts": 3, "inventory": ns(current_rev=None, worker=ns(reporting=True)), "test_pull": None,
+                       "bundle": ns(version='fixture', roots=140, enabled=True), "anchors": [], "max_notes": 1000,
+                       "snapshot": snapshot, "warning_text": {}, "db_size": '12 MiB', "next_version": 2, "prune_confirmation": 'PRUNE OLD JOBS',
+                       "request": ns(url=ns(path='/settings'), state=ns(worker_stale=False))}
+        pages['settings-' + tab] = ('settings.html.j2', context)
+    for status in ('queued', 'succeeded'):
+        pages['settings-smtp-' + status] = ('settings.html.j2', pages['settings-smtp'][1] | {
+            'smtp_test': ns(**(vars(smtp_test) | {"status": status, "error_class": None, "error_message": None}))})
+    pages['email-expiry'] = ('email/expiry.html.j2', {"common_name": cert.common_name, "phrase": 'expires in 2 days',
+                            "san_count": 2, "issuer": 'Example Operations CA', "serial": '0123456789abcdef',
+                            "not_after_local": '2026-11-01 12:00 UTC', "not_after_utc": '2026-11-01 12:00 UTC', "same_zone": True,
+                            "renewal_state": None, "notes": 'Synthetic fixture only.', "bindings": [host.hostname + ':443'],
+                            "more_bindings": 0, "certificate_url": 'https://dashboard.example.test/certificates/42'})
+    pages['email-digest'] = ('email/digest.html.j2', {"since": '2026-10-29 12:00 UTC', "generated": '2026-10-30 12:00 UTC',
+                            "sections": [ns(title='Expiring certificates', shown=1, intro='Renew at your CA.',
+                                         rows=[ns(url='https://dashboard.example.test/certificates/42', text=cert.common_name + ' expires in 2 days')])],
+                            "revision": 'Inventory revision: fixture', "dashboard_url": 'https://dashboard.example.test/'})
     return pages
 
 

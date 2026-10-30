@@ -22,9 +22,13 @@ def test_preview_templates_and_form_contracts():
     for name, (template, context) in fixtures().items():
         html = env.get_template(template).render(context)
         elements = Elements(html).elements
-        assert 'id="main-content"' in html and 'href="#main-content"' in html
+        if not name.startswith('email-'):
+            assert 'id="main-content"' in html and 'href="#main-content"' in html
         assert 'style="' not in html and "|safe" not in html
-        assert [a["src"] for t, a in elements if t == "script"] == ["/static/htmx.min.js"]
+        scripts = [] if name.startswith('email-') else ['/static/htmx.min.js']
+        if name.startswith('settings-'):
+            scripts.append('/static/settings.js')
+        assert [a['src'] for t, a in elements if t == 'script'] == scripts
         inputs = {a.get("name"): a for t, a in elements if t == "input"}
         if name.startswith("login"):
             assert inputs["csrf_token"]["value"] == context["csrf_token"]
