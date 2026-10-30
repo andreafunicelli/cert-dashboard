@@ -655,7 +655,7 @@ is skipped, and a pull failure keeps the last good revision while that revision 
 (the job then reports `inventory_warning`). Discovery and deploy results carry `inventory_rev` (40-hex
 commit) and `inventory_rev_date`, which is what the Overview's status strip and the digest show.
 
-**Schedules.** *Settings → Schedule* holds `discovery.nightly_at` (default 02:00) and
+**Schedules.** *Settings → Schedule* holds `discovery.nightly_at` (default 03:00 UTC) and
 `discovery.enabled`. The nightly discovery runs the whole inventory at priority 100. On demand:
 
 - **Servers → Discover all** (`POST /servers/discover`, `scope=all`) — the whole inventory, priority 200;
@@ -954,6 +954,12 @@ not repeated (§12.1 item 6). Steps 6–9 stage the inventory on purpose: the re
 the read-only check and the rest are added once that check passed (the reason is in 12.1 item 5).
 Everything after step 9 needs the full inventory.
 
+**Step 8 is run twice.** The first run proves the single host of the first revision was discovered
+read-only; after step 9 (full inventory) repeat the same command on a **second** host, so two real
+hosts are compared against the dashboard — this is the two-host spot-check §10.4 asks for, and both
+results go into §12.3. A one-host comparison is accepted only while the full inventory still has one
+host.
+
 | # | Step | Command / action | Expected result |
 | --- | --- | --- | --- |
 | 1 | Administrator carried from §2.2 step 3 | open `/login`; do **not** re-run `bootstrap-admin` (on an initialized database it exits nonzero and creates nothing) | no bootstrap form on `/login`; the admin created in §2.2 step 3 signs in — its `user_id` is the bootstrap evidence. If this acceptance runs on a fresh database *before* §2.2 step 3, create the admin there **once** and record `created admin user_id=...` |
@@ -963,9 +969,9 @@ Everything after step 9 needs the full inventory.
 | 5 | Expiry alert for a certificate 7 days out | issue (or pick) a certificate whose `notAfter` is 7 days away and import it with **Certificates → Import**, format **PEM**, pasting the certificate (public part only); **Settings → Alerts**: at least one recipient, a threshold list containing 7 (default `60,30,14,7,1,0`) and *Run the daily expiry check* ticked; **Settings → Schedule**: set *Expiry check* a few minutes ahead (UTC) | the next scheduler tick (≤ 30 s) enqueues `alert_expiry`; the recipient receives `Certificate <CN> expires in 7 days` and **Settings → Alerts** records the delivery; set the schedule back to 07:00 |
 | 6 | Inventory, **first host only** | **Settings → Inventory**: URL, ref, path, web server variable → save, then **Test pull** | resolved revision, revision date, **hosts 1** and the group count; Test pull creates no `server` row, which is why the repository starts with one host |
 | 7 | Read-only discovery of **one** host | `touch /tmp/before` on the host, then **Servers → Discover all** (the inventory holds only this host, so the job contacts only it) | the server and its bindings appear; `find /etc /var/backups -newer /tmp/before` on the host prints **nothing** |
-| 8 | Spot-check against reality | on the host, the command of §12.2.3 for the webserver that host runs (nginx **or** Apache, never both roots in one command) | every certificate, chain and key path printed is a path **Bindings** shows for that server and no binding path is missing — included files and chain files included (D1, D3) |
+| 8 | Spot-check against reality | on the host, the command of §12.2.3 for the webserver that host runs (nginx **or** Apache, never both roots in one command) | every certificate, chain and key path of the **active** configuration is a path **Bindings** shows for that server and no binding path is missing — included files and chain files included (D1, D3); repeat after step 9 on a second host, and read §12.2.3 before treating an inactive vhost as a finding |
 | 9 | Full inventory (second commit) | add the remaining hosts as in §12.2.1, commit and push, wait **≥ 60 s after the previous pull** (the worker skips a pull inside 60 s of the last one, §11.1), then **Settings → Inventory → Test pull** and **Servers → Discover all** | Test pull reports **hosts 3** and 2 groups and the revision follows the repository (inside the 60 s window it still reports the first revision — wait and press again); every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
-| 10 | Import a real certificate + key | **Certificates → Import** (PFX with its password, or PEM plus its key) | the detail page shows the key and the chain; `key.import` is audited without key material |
+| 10 | Import a real certificate + key | **Certificates → Import** with **PFX** and its password — the PFX round trip is **mandatory** for this acceptance; PEM plus key is a routine-operations option and does not replace it (step 12 exports the same material) | the detail page shows the key and the chain; `key.import` is audited without key material |
 | 11 | Rediscover, then check `matched` (D2) | **Servers → the host that serves that certificate → Discover** (or **Discover all**) | its bindings become `matched`, each with `on_disk_key_public_sha256` equal to the key's `public_key_sha256` (DER, section 11.6); the match state is computed *by discovery*, so right after the import the bindings still show the previous state |
 | 12 | Export it again and compare | detail → **Export PFX** (re-enter your password, choose an export password) | the exported PKCS#12 opens and carries the same leaf and public key (`openssl pkcs12 -in export.pfx -nokeys -info`) |
 | 13 | Trust | **Settings → Trust anchors**: upload the issuing root | the tab reports the chain recheck and the certificate's chain status becomes `trusted`; if it does not, press **Recheck** and wait for the job |
@@ -1067,7 +1073,15 @@ which is why `tests/integration/test_operations_docs.py` runs both commands agai
 and a fixture Apache tree, inline and in an include. `grep` reads the whole tree, so a directive written
 in an included file prints exactly like an inline one (D3, section 11.6).
 
-Every printed path must be a path **Bindings** shows for that server, and no binding path may be missing:
+**The whole-root `grep` can print directives that are not active.** A disabled site, a `.bak` copy or
+an enabled-directory file whose vhost is not loaded is still under the root and still matches. Compare
+against the **loaded** configuration: `nginx -T` (or `nginx -t` plus the enabled `sites-enabled`
+targets) and `apachectl -S` name what the webserver actually reads. A path printed only by an inactive
+file is not a missing binding and must not be counted as one; a path of the active configuration that
+`Bindings` lacks is the finding. When in doubt, resolve the enabled symlinks and re-run the grep over
+those files before recording the result.
+
+Every active path must be a path **Bindings** shows for that server, and no binding path may be missing:
 nginx prints the certificate — the **full chain** in `ssl_certificate`, never a separate chain file (D1) —
 and its key; Apache prints the leaf in `SSLCertificateFile`, the chain in `SSLCertificateChainFile` when
 that file really signs the leaf, and the key. Exit 1 means the root holds no TLS directive, which is
@@ -1087,13 +1101,14 @@ this table.
 | `known_hosts` lookups verified (`ssh-keygen -F` for every target and the Git remote) | | | |
 | Test pull revision (`inventory_rev`), first host only | | | |
 | Discovery job id (single host) | | | |
-| Bindings vs `grep` spot-check (host, pairs) | | | |
+| First-host spot-check: host, active pairs (compare §12.2.3) | | | |
 | Test pull revision and host count (full inventory) | | | |
 | Discovery job id (full inventory) | | | |
+| Second-host spot-check: host, active pairs (repeat §12.2.3 after step 9) | | | |
 | Expiry drill: certificate, subject, delivered at, threshold | | | |
-| Imported certificate id / fingerprint | | | |
+| Imported certificate id / fingerprint (PFX import; never record the password) | | | |
 | Post-import rediscovery: `matched` bindings, `on_disk_key_public_sha256` | | | |
-| Exported PFX fingerprint (public material equal) | | | |
+| PFX round trip: exported fingerprint and public material equal to the imported PFX | | | |
 | Renewal id / new certificate fingerprint | | | |
 | Deploy job id (canary + Continue) | | | |
 | Served fingerprints per host after the deploy | | | |

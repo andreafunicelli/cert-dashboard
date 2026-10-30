@@ -858,9 +858,9 @@ Runs on the target group (whole inventory by default). Per host:
 1. Auto-detect the webserver and its binary paths if the inventory variable is missing.
 2. Capture the full configuration dump:
    - nginx: `nginx -T` (stderr+stdout, because `-T` writes the dump to stderr on older versions), which includes `# configuration file <path>:` markers.
-   - Apache: `apachectl -t -D DUMP_VHOSTS` plus a concatenation of every file the dump references (each with a file marker) using `apachectl -S` output to determine the file list; when the file list cannot be derived, fall back to a recursive read of `Include`d paths from the main config.
+   - Apache: `apachectl -t -D DUMP_VHOSTS` plus a concatenation of every file the dump references (each with a file marker). **Operator decision D3 (2026-10-25):** the file list is always the union of the files named by `apachectl -S`, the main configuration and a recursive read of `Include`/`IncludeOptional` (globs sorted, cycles cut by real path, depth ≤ 16, ≤ 500 files and ≤ 16 MiB in total), because `-S` names only the files that define vhosts and the global-level or included TLS directives can never be derived from it. Exceeding the limits fails the host with `dump_too_large` instead of truncating.
 3. For every certificate path found, `stat` it (owner, group, mode, size, mtime, exists) and compute its fingerprint with `openssl x509 -noout -fingerprint -sha256 -in <path>` (`Assumption`: `openssl` is present on every target; it is present on all supported distributions with nginx or Apache from packages).
-4. For every key path, `stat` it and compute `openssl pkey -in <path> -pubout | openssl dgst -sha256`. This task is `no_log: true`; only the resulting hash leaves the host. If the key is passphrase-protected, record `key_unreadable: true` and skip the hash.
+4. For every key path, `stat` it and compute the SHA-256 of the DER `SubjectPublicKeyInfo` — **operator decision D2 (2026-10-25)**: `openssl pkey -in <path> -pubout -outform DER | sha256sum`; the matching certificate-side command is `openssl x509 -in <cert> -pubkey -noout | openssl pkey -pubin -outform DER | sha256sum`. Hashing the PEM text would never equal `private_key.public_key_sha256`, which §4.5 defines over DER. This task is `no_log: true`; only the resulting hash leaves the host. If the key is passphrase-protected, record `key_unreadable: true` and skip the hash.
 5. Emit one JSON document per host:
 
 ```json
@@ -898,14 +898,14 @@ Parsing rules (nginx):
 - Split the dump on `# configuration file <path>:` markers to attribute directives to files.
 - Track `server { ... }` blocks, `listen` (port and `ssl` flag), `server_name`, `ssl_certificate`, `ssl_certificate_key`.
 - Resolve relative paths against the prefix `/etc/nginx` (paths in nginx are relative to the prefix).
-- A `server` block with more than one `ssl_certificate` is an RSA+ECDSA pair; the first is `cert_path`, the second is `chain_path` when its certificate's issuer matches the first's issuer, otherwise both are recorded as separate bindings.
-- `include`d files are expanded by `nginx -T` itself, so no manual include resolution is needed.
+- A `server` block with more than one `ssl_certificate` is either an RSA+ECDSA pair or a certificate plus its chain. **Operator decision D1 (2026-10-25):** each certificate file is read and parsed on its own; the first file is `cert_path`; a later file is `chain_path` only when it contains the certificate that verifies the first's signature (`issuer`/`subject` **and** signature verification, never the names alone). A same-issuer RSA+ECDSA pair therefore stays two separate bindings, and a file whose chain cannot be verified is not treated as a chain.
+- `include`d files are expanded by `nginx -T` itself, so no manual include resolution is needed. **Operator decision D3 (2026-10-25):** `nginx -T` prints each included file after its own `# configuration file <path>:` marker; the parser attributes a directive to the marker it follows and attaches it to the enclosing `server` block, so a directive written in an include is treated exactly like an inline one.
 
 Parsing rules (Apache):
 
 - `apachectl -S` gives vhost → file → `ServerName` → port.
 - `SSLCertificateFile`, `SSLCertificateKeyFile`, `SSLCertificateChainFile` are extracted from the defining `<VirtualHost>` block; a global-level directive is recorded as binding `vhost_name = "default"`.
-- Multiple `SSLCertificateFile` entries in one vhost (a chain written as several files) are concatenated into `chain_path` per the issuer-matching rule above.
+- Multiple `SSLCertificateFile` entries in one vhost (a chain written as several files) are joined into `chain_path` only when each file verifies the previous signature, per operator decision D1 above; a same-issuer certificate that does not verify the leaf remains a separate binding.
 
 ### 6.3 Discovery reconciliation
 
