@@ -1,7 +1,11 @@
 {% extends "base.html.j2" %}
 {% block title %}Servers · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/servers.css">{% endblock %}
+{% from "bindings/_presentation.html.j2" import discovery_state %}
+{% from "_ui.html.j2" import icon %}
 {% block content %}
 <h1>Servers</h1>
+<p>Keep failed hosts in view. Discovery records configured files; endpoint scans check the certificate served over TLS.</p>
 <section class="panel wide" aria-label="Filters">
   <form method="get" action="/servers" class="filters">
     <label>Search <input type="search" name="search" value="{{ values.search or '' }}" maxlength="200" placeholder="Host name"></label>
@@ -19,12 +23,13 @@
   </form>
 </section>
 
-<div class="list-summary" data-total="{{ page.total }}">{{ page.total }} server{{ "" if page.total == 1 else "s" }}
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> server{{ "" if page.total == 1 else "s" }}
   · <a href="{{ export_url }}" download="servers.json">Export list as JSON</a>
   · <a href="/bindings">Where is a certificate used?</a></div>
 
 <section class="panel wide" id="discovery-actions" aria-label="Discovery">
   <h2>Discovery</h2>
+  <p class="help">Run across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.</p>
   {% if discovery_reason %}
   <button type="button" disabled title="{{ discovery_reason }}">Discover all</button>
   <button type="button" disabled title="{{ discovery_reason }}">Discover group</button>
@@ -55,9 +60,9 @@
     <th scope="col"><a href="{{ sort_url('hostname') }}">Server</a></th>
     <th scope="col">Groups</th>
     <th scope="col">Web server</th>
-    <th scope="col"><a href="{{ sort_url('binding_count') }}">Bindings</a></th>
+    <th scope="col" class="numeric"><a href="{{ sort_url('binding_count') }}">Bindings</a></th>
     <th scope="col"><a href="{{ sort_url('last_discovery_at') }}">Last discovery</a></th>
-    <th scope="col"><a href="{{ sort_url('mismatch_count') }}">Mismatched endpoints</a></th>
+    <th scope="col" class="numeric"><a href="{{ sort_url('mismatch_count') }}">TLS drift</a></th>
   </tr></thead>
   <tbody>
   {% for row in page.items %}
@@ -65,21 +70,21 @@
     <td><a href="/servers/{{ row.id }}">{{ row.hostname }}</a>{% if row.display_name %}<br><small>{{ row.display_name }}</small>{% endif %}{% if not row.is_active %} <small>(inactive)</small>{% endif %}</td>
     <td>{{ row.groups | join(", ") or "—" }}</td>
     <td>{{ row.webserver or "—" }}</td>
-    <td>{{ row.binding_count }}{% if row.attention_count %} <span class="chip chip-critical" title="Bindings with a key mismatch or a missing file">{{ row.attention_count }} need attention</span>{% endif %}</td>
-    <td>{% if row.last_discovery_at %}{{ time_tag(row.last_discovery_at, tz) }}<br><span class="chip chip-{{ 'ok' if row.last_discovery_status == 'ok' else 'warning' }}">{{ row.last_discovery_status or "unknown" }}</span>{% else %}<em>never</em>{% endif %}</td>
-    <td>{% if row.mismatch_count %}<a href="/scans?server_id={{ row.id }}&amp;status=mismatch">{{ row.mismatch_count }}</a>{% else %}0{% endif %}</td>
+    <td class="numeric">{{ row.binding_count }}{% if row.attention_count %}<p><span class="badge badge-warn" title="Bindings with a key mismatch or a missing file">{{ icon('warn') }}{{ row.attention_count }} need attention</span></p>{% endif %}</td>
+    <td>{{ discovery_state(row.last_discovery_status, row.last_discovery_at) }}{% if row.last_discovery_at %}<p>{{ time_tag(row.last_discovery_at, tz) }}</p>{% endif %}{% if row.last_discovery_status in ('failed', 'unreachable', 'error') %}<p class="help"><a href="/servers/{{ row.id }}#server-panel">View host failure reason</a></p>{% endif %}</td>
+    <td class="numeric">{% if row.mismatch_count %}<a href="/scans?server_id={{ row.id }}&amp;status=mismatch"><span class="badge badge-warn">{{ icon('warn') }}{{ row.mismatch_count }} drifted</span></a>{% else %}0{% endif %}</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
 {% else %}
-<p class="panel wide">No servers match these filters. <a href="/servers">Clear the filters</a>. Servers appear once discovery has run: use “Discover all” above.</p>
+<section class="empty-state"><h2>No servers match these filters</h2><p><a href="/servers">Clear the filters</a>. Servers appear once discovery has run: use “Discover all” above.</p></section>
 {% endif %}
 
 <nav class="pager" aria-label="Pages">
   {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
-  <span>Page {{ page.page }} of {{ pages }}</span>
+  <span>Page <span class="mono">{{ page.page }}</span> of <span class="mono">{{ pages }}</span></span>
   {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
 </nav>
 {% endblock %}

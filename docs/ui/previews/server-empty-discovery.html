@@ -1,0 +1,143 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>edge-01.ops.example.test · Servers · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/servers.css"><link rel="stylesheet" href="../../../app/static/pages/bindings.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span aria-current="page"><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<p><a href="/servers">← All servers</a></p>
+<h1>edge-01.ops.example.test</h1>
+<section class="panel wide" id="server-panel" aria-label="Server">
+  <span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Discovered</span>
+
+
+  <dl class="fields">
+    <dt>Display name</dt><dd>Public gateway</dd>
+    <dt>Groups</dt><dd>production, edge</dd>
+    <dt>Web server</dt><dd>nginx</dd>
+    <dt>Connection address</dt><dd class="mono">192.0.2.10</dd>
+    <dt>Inventory source</dt><dd>inventory/production.yml</dd>
+    <dt>Last discovery</dt><dd><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></dd>
+    <dt>Bindings</dt><dd><span class="mono">4</span> — <span class="mono">2</span> need attention</dd>
+    <dt>Mismatched endpoints</dt><dd><span class="mono">1</span> of <span class="mono">4</span> active endpoints</dd>
+    <dt>Notes</dt><dd class="notes">Fixture only; inspect endpoint scans separately.</dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="actions" aria-label="Actions">
+  <h2>Discovery and endpoint checks</h2>
+
+  <form class="inline" method="post" action="/servers/1/discover">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <button type="submit">Run discovery</button>
+  </form>
+
+  <p><a href="/servers/1/dump">Last raw dump summary</a></p>
+  <p><a href="/scans?server_id=1">Open endpoint scan</a></p>
+</section>
+
+
+
+<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
+  <h2>Last captured discovery</h2>
+
+  <p>Captured <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time> · <span class="mono">0</span> bindings found in this dump.</p>
+  <p>No bindings found in the captured configuration. This is a recorded discovery, not a host that never ran.</p>
+  <p class="help">The last captured dump may predate the latest attempt. Compare its timestamp with discovery history below.</p>
+
+  <p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>
+</section>
+
+<section class="panel wide" id="bindings-panel">
+  <h2>Bindings</h2>
+  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks or desired-deployment comparisons.</p>
+
+  <div class="empty-state"><h3>No bindings recorded for this server</h3><p>Review the last captured discovery above before treating an empty inventory as a clean result.</p></div>
+
+</section>
+
+<section class="panel wide" id="discovery-history">
+  <h2>Discovery history</h2>
+
+  <div class="table-wrap"><table class="discovery-history">
+    <thead><tr><th scope="col">Started</th><th scope="col">Status</th><th scope="col" class="numeric">Duration</th><th scope="col">Inventory revision</th><th scope="col">Error</th></tr></thead>
+    <tbody>
+
+    <tr class="discovery-run" data-job-status="succeeded">
+      <td><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+      <td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>succeeded</span></td>
+      <td class="numeric">1 min 35 s</td>
+      <td><code>fixture-revision-1234</code></td>
+      <td>—</td>
+    </tr>
+
+    <tr class="discovery-run" data-job-status="failed">
+      <td><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+      <td><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>failed</span></td>
+      <td class="numeric">1 min 35 s</td>
+      <td><code>fixture-revision-1234</code></td>
+      <td>ssh: connect to host failed: connection timed out</td>
+    </tr>
+
+    </tbody>
+  </table></div>
+  <p class="hint">The newest <span class="mono">20</span> runs.</p>
+
+</section>
+</main>
+
+</body>
+</html>

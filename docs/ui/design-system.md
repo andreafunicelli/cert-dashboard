@@ -233,3 +233,52 @@ account intentionally overrides that hook and has a dedicated stylesheet check.
 Structural checks passed; visual verification pending on the deployed instance.
 Review dark/light, narrow/wide, keyboard navigation, user-menu expansion, zoom,
 long failure messages and auth flows there before asserting visual accessibility.
+
+### Infrastructure surfaces (servers, bindings, discovery)
+
+`servers.css` composes the server inventory, detail and raw-dump summary;
+`bindings.css` composes the cross-server relationships and is also loaded by
+server detail. All colours, type and spacing reuse the canonical tokens. No
+shared token/component styles, backend, dependencies or JavaScript are changed.
+The presentation macro `bindings/_presentation.html.j2` defines discovery badges,
+binding-state badges and relationship cells once for both tables, using `_ui` SVGs.
+
+- Server inventory uses a fixed-layout six-column table with wrapping identities
+  and groups. Identity gets 28%, discovery 26%; numbers align right. The 1280px
+  no-scroll acceptance criterion still needs deployed visual verification.
+- Bindings read as virtual host/SNI names → server → port → configured files.
+  Four columns compare the relationship, observed disk evidence, inventory
+  evidence/expectation and state/freshness. Native disclosures retain config,
+  owner/mode, key and chain detail without JavaScript. Fingerprints are selectable
+  exact text, monospaced and wrapped instead of expanding the page.
+- Key mismatch is warning-coloured with a triangle and “Drift”; missing/unreadable
+  file is critical with a cross-circle and “File failure”. Inventory match has a
+  check; unknown has an information icon. Raw match-state hooks and help anchors
+  remain unchanged. Warning links inherit badge colour for contrast in both themes.
+- **Read-model boundary:** `BindingRow.certificate_id` is an observed inventory
+  match, not a desired deployment. It does not supply the expected fingerprint.
+  The UI says so; “Inventory match” must not become “In sync” without a real
+  desired-state comparison. No fingerprint is fabricated or inferred from a name.
+- Discovery shows the last attempt separately from the last captured dump, warns
+  when bindings were kept after suspected parsing failure and distinguishes a
+  recorded empty dump from never discovered. `DiscoveryRun`/`DumpSummary` expose no
+  previous binding snapshot/change diff: “changes unavailable” is not “no changes”.
+- Failed hosts remain in inventory. `ServerRow` exposes status but no error reason;
+  the row links directly to server detail, where the supplied newest host error
+  appears before actions. A missing error says “No failure reason recorded”, never
+  guesses SSH/DNS/authentication failure. Stale bindings stay stored observations,
+  not fresh verdicts about an unreachable host.
+
+`infrastructure_fixtures()` additively extends the existing renderer. It produces
+`server-list.html`, `server-list-empty.html`, `server-detail.html`,
+`server-failed.html`, `server-never.html`, `server-empty-discovery.html`,
+`server-parse-warning.html`, `server-dump.html`, `server-dump-empty.html`,
+`binding-list.html`, `binding-drift.html`, `binding-empty.html`, `binding-help.html`.
+All are explicitly synthetic observations. Repository tests cover strict fixture
+rendering, native POST/CSRF, filter names, row hooks, warning help links, escaping,
+exact hash text, failed/empty/never/parse-suspected states and deterministic output.
+
+Structural checks passed; visual verification pending on the deployed instance.
+Check 1280px inventory overflow, narrow binding layout, dark/light contrast,
+keyboard disclosures, long hashes/paths, no-HTMX discovery POST and failure
+messaging there. Static checks are not a complete WCAG 2.2 AA audit.

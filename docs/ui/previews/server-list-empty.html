@@ -1,0 +1,109 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Servers · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/servers.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span aria-current="page"><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Servers</h1>
+<p>Keep failed hosts in view. Discovery records configured files; endpoint scans check the certificate served over TLS.</p>
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/servers" class="filters">
+    <label>Search <input type="search" name="search" value="" maxlength="200" placeholder="Host name"></label>
+    <label>Group <input name="group" value="" maxlength="200"></label>
+    <label>Servers
+      <select name="active">
+        <option value="true" selected>Active</option>
+        <option value="false">Inactive</option>
+        <option value="all">All</option>
+      </select></label>
+    <input type="hidden" name="sort" value="hostname">
+    <input type="hidden" name="page_size" value="50">
+    <button type="submit">Apply filters</button>
+    <a href="/servers">Reset</a>
+  </form>
+</section>
+
+<div class="list-summary" data-total="0"><span class="mono">0</span> servers
+  · <a href="/servers/export.json" download="servers.json">Export list as JSON</a>
+  · <a href="/bindings">Where is a certificate used?</a></div>
+
+<section class="panel wide" id="discovery-actions" aria-label="Discovery">
+  <h2>Discovery</h2>
+  <p class="help">Run across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.</p>
+
+  <form class="inline" method="post" action="/servers/discover">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="scope" value="all">
+    <button type="submit">Discover all</button>
+  </form>
+
+  <form class="inline" method="post" action="/servers/discover">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="scope" value="group">
+    <label>Group <select name="group">
+      <option value="production">production</option><option value="edge">edge</option>
+    </select></label>
+    <button type="submit">Discover group</button>
+  </form>
+
+
+</section>
+
+
+<section class="empty-state"><h2>No servers match these filters</h2><p><a href="/servers">Clear the filters</a>. Servers appear once discovery has run: use “Discover all” above.</p></section>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span>Page <span class="mono">1</span> of <span class="mono">1</span></span>
+
+</nav>
+</main>
+
+</body>
+</html>

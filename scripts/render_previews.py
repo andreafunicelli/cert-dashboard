@@ -178,6 +178,7 @@ def fixtures():
             "user": SimpleNamespace(display_name="Fixture operator"),
         })
     pages.update(inventory_fixtures())
+    pages.update(infrastructure_fixtures())
 
     return {name: (template, common | context) for name, (template, context) in pages.items()}
 
@@ -468,6 +469,82 @@ def inventory_fixtures():
             path = "/certificates/import"
         context["request"] = ns(url=ns(path=path), state=ns(worker_stale=False))
     return pages
+
+
+def infrastructure_fixtures():
+    """Synthetic server/binding observations; no invented desired-state or historical diff."""
+    ns = SimpleNamespace
+    stamp = datetime(2026, 10, 30, 12, tzinfo=UTC)
+    server = ns(id=1, hostname="edge-01.ops.example.test", display_name="Public gateway",
+                groups=("production", "edge"), webserver="nginx", binding_count=4, attention_count=2,
+                mismatch_count=1, is_active=True, last_discovery_at=stamp, last_discovery_status="ok")
+    servers = [server,
+               ns(**(vars(server) | {"id": 2, "hostname": "unreachable.ops.example.test",
+                   "display_name": "Last inventory retained", "last_discovery_status": "failed"})),
+               ns(**(vars(server) | {"id": 3, "hostname": "new-host.ops.example.test",
+                   "display_name": None, "last_discovery_at": None, "last_discovery_status": None,
+                   "binding_count": 0, "attention_count": 0, "mismatch_count": 0})),
+               ns(**(vars(server) | {"id": 4, "hostname": "long-" * 25 + ".ops.example.test",
+                   "groups": ("long-group-" * 20,), "display_name": "Long identity fixture"}))]
+    binding = ns(id=11, server_id=1, server=server.hostname, webserver="nginx",
+                 vhost_name="gateway.ops.example.test", vhost_names=("gateway.ops.example.test", "api.ops.example.test"),
+                 port=443, config_file="/etc/nginx/sites-enabled/gateway.conf", cert_path="/etc/tls/gateway/fullchain.pem",
+                 chain_path="/etc/tls/gateway/chain.pem", key_path="/etc/tls/gateway/privkey.pem",
+                 cert_owner="root", cert_group="ssl-cert", cert_mode="0644",
+                 key_owner="root", key_group="ssl-cert", key_mode="0600",
+                 on_disk_fingerprint="ab12cd34" * 8, on_disk_key_public_sha256="ef56ab78" * 8,
+                 certificate_id=42, certificate_common_name="gateway.ops.example.test", match_state="key_mismatch",
+                 last_seen_at=stamp, is_active=True, stale=False, notes="Configured key differs from certificate.")
+    bindings = [binding]
+    for index, state in enumerate(("matched", "missing_file", "unknown"), 12):
+        bindings.append(ns(**(vars(binding) | {"id": index, "match_state": state,
+            "vhost_name": f"{state}.ops.example.test", "vhost_names": (f"{state}.ops.example.test",),
+            "certificate_id": None if state == "unknown" else 42,
+            "notes": "<script>fixture escaping check</script>" if state == "unknown" else "",
+            "stale": state == "unknown", "config_file": "/etc/nginx/" + "long-path/" * 30 + "tls.conf"})))
+    run = ns(job_id="fixture-discovery", status="succeeded", started_at=stamp,
+             finished_at=stamp + timedelta(seconds=95), duration_seconds=95, inventory_rev="fixture-revision-1234",
+             error_message=None)
+    failed = ns(**(vars(run) | {"status": "failed", "error_message": "ssh: connect to host failed: connection timed out"}))
+    summary = ns(job_id=run.job_id, collected_at=stamp, webserver="nginx", config_files=(binding.config_file,),
+                 bindings=4, warnings=(), parse_suspected=False, dump_bytes=48213, dump_sha256="fe98dc76" * 8)
+    detail = ns(server=server, connection_address="192.0.2.10", inventory_source="inventory/production.yml",
+                notes="Fixture only; inspect endpoint scans separately.", bindings=bindings,
+                discovery_history=[run, failed], endpoint_count=4, dump_summary=summary)
+    base = {"server": server, "detail": detail, "summary": summary, "tz": "UTC",
+            "values": {key: "" for key in ("search", "group", "active", "certificate_id", "server_id", "vhost", "webserver", "match_state")},
+            "groups": ["production", "edge"], "discovery_reason": "", "pages": 1, "sort_state": "hostname",
+            "page": ns(items=servers, total=len(servers), page=1, page_size=50),
+            "sort_url": lambda key: "/servers?" + urlencode({"sort": key}),
+            "page_url": lambda page: f"/servers?page={page}", "export_url": "/servers/export.json",
+            "request": ns(url=ns(path="/servers"), state=ns(worker_stale=False)),
+            "user": ns(display_name="Fixture operator")}
+    listing = base | {"sort_state": "server", "page": ns(items=bindings, total=len(bindings), page=1, page_size=50),
+                      "match_states": ["matched", "unknown", "key_mismatch", "missing_file"],
+                      "webservers": ["nginx", "apache"], "export_url": "/bindings/export.json",
+                      "sort_url": lambda key: "/bindings?" + urlencode({"sort": key}),
+                      "page_url": lambda page: f"/bindings?page={page}",
+                      "request": ns(url=ns(path="/bindings"), state=ns(worker_stale=False))}
+    never = servers[2]
+    empty_detail = ns(**(vars(detail) | {"server": never, "bindings": [], "discovery_history": [], "dump_summary": None}))
+    return {
+        "server-list": ("servers/list.html.j2", base),
+        "server-list-empty": ("servers/list.html.j2", base | {"page": ns(items=[], total=0, page=1, page_size=50)}),
+        "server-detail": ("servers/detail.html.j2", base),
+        "server-failed": ("servers/detail.html.j2", base | {"server": servers[1],
+            "detail": ns(**(vars(detail) | {"server": servers[1], "discovery_history": [failed]}))}),
+        "server-never": ("servers/detail.html.j2", base | {"server": never, "detail": empty_detail}),
+        "server-empty-discovery": ("servers/detail.html.j2", base | {
+            "detail": ns(**(vars(detail) | {"bindings": [], "dump_summary": ns(**(vars(summary) | {"bindings": 0}))}))}),
+        "server-parse-warning": ("servers/detail.html.j2", base | {
+            "detail": ns(**(vars(detail) | {"dump_summary": ns(**(vars(summary) | {"bindings": 0, "parse_suspected": True}))}))}),
+        "server-dump": ("servers/dump_summary.html.j2", base),
+        "server-dump-empty": ("servers/dump_summary.html.j2", base | {"summary": None}),
+        "binding-list": ("bindings/list.html.j2", listing),
+        "binding-drift": ("bindings/list.html.j2", listing | {"page": ns(items=[binding], total=1, page=1, page_size=50)}),
+        "binding-empty": ("bindings/list.html.j2", listing | {"page": ns(items=[], total=0, page=1, page_size=50)}),
+        "binding-help": ("bindings/help.html.j2", listing),
+    }
 
 
 def render(output=OUTPUT):

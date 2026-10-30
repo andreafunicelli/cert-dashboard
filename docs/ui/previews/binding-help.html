@@ -1,0 +1,89 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Binding match states · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/bindings.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<p><a href="/bindings">← All bindings</a></p>
+<h1>Binding match states</h1>
+<section class="panel wide" aria-label="Match states">
+  <p>A binding is one certificate/key pair that a virtual host is configured to use on a server. Discovery compares what is on disk with the certificate inventory and records a match state. The dashboard only reports these states: it does not fix them, because correcting a server's files is your decision.</p>
+  <p class="help">These are stored observations, not desired-deployment or live TLS verdicts. A matched certificate need not be the certificate you intend to deploy. Stale means the latest discovery did not succeed, not that this certificate changed.</p>
+  <dl class="fields">
+    <dt><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>matched</span></dt><dd>The certificate file on disk is a certificate in the inventory and the key at the configured path belongs to it.</dd>
+    <dt><span class="badge"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>unknown</span></dt><dd>The certificate file on disk is not in the inventory. Import it to track it.</dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="key_mismatch" aria-label="key_mismatch">
+  <h2><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> Drift: key_mismatch</h2>
+  <p>The private key at the configured path does not belong to the certificate at the configured path. The web server would fail to start or reload with this pair.</p>
+  <p>The dashboard does not fix this. Check the virtual host's <code>ssl_certificate_key</code> (nginx) or <code>SSLCertificateKeyFile</code> (Apache) setting and the files on the server, put the right key in place, then run discovery again.</p>
+  <p>While a binding is in this state, the dashboard blocks deploys of that virtual host so a new certificate is never written next to a key that does not match.</p>
+</section>
+
+<section class="panel wide" id="missing_file" aria-label="missing_file">
+  <h2><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> File failure: missing_file</h2>
+  <p>The certificate file named in the configuration is missing or could not be read when the server was last discovered.</p>
+  <p>The dashboard does not fix this. Check the path in the configuration and the file's owner and mode on the server, restore the file or correct the path, then run discovery again.</p>
+</section>
+</main>
+
+</body>
+</html>

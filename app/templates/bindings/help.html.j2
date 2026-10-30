@@ -1,25 +1,28 @@
 {% extends "base.html.j2" %}
 {% block title %}Binding match states · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/bindings.css">{% endblock %}
+{% from "_ui.html.j2" import icon %}
 {% block content %}
 <p><a href="/bindings">← All bindings</a></p>
 <h1>Binding match states</h1>
 <section class="panel wide" aria-label="Match states">
   <p>A binding is one certificate/key pair that a virtual host is configured to use on a server. Discovery compares what is on disk with the certificate inventory and records a match state. The dashboard only reports these states: it does not fix them, because correcting a server's files is your decision.</p>
-  <dl>
-    <dt>matched</dt><dd>The certificate file on disk is a certificate in the inventory and the key at the configured path belongs to it.</dd>
-    <dt>unknown</dt><dd>The certificate file on disk is not in the inventory. Import it to track it.</dd>
+  <p class="help">These are stored observations, not desired-deployment or live TLS verdicts. A matched certificate need not be the certificate you intend to deploy. Stale means the latest discovery did not succeed, not that this certificate changed.</p>
+  <dl class="fields">
+    <dt><span class="badge badge-ok">{{ icon('ok') }}matched</span></dt><dd>The certificate file on disk is a certificate in the inventory and the key at the configured path belongs to it.</dd>
+    <dt><span class="badge">{{ icon('info') }}unknown</span></dt><dd>The certificate file on disk is not in the inventory. Import it to track it.</dd>
   </dl>
 </section>
 
 <section class="panel wide" id="key_mismatch" aria-label="key_mismatch">
-  <h2>key_mismatch</h2>
+  <h2>{{ icon('warn') }} Drift: key_mismatch</h2>
   <p>The private key at the configured path does not belong to the certificate at the configured path. The web server would fail to start or reload with this pair.</p>
   <p>The dashboard does not fix this. Check the virtual host's <code>ssl_certificate_key</code> (nginx) or <code>SSLCertificateKeyFile</code> (Apache) setting and the files on the server, put the right key in place, then run discovery again.</p>
   <p>While a binding is in this state, the dashboard blocks deploys of that virtual host so a new certificate is never written next to a key that does not match.</p>
 </section>
 
 <section class="panel wide" id="missing_file" aria-label="missing_file">
-  <h2>missing_file</h2>
+  <h2>{{ icon('danger') }} File failure: missing_file</h2>
   <p>The certificate file named in the configuration is missing or could not be read when the server was last discovered.</p>
   <p>The dashboard does not fix this. Check the path in the configuration and the file's owner and mode on the server, restore the file or correct the path, then run discovery again.</p>
 </section>

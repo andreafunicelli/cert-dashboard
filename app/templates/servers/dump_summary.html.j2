@@ -1,18 +1,21 @@
 {% extends "base.html.j2" %}
 {% block title %}Raw dump summary · {{ server.hostname }} · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/servers.css">{% endblock %}
+{% from "_ui.html.j2" import icon %}
 {% block content %}
 <p><a href="/servers/{{ server.id }}">← {{ server.hostname }}</a></p>
 <h1>Last raw dump summary</h1>
 {% if summary %}
 <section class="panel wide" id="dump-summary" aria-label="Raw dump summary">
-  <dl>
+  <p class="help">Last captured dump, not necessarily the latest attempted run. Previous snapshots and a change diff are unavailable in this view.</p>
+  <dl class="fields">
     <dt>Server</dt><dd>{{ server.hostname }}</dd>
     <dt>Collected</dt><dd>{{ time_tag(summary.collected_at, tz) }}</dd>
     <dt>Discovery job</dt><dd><code>{{ summary.job_id }}</code></dd>
     <dt>Web server</dt><dd>{{ summary.webserver or "—" }}</dd>
-    <dt>Bindings found</dt><dd>{{ summary.bindings }} binding{{ "" if summary.bindings == 1 else "s" }}</dd>
-    <dt>Parse suspected</dt><dd>{% if summary.parse_suspected %}<span class="chip chip-warning" data-warning="parse-suspected">yes</span> — the host had bindings before and this dump yielded none; its bindings were kept, not deactivated.{% else %}no{% endif %}</dd>
-    <dt>Dump size</dt><dd>{% if summary.dump_bytes is not none %}{{ summary.dump_bytes }} bytes{% else %}—{% endif %}</dd>
+    <dt>Bindings found</dt><dd><span class="mono">{{ summary.bindings }} binding{{ "" if summary.bindings == 1 else "s" }}</span>{% if summary.bindings == 0 %} — a recorded empty result, not “never discovered” or “no changes”.{% endif %}</dd>
+    <dt>Parse suspected</dt><dd>{% if summary.parse_suspected %}<span class="badge badge-warn" data-warning="parse-suspected">{{ icon('warn') }}yes</span> — the host had bindings before and this dump yielded none; its bindings were kept, not deactivated.{% else %}no{% endif %}</dd>
+    <dt>Dump size</dt><dd class="mono">{% if summary.dump_bytes is not none %}{{ summary.dump_bytes }} bytes{% else %}—{% endif %}</dd>
     <dt>Dump SHA-256</dt><dd>{% if summary.dump_sha256 %}<code>{{ summary.dump_sha256 }}</code>{% else %}—{% endif %}</dd>
   </dl>
   <p class="hint">The dump itself stays on the worker and is never shown here; this page lists only what discovery recorded about it.</p>

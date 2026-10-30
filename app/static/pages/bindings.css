@@ -1,0 +1,26 @@
+/* One relationship presentation used by bindings and server detail. */
+.bindings { table-layout: fixed; }
+.bindings th, .bindings td { width: 25%; overflow-wrap: anywhere; }
+.bindings td > :first-child { margin-top: var(--space-0); }
+.bindings td p { margin-block: var(--space-2); }
+.bindings .help { margin-top: var(--space-3); }
+.bindings details { margin-top: var(--space-4); }
+.bindings summary { padding-inline: var(--space-0); color: var(--accent); }
+.bindings .fields { display: block; }
+.bindings .fields dt { margin-top: var(--space-3); }
+.bindings .fields dd { margin-top: var(--space-1); }
+.bindings .badge { max-width: 100%; }
+.bindings .badge a { color: inherit; }
+.binding-drift { background: var(--warn-surface); }
+.binding-drift .binding-result > .help, .binding-drift .binding-inventory > .help { color: var(--warn); }
+.binding-hash { display: block; user-select: all; }
+.binding-note { font-size: var(--text-sm); }
+.list-summary { margin-block: var(--space-5); }
+@media (max-width: 719px) {
+  .bindings, .bindings tbody, .bindings tr, .bindings td { display: block; width: 100%; }
+  .bindings thead { display: block; }
+  .bindings thead tr { display: flex; flex-wrap: wrap; }
+  .bindings th { width: 50%; }
+  .bindings td { padding: var(--space-4); }
+  .bindings .binding-row { border-bottom: var(--focus-width) solid var(--separator); }
+}
