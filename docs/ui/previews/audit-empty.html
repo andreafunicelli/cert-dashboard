@@ -1,0 +1,84 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Audit log · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/audit.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span aria-current="page"><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Audit log</h1>
+<p>Append-only history, newest first. This view is read-only.</p>
+<section class="panel wide audit-filters" aria-label="Filters">
+  <form method="get" action="/audit" class="filters">
+    <label>Actor <input name="actor" value="" maxlength="200"></label>
+    <label>Action prefix <input name="action_prefix" value="" maxlength="100" placeholder="certificate."></label>
+    <label>Target type <input name="target_type" value="" maxlength="200"></label>
+    <label>Target ID <input name="target_id" value="" maxlength="200"></label>
+    <label>From (inclusive, UTC) <input name="start" value="" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
+    <label>Until (exclusive, UTC) <input name="end" value="" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
+    <label>IP or CIDR <input name="ip" value="" maxlength="45" placeholder="192.0.2.10 or 192.0.2.0/24"></label>
+
+    <button type="submit">Apply filters</button>
+    <a href="/audit">Reset</a>
+  </form>
+</section>
+
+<p class="list-summary" data-total="0"><span class="mono">0</span> events
+  · <a href="/audit/export.json" download="audit.json">Export list as JSON</a> (metadata only, newest 5,000)</p>
+
+
+<section class="empty-state"><h2>No audit events match these filters</h2><p>Try a wider date range or a different actor. Events appear here as operations are recorded.</p><a href="/audit">Clear the filters</a></section>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span class="mono" aria-current="page">Page 1 of 1</span>
+
+</nav>
+</main>
+
+</body>
+</html>

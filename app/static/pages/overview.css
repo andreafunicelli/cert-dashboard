@@ -1,0 +1,19 @@
+/* Overview composition; shared components remain in app.css. */
+.counters { align-items: stretch; }
+.counters .counter { flex: 1 1 var(--filter-width); min-width: 0; }
+.counter > span { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
+.counter-expired .status-icon, .counter-lt7 .status-icon { color: var(--danger); }
+.counter-lt30 .status-icon { color: var(--warn); }
+.counter-total_active .status-icon { color: var(--ok); }
+.tls-counter { flex-direction: row; align-items: center; gap: var(--space-3); }
+.tls-counter strong { font-size: var(--text-lg); }
+.tls-counter > span { margin: var(--space-0); }
+.status-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--filter-width)), 1fr)); gap: var(--space-5); }
+.status-strip h2 { margin-top: var(--space-0); font-size: var(--text-base); }
+.status-strip p { margin-bottom: var(--space-0); }
+.overview-failures { margin-inline: var(--space-0); }
+.overview-failures .help { color: inherit; }
+.actions { margin-block: var(--space-5) var(--space-6); }
+.empty-state ol { max-width: var(--panel-width); margin-inline: auto; text-align: left; }
+.recent-jobs td, .unknown-bindings td { overflow-wrap: anywhere; }
+.renewals-in-flight li { padding: var(--space-4); border-bottom: var(--line) solid var(--separator); overflow-wrap: anywhere; }

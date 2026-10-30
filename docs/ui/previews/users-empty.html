@@ -1,0 +1,87 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Users · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/users.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Users</h1>
+<p>Every active user is an administrator. Security actions ask for <strong>your</strong> current password and sign the affected user out immediately.</p>
+
+
+
+<details class="panel wide user-create">
+  <summary>Add local user</summary>
+<section aria-labelledby="create-heading">
+  <h2 id="create-heading">Add local user</h2>
+  <form method="post" action="/users">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="new-username">Username</label>
+    <input id="new-username" name="username" value="" maxlength="150" pattern="[A-Za-z0-9._@\-]+" autocomplete="off" required>
+    <label for="new-email">Email</label>
+    <input id="new-email" name="email" type="email" value="" maxlength="254" autocomplete="off" required>
+    <label for="new-display">Display name (optional)</label>
+    <input id="new-display" name="display_name" value="" maxlength="200" autocomplete="off">
+    <label for="new-password">Temporary password (at least 12 characters)</label>
+    <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" required>
+    <label for="new-confirm">Repeat temporary password</label>
+    <input id="new-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+    <button type="submit">Create user</button>
+  </form>
+  <p class="hint">The user must change this password at first sign-in. The password is never shown again.</p>
+</section>
+</details>
+
+<h2>User access</h2>
+
+<section class="empty-state"><h3>No users to display</h3><p>Add a local user above to grant administrator access. Directory users appear after sign-in.</p></section>
+
+<p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
+</main>
+
+</body>
+</html>

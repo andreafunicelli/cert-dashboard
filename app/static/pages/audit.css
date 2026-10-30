@@ -1,0 +1,19 @@
+/* Fixed summary columns; full-width disclosure keeps JSON readable. */
+.audit { table-layout: fixed; }
+.audit th:first-child { width: 22%; }
+.audit th:last-child { width: 18%; }
+.audit time { overflow-wrap: anywhere; }
+.audit-value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.audit tr[data-audit-row] td { border-bottom: none; padding-bottom: var(--space-1); }
+.audit .audit-detail-row td { padding-top: var(--space-0); }
+.audit-detail { padding: var(--space-2) var(--space-3); }
+.audit-detail pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.audit-detail .fields { grid-template-columns: var(--label-width) minmax(0, 1fr); }
+.audit-filters .filters { gap: var(--space-4); }
+.list-summary { max-width: none; }
+@media (max-width: 719px) {
+  .audit th, .audit td { padding-inline: var(--space-2); }
+  .audit th { overflow-wrap: anywhere; }
+  .audit-detail { padding-inline: var(--space-0); }
+  .audit-detail .fields { grid-template-columns: minmax(0, 1fr); }
+}

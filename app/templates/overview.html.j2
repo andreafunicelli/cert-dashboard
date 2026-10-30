@@ -1,42 +1,87 @@
 {% extends "base.html.j2" %}
+{% from "_ui.html.j2" import icon %}
 {% block title %}Overview · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/overview.css">{% endblock %}
 {% block content %}
 <h1>Overview</h1>
+<h2>Certificate expiry</h2>
 <section class="counters" aria-label="Certificate expiry">
   {% for counter in counters %}
-  <a class="counter counter-{{ counter.key }}" data-counter="{{ counter.key }}" href="{{ counter.href }}"><strong>{{ counter.count }}</strong><span>{{ counter.label }}</span></a>
+  {% set kind = 'danger' if counter.key in ['expired', 'lt7'] else 'warn' if counter.key == 'lt30' else 'ok' if counter.key == 'total_active' else 'info' %}
+  <a class="counter counter-{{ counter.key }}" data-counter="{{ counter.key }}" href="{{ counter.href }}"><strong>{{ counter.count }}</strong><span class="badge badge-{{ kind }}">{{ icon(kind) }} {{ counter.label }}</span></a>
   {% endfor %}
 </section>
+{% block status_strip %}
+{% set status = snapshot.status %}
+<section class="panel wide status-strip" data-status-strip="true" aria-label="Status">
+  <div><h2>Worker</h2><span class="badge {{ 'badge-ok' if status.worker == 'ok' else 'badge-warn' }}">{{ icon('ok' if status.worker == 'ok' else 'warn') }} {{ status.worker }}</span>
+  <p class="help">{% if status.last_heartbeat_at %}Last heartbeat {{ time_tag(status.last_heartbeat_at, tz) }}{% else %}No heartbeat recorded{% endif %}. <a href="/settings?tab=status">Worker details</a></p></div>
+  <div><h2>Inventory revision</h2><p>{% if status.inventory_rev %}<code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %}no inventory revision recorded yet{% endif %}</p></div>
+  <div><h2>Last digest</h2><p>{% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</p></div>
+</section>
+{% endblock %}
+{% block tls_health %}
+{% set failures = snapshot.recent_jobs | selectattr('status', 'equalto', 'failed') | list %}
+{% if failures %}
+<aside class="banner banner-critical overview-failures" role="status">
+  <strong>{{ icon('danger') }} Recent failures</strong>
+  <ul>{% for job in failures %}<li><a href="{{ job.href }}">{{ job.type }}{% if job.summary %}: {{ job.summary }}{% endif %}</a> — {{ time_tag(job.finished_at, tz) }}</li>{% endfor %}</ul>
+  <p class="help">Failures among the most recent jobs, not a complete failure history.</p>
+</aside>
+{% endif %}
+<h2>TLS health</h2>
+<section class="counters" aria-label="TLS health">
+  {% for counter in tls_counters %}
+  {% set kind = 'ok' if counter.key == 'ok' else 'warn' if counter.key in ['never_scanned', 'unknown_certificates'] else 'danger' %}
+  <a class="counter tls-counter tls-{{ counter.key }}" data-tls="{{ counter.key }}" href="{{ counter.href }}"><strong>{{ counter.count }}</strong><span class="badge badge-{{ kind }}">{{ icon(kind) }} {{ counter.label }}</span></a>
+  {% endfor %}
+</section>
+<p class="help">Latest recorded results, not a live probe. Scan freshness is not summarized here; <a href="/scans">check last-scan times in Scans</a>. Never scanned opens the full endpoint list.</p>
+{% endblock %}
+<nav class="actions" aria-label="Overview actions"><a class="button button-secondary" href="/certificates">Review certificates</a><a class="button button-secondary" href="/scans">Review scans</a><a href="/audit?target_type=job">Job history</a></nav>
 {% if empty %}
-<section class="panel wide" data-empty-state="setup">
+<section class="empty-state" data-empty-state="setup">
   <h2>Get started</h2>
   <p>No certificates are in the inventory yet. Work through this checklist:</p>
   <ol>
     <li><a href="/certificates/import">Import a certificate</a> from a file, a paste or a live server.</li>
-    <li>Set up SMTP so expiry alerts and the daily digest can be emailed (available in Settings in a later release).</li>
-    <li>Point the dashboard at the Ansible inventory repository and run discovery to find certificates on your servers (available in a later plan).</li>
+    <li><a href="/settings?tab=smtp">Configure SMTP</a> for expiry alerts and the daily digest.</li>
+    <li><a href="/servers">Review servers and discovery</a> to find deployed certificates.</li>
   </ol>
 </section>
 {% endif %}
-{% block tls_health %}
-<h2>TLS health</h2>
-<section class="counters" aria-label="TLS health">
-  {% for counter in tls_counters %}
-  <a class="counter tls-counter tls-{{ counter.key }}" data-tls="{{ counter.key }}" href="{{ counter.href }}"><strong>{{ counter.count }}</strong><span>{{ counter.label }}</span></a>
+{% block recent_jobs %}
+<h2>Recent jobs</h2>
+{% if snapshot.recent_jobs %}
+<div class="table-wrap">
+<table class="recent-jobs">
+  <thead><tr><th scope="col">Type</th><th scope="col">Target</th><th scope="col">Status</th><th scope="col" class="numeric">Duration</th><th scope="col">Actor</th><th scope="col">Finished</th><th scope="col">Details</th></tr></thead>
+  <tbody>
+  {% for job in snapshot.recent_jobs %}
+  <tr class="job{% if job.status == 'failed' %} job-failed row-attention{% endif %}" data-job-id="{{ job.id }}">
+    <td>{{ job.type }}</td><td>{{ job.summary or "—" }}</td>
+    <td><span class="badge {{ 'badge-danger' if job.status == 'failed' else 'badge-ok' if job.status == 'succeeded' else 'badge-info' }}">{{ icon('danger' if job.status == 'failed' else 'ok' if job.status == 'succeeded' else 'info') }} {{ job.status }}</span></td>
+    <td class="numeric">{% if job.duration_seconds is not none %}{{ job.duration_seconds // 60 }}m {{ job.duration_seconds % 60 }}s{% else %}—{% endif %}</td>
+    <td>{{ job.actor }}</td><td>{{ time_tag(job.finished_at, tz) }}</td><td><a href="{{ job.href }}" aria-label="Details for {{ job.type }} job">Details</a></td>
+  </tr>
   {% endfor %}
-</section>
+  </tbody>
+</table>
+</div>
+{% else %}
+<section class="empty-state"><h3>No jobs have run yet</h3><p>Discovery, scan and deployment results will appear here after work runs.</p><a href="/scans">Review scan endpoints</a></section>
+{% endif %}
 {% endblock %}
 {% block unknown_certificates %}
 {% if unknown %}
 <h2>Unknown certificates on servers</h2>
 <div class="table-wrap">
 <table class="unknown-bindings">
-  <thead><tr><th scope="col">Server</th><th scope="col">Virtual host</th><th scope="col">On-disk fingerprint</th><th scope="col"></th></tr></thead>
+  <thead><tr><th scope="col">Server</th><th scope="col">Virtual host</th><th scope="col">On-disk fingerprint</th><th scope="col">Action</th></tr></thead>
   <tbody>
   {% for b in unknown %}
   <tr data-binding-id="{{ b.id }}">
-    <td><a href="/servers/{{ b.server_id }}">{{ b.server }}</a></td>
-    <td>{{ b.vhost_name }}:{{ b.port }}</td>
+    <td><a href="/servers/{{ b.server_id }}">{{ b.server }}</a></td><td>{{ b.vhost_name }}:<span class="mono">{{ b.port }}</span></td>
     <td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
     <td><a href="/certificates/import?from_binding={{ b.id }}">Import as certificate</a></td>
   </tr>
@@ -44,52 +89,19 @@
   </tbody>
 </table>
 </div>
-<p class="hint">The newest {{ unknown | length }} unknown bindings; <a href="/bindings?match_state=unknown">see all</a>.</p>
-{% endif %}
-{% endblock %}
-{% block recent_jobs %}
-<h2>Recent jobs</h2>
-{% if snapshot.recent_jobs %}
-<div class="table-wrap">
-<table class="recent-jobs">
-  <thead><tr><th scope="col">Type</th><th scope="col">Target</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Actor</th><th scope="col">Finished</th><th scope="col"></th></tr></thead>
-  <tbody>
-  {% for job in snapshot.recent_jobs %}
-  <tr class="job{% if job.status == 'failed' %} job-failed{% endif %}" data-job-id="{{ job.id }}">
-    <td>{{ job.type }}</td>
-    <td>{{ job.summary or "—" }}</td>
-    <td><span class="chip {% if job.status == 'failed' %}chip-critical{% elif job.status == 'succeeded' %}chip-ok{% endif %}">{{ job.status }}</span></td>
-    <td>{% if job.duration_seconds is not none %}{{ job.duration_seconds // 60 }}m {{ job.duration_seconds % 60 }}s{% else %}—{% endif %}</td>
-    <td>{{ job.actor }}</td>
-    <td>{{ time_tag(job.finished_at, tz) }}</td>
-    <td><a href="{{ job.href }}">Details</a></td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
-{% else %}
-<p class="panel wide">No jobs have run yet.</p>
+<p class="hint">The newest <span class="mono">{{ unknown | length }}</span> unknown bindings; <a href="/bindings?match_state=unknown">see all</a>.</p>
 {% endif %}
 {% endblock %}
 {% block renewals_in_flight %}
 <h2>Renewals in flight</h2>
 {% if snapshot.renewals %}
-<ul class="renewals-in-flight">
+<ul class="renewals-in-flight plain">
   {% for renewal in snapshot.renewals %}
-  <li data-renewal-id="{{ renewal.id }}"><a href="/renewals/{{ renewal.id }}">{{ renewal.common_name }}</a> <span class="chip">{{ renewal.state }}</span> · {{ renewal.age_days }} day{{ "" if renewal.age_days == 1 else "s" }} in this state</li>
+  <li data-renewal-id="{{ renewal.id }}"><a href="/renewals/{{ renewal.id }}">{{ renewal.common_name }}</a> <span class="badge badge-info">{{ icon('info') }} {{ renewal.state }}</span> · <span class="mono">{{ renewal.age_days }} day{{ "" if renewal.age_days == 1 else "s" }}</span> in this state</li>
   {% endfor %}
 </ul>
 {% else %}
-<p class="panel wide">No renewals in flight.</p>
+<section class="empty-state"><h3>No renewals in flight</h3><p>Open renewal requests appear here, oldest state first.</p><a href="/certificates">Review certificates for renewal</a></section>
 {% endif %}
-{% endblock %}
-{% block status_strip %}
-{% set status = snapshot.status %}
-<section class="panel wide status-strip" data-status-strip="true" aria-label="Status">
-  <span>Worker: <span class="chip {{ 'chip-ok' if status.worker == 'ok' else 'chip-warning' }}">{{ status.worker }}</span>{% if status.last_heartbeat_at %} (last heartbeat {{ time_tag(status.last_heartbeat_at, tz) }}){% endif %}</span>
-  · <span>Inventory revision: {% if status.inventory_rev %}<code>{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} ({{ status.inventory_rev_age_hours }} h old){% endif %}{% else %}no inventory revision recorded yet{% endif %}</span>
-  · <span>Last digest: {% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</span>
-</section>
 {% endblock %}
 {% endblock %}

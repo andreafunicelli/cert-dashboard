@@ -1,0 +1,101 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Account · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/account.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Account</h1>
+<p>Signed in as <strong>operator</strong>.</p>
+<p class="help">Manage your password, sign-in protection and current session.</p>
+
+
+
+<section class="panel" aria-labelledby="password-heading">
+  <h2 id="password-heading">Change password</h2>
+
+  <p>Your password is managed by your directory.</p>
+
+</section>
+
+
+<section class="panel" aria-labelledby="totp-heading">
+  <h2 id="totp-heading">Two-factor authentication</h2>
+
+
+
+      <p>Two-factor authentication is <strong>not enabled</strong>.</p>
+      <p><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> Password-only sign-in</span></p>
+
+
+
+    <form method="post" action="/account/totp/enroll">
+      <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+      <label for="enroll-password">Current password</label>
+      <input id="enroll-password" name="current_password" type="password" autocomplete="current-password" required>
+      <div class="actions"><button type="submit">Set up two-factor authentication</button></div>
+    </form>
+
+
+</section>
+
+
+<section class="panel" aria-labelledby="sessions-heading">
+<h2 id="sessions-heading">Current session</h2>
+<p>Sign out of this browser only. Other sessions stay signed in.</p>
+<form method="post" action="/logout">
+  <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+  <button class="button-secondary" type="submit">Sign out</button>
+</form>
+</section>
+</main>
+
+</body>
+</html>

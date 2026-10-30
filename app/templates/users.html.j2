@@ -1,5 +1,7 @@
 {% extends "base.html.j2" %}
+{% from "_ui.html.j2" import icon %}
 {% block title %}Users · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/users.css">{% endblock %}
 {% macro errors(message) %}{% if message %}<p class="form-error" role="alert">{{ message }}</p>{% endif %}{% endmacro %}
 {% block content %}
 <h1>Users</h1>
@@ -7,7 +9,9 @@
 {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 {{ errors(error) }}
 
-<section class="panel" aria-labelledby="create-heading">
+<details class="panel wide user-create"{% if error %} open{% endif %}>
+  <summary>Add local user</summary>
+<section aria-labelledby="create-heading">
   <h2 id="create-heading">Add local user</h2>
   <form method="post" action="/users">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -25,7 +29,10 @@
   </form>
   <p class="hint">The user must change this password at first sign-in. The password is never shown again.</p>
 </section>
+</details>
 
+<h2>User access</h2>
+{% if users %}
 <div class="table-wrap">
 <table class="users">
   <thead><tr>
@@ -47,14 +54,14 @@
     <td>{{ item.display_name or "—" }}</td>
     <td>{{ item.email }}</td>
     <td>{{ item.backend }}</td>
-    <td>{{ "Yes" if item.is_active else "No" }}</td>
-    <td>{{ "Enabled" if item.totp_enabled else "Off" }}</td>
-    <td>{{ "Yes" if item.must_change else "No" }}</td>
+    <td><span class="badge {{ 'badge-ok' if item.is_active else 'badge-danger' }}">{{ icon('ok' if item.is_active else 'danger') }} {{ "Yes" if item.is_active else "No" }}</span></td>
+    <td><span class="badge {{ 'badge-ok' if item.totp_enabled else 'badge-warn' }}">{{ icon('ok' if item.totp_enabled else 'warn') }} {{ "Enabled" if item.totp_enabled else "Off" }}</span></td>
+    <td>{% if item.must_change %}<span class="badge badge-warn">{{ icon('warn') }} Yes</span>{% else %}No{% endif %}</td>
     <td>{{ time_tag(item.last_login_at, tz) }}</td>
     <td>{{ time_tag(item.locked_until, tz) }}</td>
     <td>
-      <details>
-        <summary>Manage</summary>
+      <details{% if error %} open{% endif %}>
+        <summary>Manage <span class="user-action-name">{{ item.username }}</span></summary>
 
         <form method="post" action="/users/{{ item.id }}/edit">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -63,6 +70,8 @@
           <button type="submit">Save</button>
         </form>
 
+        <details class="confirmation"><summary>Reset password</summary>
+        <p>Replaces the password, signs this user out everywhere and requires a new password at next sign-in.</p>
         <form method="post" action="/users/{{ item.id }}/reset-password">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <fieldset{% if not item.local %} disabled{% endif %}>
@@ -70,22 +79,30 @@
             <label>Temporary password <input name="new_password" type="password" autocomplete="new-password" minlength="12" required></label>
             <label>Repeat temporary password <input name="confirm_password" type="password" autocomplete="new-password" minlength="12" required></label>
             <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
-            <button type="submit"{% if not item.local %} disabled title="Managed by the directory"{% endif %}>Reset password</button>
+            <button class="button-destructive" type="submit"{% if not item.local %} disabled title="Managed by the directory"{% endif %}>Reset password</button>
           </fieldset>
           {% if not item.local %}<p class="hint">Password is managed by the directory.</p>{% endif %}
         </form>
+        <a href="/users">Cancel</a></details>
 
+        <details class="confirmation"><summary>Reset two-factor authentication</summary>
+        <p>Removes the authenticator and recovery codes and signs this user out everywhere. They must set up two-factor authentication again.</p>
         <form method="post" action="/users/{{ item.id }}/reset-totp">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
-          <button type="submit">Reset two-factor authentication</button>
+          <button class="button-destructive" type="submit">Reset two-factor authentication</button>
         </form>
+        <a href="/users">Cancel</a></details>
 
+        <details class="confirmation"><summary>Deactivate user</summary>
+        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is not available here.</p>
+        {% if item.id == current_user_id %}<p class="warning-note">This is your account. You will be signed out immediately.</p>{% endif %}
         <form method="post" action="/users/{{ item.id }}/deactivate">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
-          <button type="submit"{% if not item.is_active %} disabled title="Already inactive"{% endif %}>Deactivate</button>
+          <button class="button-destructive" type="submit"{% if not item.is_active %} disabled title="Already inactive"{% endif %}>Deactivate</button>
         </form>
+        <a href="/users">Cancel</a></details>
       </details>
     </td>
   </tr>
@@ -93,5 +110,8 @@
   </tbody>
 </table>
 </div>
+{% else %}
+<section class="empty-state"><h3>No users to display</h3><p>Add a local user above to grant administrator access. Directory users appear after sign-in.</p></section>
+{% endif %}
 <p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
 {% endblock %}

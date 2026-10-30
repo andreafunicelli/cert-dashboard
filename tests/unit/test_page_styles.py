@@ -17,7 +17,7 @@ def environment(overrides=None):
     )
 
 
-@pytest.mark.parametrize("page", ["login", "account"])
+@pytest.mark.parametrize("page", ["login", "bootstrap"])
 def test_default_stylesheet_hook_preserves_rendered_bytes(page):
     base = (TEMPLATES / "base.html.j2").read_text()
     assert base.count(HOOK) == 1
@@ -47,4 +47,11 @@ def test_area_stylesheet_override_follows_shared_stylesheet_in_head():
     head = html.split("<head>", 1)[1].split("</head>", 1)[0]
     assert '<link rel="stylesheet" href="/static/app.css">' + link in head
     assert head.index(link) < head.index('<script src="/static/htmx.min.js"')
+    assert html.count(link) == 1
+
+
+def test_account_intentionally_uses_its_area_stylesheet():
+    html = environment().get_template("account.html.j2").render()
+    link = '<link rel="stylesheet" href="/static/pages/account.css">'
+    assert '<link rel="stylesheet" href="/static/app.css">' + link in html
     assert html.count(link) == 1
