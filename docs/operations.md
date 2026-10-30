@@ -963,8 +963,8 @@ Everything after step 9 needs the full inventory.
 | 5 | Expiry alert for a certificate 7 days out | issue (or pick) a certificate whose `notAfter` is 7 days away and import it with **Certificates → Import**, format **PEM**, pasting the certificate (public part only); **Settings → Alerts**: at least one recipient, a threshold list containing 7 (default `60,30,14,7,1,0`) and *Run the daily expiry check* ticked; **Settings → Schedule**: set *Expiry check* a few minutes ahead (UTC) | the next scheduler tick (≤ 30 s) enqueues `alert_expiry`; the recipient receives `Certificate <CN> expires in 7 days` and **Settings → Alerts** records the delivery; set the schedule back to 07:00 |
 | 6 | Inventory, **first host only** | **Settings → Inventory**: URL, ref, path, web server variable → save, then **Test pull** | resolved revision, revision date, **hosts 1** and the group count; Test pull creates no `server` row, which is why the repository starts with one host |
 | 7 | Read-only discovery of **one** host | `touch /tmp/before` on the host, then **Servers → Discover all** (the inventory holds only this host, so the job contacts only it) | the server and its bindings appear; `find /etc /var/backups -newer /tmp/before` on the host prints **nothing** |
-| 8 | Spot-check against reality | on the host: `grep -RE '^[[:space:]]*(ssl_certificate\|SSLCertificateFile)[[:space:]]' /etc/nginx /etc/apache2` | the `(vhost, certificate path)` pairs equal the bindings shown by **Bindings** (`/bindings?server_id=...`) |
-| 9 | Full inventory (second commit) | add the remaining hosts as in §12.2.1, commit and push, then **Settings → Inventory → Test pull** and **Servers → Discover all** | Test pull reports **hosts 3** and 2 groups, the revision follows the repository; every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
+| 8 | Spot-check against reality | on the host, the command of §12.2.3 for the webserver that host runs (nginx **or** Apache, never both roots in one command) | every certificate, chain and key path printed is a path **Bindings** shows for that server and no binding path is missing — included files and chain files included (D1, D3) |
+| 9 | Full inventory (second commit) | add the remaining hosts as in §12.2.1, commit and push, wait **≥ 60 s after the previous pull** (the worker skips a pull inside 60 s of the last one, §11.1), then **Settings → Inventory → Test pull** and **Servers → Discover all** | Test pull reports **hosts 3** and 2 groups and the revision follows the repository (inside the 60 s window it still reports the first revision — wait and press again); every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
 | 10 | Import a real certificate + key | **Certificates → Import** (PFX with its password, or PEM plus its key) | the detail page shows the key and the chain; `key.import` is audited without key material |
 | 11 | Rediscover, then check `matched` (D2) | **Servers → the host that serves that certificate → Discover** (or **Discover all**) | its bindings become `matched`, each with `on_disk_key_public_sha256` equal to the key's `public_key_sha256` (DER, section 11.6); the match state is computed *by discovery*, so right after the import the bindings still show the previous state |
 | 12 | Export it again and compare | detail → **Export PFX** (re-enter your password, choose an export password) | the exported PKCS#12 opens and carries the same leaf and public key (`openssl pkcs12 -in export.pfx -nokeys -info`) |
@@ -1040,6 +1040,40 @@ If the shell is killed with `SIGKILL` or the session dies, run `kill -CONT "$mas
 before doing anything else: the drill is complete only when `ps` shows the master awake. If it is awake but
 still serves the deployed certificate, it resumed with a pending reload — `nginx -t && nginx -s reload`
 (Apache: `apache2ctl configtest && apache2ctl graceful`), then check the fingerprint again.
+
+#### 12.2.3 The spot-check command (step 8)
+
+Run it on the host, over the config root of the webserver that host runs — never both roots in one
+command, because `grep` exits 2 on a directory that does not exist and the output must stay comparable
+with the bindings. `-R` (not `-r`) follows the `sites-enabled`/`conf-enabled` symlinks, so a vhost
+enabled by symlink is read as well.
+
+nginx (`webserver_type: nginx`):
+
+<!-- runbook:spot-check-nginx -->
+```sh
+grep -RE '^[[:space:]]*(ssl_certificate|ssl_certificate_key)[[:space:]]' /etc/nginx
+```
+
+Apache (`webserver_type: apache`):
+
+<!-- runbook:spot-check-apache -->
+```sh
+grep -RE '^[[:space:]]*(SSLCertificateFile|SSLCertificateKeyFile|SSLCertificateChainFile)[[:space:]]' /etc/apache2
+```
+
+Under `grep -E` the alternation is a bare `|`: an escaped `\|` matches a literal pipe and prints nothing,
+which is why `tests/integration/test_operations_docs.py` runs both commands against a fixture nginx tree
+and a fixture Apache tree, inline and in an include. `grep` reads the whole tree, so a directive written
+in an included file prints exactly like an inline one (D3, section 11.6).
+
+Every printed path must be a path **Bindings** shows for that server, and no binding path may be missing:
+nginx prints the certificate — the **full chain** in `ssl_certificate`, never a separate chain file (D1) —
+and its key; Apache prints the leaf in `SSLCertificateFile`, the chain in `SSLCertificateChainFile` when
+that file really signs the leaf, and the key. Exit 1 means the root holds no TLS directive, which is
+correct only for a host that serves no TLS vhost and must then show no bindings; exit 2 means the root
+does not exist, i.e. the wrong `webserver_type` for that host. A directive kept outside the config root
+(`include /opt/tls/*.conf;`) needs that path added to the command.
 
 ### 12.3 Evidence to record
 
