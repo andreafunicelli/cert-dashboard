@@ -2,8 +2,8 @@
 {% block title %}{{ status }} · Cert Dashboard{% endblock %}
 {% block content %}
 <section class="error" role="alert">
-  <p class="eyebrow">Error {{ status }}</p>
   <h1>{{ message }}</h1>
+  <p class="error-status">{{ icon('danger') }} Error {{ status }}</p>
   <p>Request ID: <code>{{ request_id }}</code></p>
   {% if status == 401 %}<a href="/login">Sign in</a>{% else %}<a href="/">Return to dashboard</a>{% endif %}
 </section>

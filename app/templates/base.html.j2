@@ -1,3 +1,4 @@
+{% from "_ui.html.j2" import icon %}
 <!doctype html>
 <html lang="en">
 <head>
@@ -8,22 +9,28 @@
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
-<header><a class="brand" href="/">Cert Dashboard</a>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
   <nav aria-label="Main">
   {% for item in navigation %}
-    {% if item.enabled %}<a href="{{ item.url }}">{{ item.label }}</a>
+    {% if item.enabled %}<a href="{{ item.url }}"{% if request is defined and (request.url.path == item.url or (item.url != '/' and request.url.path.startswith(item.url + '/'))) %} aria-current="page"{% endif %}>{{ item.label }}</a>
     {% else %}<span aria-disabled="true" title="{{ item.reason }}">{{ item.label }}</span>{% endif %}
   {% endfor %}
   </nav>
-  {% if user %}<details><summary>{{ user.display_name }}</summary>
-    <a href="/account">Account</a>
-    <a href="/users">Users</a>
+  {% if user %}<details class="user-menu"><summary>{{ user.display_name }}</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
   </details>{% endif %}
 </header>
-{% block status_banner %}{% if status_banner %}<aside role="status">{{ status_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}{% if request is defined and request.state.worker_stale %}<aside role="status" class="banner-critical" data-banner="worker">Worker is not running (last heartbeat > 5 minutes) <a href="/settings?tab=status">Details</a></aside>{% endif %}{% endblock %}
-{% block capability_banner %}{% if capability_banner is defined and capability_banner %}<aside role="alert" class="banner-critical" data-banner="capability">{{ capability_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}{% endblock %}
-{% if flash is defined and flash %}<aside role="status" class="notice" data-banner="flash"><p>Notes on the last action:</p><ul>{% for note in flash %}<li>{{ note }}</li>{% endfor %}</ul></aside>{% endif %}
-<main>{% block content %}{% endblock %}</main>
+{% block status_banner %}
+{% if status_banner %}<aside role="status" class="banner banner-warning">{{ icon('warn') }} <strong>Warning:</strong> {{ status_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}
+{% if request is defined and request.state.worker_stale %}<aside role="status" class="banner banner-critical" data-banner="worker">{{ icon('danger') }} <strong>Critical:</strong> Worker is not running (last heartbeat > 5 minutes) <a href="/settings?tab=status">Details</a></aside>{% endif %}
+{% endblock %}
+{% block capability_banner %}{% if capability_banner is defined and capability_banner %}<aside role="alert" class="banner banner-critical" data-banner="capability">{{ icon('danger') }} <strong>Critical:</strong> {{ capability_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}{% endblock %}
+{% if flash is defined and flash %}<aside role="status" class="notice banner banner-info" data-banner="flash"><p>{{ icon() }} <strong>Notes on the last action:</strong></p><ul>{% for note in flash %}<li>{{ note }}</li>{% endfor %}</ul></aside>{% endif %}
+<main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}
 </body>
 </html>

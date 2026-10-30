@@ -1,0 +1,29 @@
+{% extends "base.html.j2" %}
+{% block title %}Component reference · Cert Dashboard{% endblock %}
+{% block content %}
+<h1>Component reference</h1>
+<p class="hint">Static fixture data only. Forms and links demonstrate markup, not live operations.</p>
+<section class="panel wide">
+  <h2>Certificate states</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Certificate</th><th>State</th><th class="numeric">Days remaining</th><th>Fingerprint</th></tr></thead>
+    <tbody>{% for label, state, symbol, days in [('api.internal', 'ok', 'ok', '120'), ('vpn.internal', 'warn', 'warn', '14'), ('old.internal', 'danger', 'danger', '-2'), ('new.internal', 'info', 'info', 'Unknown')] %}
+      <tr><td>{{ label }}</td><td><span class="badge badge-{{ state }}">{{ icon(symbol) }} {{ {'ok': 'Valid', 'warn': 'Expiring', 'danger': 'Expired', 'info': 'Unknown'}[state] }}</span></td><td class="numeric">{{ days }}</td><td class="mono">8F:4A:21:CC:09:7D</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <nav class="pager" aria-label="Pagination"><span aria-disabled="true">Previous</span><a href="?page=1" aria-current="page">1</a><a href="?page=2">2</a><a href="?page=2">Next</a></nav>
+</section>
+<section class="panel">
+  <h2>Controls</h2>
+  <form method="get" action="#main-content">
+    <label for="fixture-name">Name</label><input id="fixture-name" name="fixture_name" aria-describedby="name-help" placeholder="api.internal"><p id="name-help" class="help">Use an identifiable host name.</p>
+    <label for="fixture-state">State</label><select id="fixture-state" name="fixture_state"><option>All states</option><option>Expired</option></select>
+    <label class="checkbox" for="fixture-check"><input id="fixture-check" name="fixture_check" type="checkbox"> Include inactive certificates</label>
+    <label for="fixture-error">Invalid value</label><input id="fixture-error" name="fixture_error" aria-invalid="true" aria-describedby="fixture-error-help" value="not a hostname"><p id="fixture-error-help" class="form-error">{{ icon('danger') }} Enter a host name.</p>
+    <div class="actions"><button type="submit">Apply filters</button><a class="button button-secondary" href="shell.html">Clear filters</a><button disabled>Unavailable</button></div>
+  </form>
+</section>
+<section class="empty-state"><h2>No matching certificates</h2><p>Clear the filters to see all certificates.</p><a class="button button-secondary" href="shell.html">Clear filters</a></section>
+<h2>Confirmation pattern</h2>
+<details class="confirmation"><summary>Review certificate deletion</summary><p>Deletion removes this certificate from the inventory. Review the certificate before confirming.</p><form method="get" action="#main-content"><div class="actions"><button class="button-destructive" type="submit">Confirm deletion (preview)</button><a class="button button-secondary" href="shell.html">Cancel</a></div></form></details>
+{% endblock %}

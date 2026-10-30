@@ -1,7 +1,7 @@
 {% extends "base.html.j2" %}
 {% block title %}First-run setup · Cert Dashboard{% endblock %}
 {% block content %}
-<section class="panel narrow">
+<section class="panel narrow bootstrap-panel">
   <h1>No administrator exists yet</h1>
   <p>The web interface never creates the first administrator. An operator must run this command on the host:</p>
   <pre><code>docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal</code></pre>

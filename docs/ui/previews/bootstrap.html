@@ -1,0 +1,56 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>First-run setup · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+  
+    <a href="/">Overview</a>
+    
+  
+    <a href="/certificates">Certificates</a>
+    
+  
+    <a href="/servers">Servers</a>
+    
+  
+    <a href="/deploy">Deploy</a>
+    
+  
+    <a href="/scans">Scans</a>
+    
+  
+    <a href="/audit">Audit</a>
+    
+  
+    <a href="/settings">Settings</a>
+    
+  
+  </nav>
+  
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<section class="panel narrow bootstrap-panel">
+  <h1>No administrator exists yet</h1>
+  <p>The web interface never creates the first administrator. An operator must run this command on the host:</p>
+  <pre><code>docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal</code></pre>
+  <p>The command prompts for the password twice (minimum 12 characters). Reload this page afterwards to sign in.</p>
+</section>
+</main>
+
+</body>
+</html>
