@@ -1,0 +1,9 @@
+{# Shared state icons: pair with visible labels; never colour alone. #}
+{% macro icon(kind='info') -%}
+<svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  {% if kind == 'ok' %}<path d="m5 12 4 4 10-10"/>
+  {% elif kind == 'danger' %}<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+  {% elif kind == 'warn' %}<path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+  {% else %}<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>{% endif %}
+</svg>
+{%- endmacro %}

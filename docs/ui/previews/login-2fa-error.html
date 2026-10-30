@@ -1,0 +1,69 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Two-factor verification · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<section class="panel narrow auth-panel">
+  <h1>Two-factor verification</h1>
+  <p>Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
+  <p class="form-error" role="alert"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Invalid code.</p>
+  <form method="post" action="/login/2fa">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="code">Code</label>
+    <input id="code" class="mono" name="code" maxlength="128" autocomplete="one-time-code" inputmode="text" required autofocus>
+    <button type="submit">Verify</button>
+  </form>
+  <form method="post" action="/logout" class="inline">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <button type="submit" class="link">Cancel and sign out</button>
+  </form>
+  <p class="hint">Lost your device and codes? Contact another admin.</p>
+</section>
+</main>
+
+</body>
+</html>
