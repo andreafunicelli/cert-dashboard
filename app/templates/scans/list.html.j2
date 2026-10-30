@@ -1,6 +1,8 @@
 {% extends "base.html.j2" %}
 {% block title %}Scans · Cert Dashboard{% endblock %}
+{% block extra_css %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}<link rel="stylesheet" href="/static/pages/scans.css">{% endblock %}
 {% block content %}
+{% from "_inventory_ui.html.j2" import scan_state %}
 <h1>Scans</h1>
 {% block add_endpoint %}
 <section class="panel wide" id="add-endpoint" aria-label="Add endpoint">
@@ -85,7 +87,7 @@
     <td>{% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a>{% else %}<em>none</em>{% endif %}</td>
     <td>{% if row.observed_common_name %}{{ row.observed_common_name }}<br><small>{{ row.observed_issuer_cn or "" }}</small>{% else %}—{% endif %}</td>
     <td>{{ time_tag(row.observed_not_after, tz) }}</td>
-    <td><span class="chip chip-{{ {'expired': 'expired', 'mismatch': 'critical', 'unreachable': 'warning', 'error': 'warning', 'ok': 'ok'}.get(row.status, 'soon') }}">{{ row.status or "not scanned" }}</span>
+    <td>{{ scan_state(row.status) }}
       {% if row.error %}<br><small class="scan-error">{{ row.error[:200] }}</small>{% endif %}</td>
     <td>{{ time_tag(row.checked_at, tz) }}</td>
     <td>
@@ -113,12 +115,4 @@
   <span>Page {{ page.page }} of {{ pages }}</span>
   {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
 </nav>
-{% endblock %}
-{% block scripts %}
-<script>
-  // htmx ignores 4xx bodies by default; a refused form answers 422 with the re-rendered panel.
-  document.body.addEventListener("htmx:beforeSwap", function (event) {
-    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
-  });
-</script>
 {% endblock %}

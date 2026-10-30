@@ -1,23 +1,29 @@
 {% extends "base.html.j2" %}
 {% block title %}{{ row.host }} · Scans · Cert Dashboard{% endblock %}
+{% block extra_css %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}<link rel="stylesheet" href="/static/pages/scans.css">{% endblock %}
 {% block content %}
+{% from "_inventory_ui.html.j2" import scan_state, identifier %}
 <p><a href="/scans">← All scans</a></p>
 <h1>{{ hostport(row.host, row.port) }}</h1>
 <section class="panel wide" id="endpoint-panel" aria-label="Endpoint">
-  <p><span class="chip chip-{{ {'expired': 'expired', 'mismatch': 'critical', 'unreachable': 'warning', 'error': 'warning', 'ok': 'ok'}.get(row.status, 'soon') }}">{{ row.status or "not scanned" }}</span>
+  <p>{{ scan_state(row.status) }}
     {% if not row.is_active %}<small>Inactive: scheduled scans skip this endpoint.</small>{% endif %}</p>
+  {% if row.status == 'ok' %}<p>No expiry or certificate-mismatch findings in this scan. This is not a complete TLS security audit.</p>
+  {% elif row.status in ['unreachable', 'error'] %}<p>The scan did not complete. Do not interpret missing observations as a healthy endpoint. Check connectivity and the error below, then scan again.</p>
+  {% elif row.status in ['expired', 'mismatch'] %}<p>Action required: {{ 'the served certificate has expired' if row.status == 'expired' else 'the served certificate differs from the inventory expectation' }}.</p>
+  {% else %}<p>No scan result is available. Run a scan to establish the endpoint state.</p>{% endif %}
   {% if row.error %}<p class="form-error" data-field="scan_error">{{ row.error }}</p>{% endif %}
-  <dl>
+  <dl class="fields">
     <dt>SNI</dt><dd>{{ row.sni or "— (the host name is sent)" }}</dd>
     <dt>Source</dt><dd>{{ row.source }}</dd>
     <dt>Server</dt><dd>{{ row.server or "—" }}</dd>
-    <dt>Expected certificate</dt><dd>{% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a> <code>{{ row.expected_fingerprint }}</code>{% else %}none{% endif %}</dd>
+    <dt>Expected certificate</dt><dd>{% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a> {{ identifier(row.expected_fingerprint) }}{% else %}none{% endif %}</dd>
     <dt>Last checked</dt><dd>{{ time_tag(row.checked_at, tz) }}</dd>
     <dt>Observed common name</dt><dd>{{ row.observed_common_name or "—" }}</dd>
     <dt>Observed issuer</dt><dd>{{ row.observed_issuer_cn or "—" }}</dd>
     <dt>Observed expiry</dt><dd>{{ time_tag(row.observed_not_after, tz) }}</dd>
-    <dt>Observed fingerprint</dt><dd>{% if row.observed_fingerprint %}<code>{{ row.observed_fingerprint }}</code>{% else %}—{% endif %}</dd>
-    <dt>Chain length / TLS</dt><dd>{{ row.observed_chain_length or "—" }} / {{ row.tls_version or "—" }}</dd>
+    <dt>Observed fingerprint</dt><dd>{% if row.observed_fingerprint %}{{ identifier(row.observed_fingerprint) }}{% else %}—{% endif %}</dd>
+    <dt>Chain length / TLS</dt><dd class="mono">{{ row.observed_chain_length or "—" }} / {{ row.tls_version or "—" }}</dd>
   </dl>
   {% if scan_supported and row.is_active %}<form class="inline" method="post" action="/scans/run">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -71,8 +77,8 @@
 {% if row.status == "mismatch" %}
 <section class="panel wide" id="mismatch" aria-label="Mismatch">
   <h2>This endpoint serves a different certificate than expected</h2>
-  <p>Expected: {% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a> <code>{{ row.expected_fingerprint }}</code>{% else %}no certificate is expected for this endpoint{% endif %}</p>
-  <p>Served: {% if detail.observed_certificate_id %}<a href="/certificates/{{ detail.observed_certificate_id }}">{{ row.observed_common_name }}</a>{% else %}{{ row.observed_common_name or "an unknown certificate" }} (not in the inventory){% endif %} <code>{{ row.observed_fingerprint }}</code></p>
+  <p>Expected: {% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a> {{ identifier(row.expected_fingerprint) }}{% else %}no certificate is expected for this endpoint{% endif %}</p>
+  <p>Served: {% if detail.observed_certificate_id %}<a href="/certificates/{{ detail.observed_certificate_id }}">{{ row.observed_common_name }}</a>{% else %}{{ row.observed_common_name or "an unknown certificate" }} (not in the inventory){% endif %} {{ identifier(row.observed_fingerprint) }}</p>
   <h3>Likely actions</h3>
   <ul>
     {% if row.expected_certificate_id %}<li>The old certificate is still being served: <a href="/renewals/new?from={{ row.expected_certificate_id }}">Renew and deploy</a> the expected certificate.</li>{% endif %}
@@ -89,6 +95,7 @@
 
 <section class="panel wide" id="history" aria-label="History">
 {% block history %}
+{% from "_inventory_ui.html.j2" import scan_state, identifier %}
   <h2>History</h2>
   <p class="hint">The last {{ detail.history | length }} result{{ "" if detail.history | length == 1 else "s" }} (newest first) for {{ hostport(detail.row.host, detail.row.port) }}.</p>
   {% if detail.history %}
@@ -98,8 +105,8 @@
     {% for item in detail.history %}
     <tr class="scan-history-row">
       <td>{{ time_tag(item.checked_at, tz) }}</td>
-      <td>{{ item.status.value }}</td>
-      <td>{% if item.observed_fingerprint %}<code>{{ item.observed_fingerprint }}</code>{% else %}—{% endif %}</td>
+      <td>{{ scan_state(item.status.value) }}</td>
+      <td>{% if item.observed_fingerprint %}{{ identifier(item.observed_fingerprint) }}{% else %}—{% endif %}</td>
       <td>{{ item.observed_common_name or "—" }}</td>
       <td>{{ item.source }}</td>
       <td>{{ item.error or "" }}</td>
@@ -110,12 +117,4 @@
   {% else %}<p>This endpoint has not been scanned yet.</p>{% endif %}
 {% endblock %}
 </section>
-{% endblock %}
-{% block scripts %}
-<script>
-  // htmx ignores 4xx bodies by default; a refused form answers 422 with the re-rendered panel.
-  document.body.addEventListener("htmx:beforeSwap", function (event) {
-    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
-  });
-</script>
 {% endblock %}

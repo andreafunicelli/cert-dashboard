@@ -1,10 +1,14 @@
 {% extends "base.html.j2" %}
 {% block title %}Import certificate · Cert Dashboard{% endblock %}
+{% block extra_css %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}<link rel="stylesheet" href="/static/pages/import.css">{% endblock %}
 {% block content %}
+<nav class="lineage" aria-label="Import method"><a href="/certificates">All certificates</a><a href="#import-panel">Upload a file</a><a href="#pull-panel">Pull from host and port</a></nav>
+<div class="import-methods">
 {% block upload_panel %}
 {% macro field_errors(name, errors) %}{% if errors.get(name) %}<div class="form-error" data-field="{{ name }}" role="alert">{% for message in errors[name] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}{% endmacro %}
 <section class="panel" id="import-panel">
   <h1>Import certificate</h1>
+  <p>Upload a certificate you already have. Chain and private key material are optional; ownership details can be edited later.</p>
   {% if from_binding %}
   <div class="notice" role="status" data-from-binding="true">
     <p>You are importing the certificate found on <strong>{{ from_binding.server }}</strong> for <code>{{ from_binding.vhost }}:{{ from_binding.port }}</code>{% if from_binding.fingerprint %}, on-disk SHA-256 <code>{{ from_binding.fingerprint }}</code>{% endif %}.</p>
@@ -43,12 +47,15 @@
     <input id="password" name="password" type="password" autocomplete="off">
     {{ field_errors("password", errors) }}
 
+    <details class="import-options"{% if errors.get('chain') %} open{% endif %}><summary>Intermediate chain (optional)</summary>
     <label for="chain_file">Intermediate chain (optional)</label>
     <input id="chain_file" name="chain_file" type="file">
     <label for="chain_text">…or paste it</label>
     <textarea id="chain_text" name="chain_text" rows="3" cols="60" spellcheck="false" autocomplete="off"></textarea>
     {{ field_errors("chain", errors) }}
+    </details>
 
+    <details class="import-options"{% if errors.get('key') or (duplicate and duplicate.key_attachable) %} open{% endif %}><summary>Private key (optional, encrypted at rest)</summary>
     <label for="key_file">Private key, PEM (optional)</label>
     <input id="key_file" name="key_file" type="file">
     <label for="key_text">…or paste it</label>
@@ -57,7 +64,9 @@
     <input id="key_password" name="key_password" type="password" autocomplete="off">
     {{ field_errors("key", errors) }}
     <p class="hint">Keys are encrypted at rest. A certificate can also be imported without a key.</p>
+    </details>
 
+    <details class="import-options"{% if errors.get('metadata') %} open{% endif %}><summary>Inventory details (optional)</summary>
     <h2>Inventory details</h2>
     <label for="owner_name">Owner name</label>
     <input id="owner_name" name="owner_name" value="{{ form.owner_name }}" maxlength="200">
@@ -68,6 +77,7 @@
     <label for="notes">Notes</label>
     <textarea id="notes" name="notes" rows="3" cols="60" maxlength="10000">{{ form.notes }}</textarea>
     {{ field_errors("metadata", errors) }}
+    </details>
 
     <button type="submit">{% if duplicate and duplicate.key_attachable %}Attach key to existing certificate{% else %}Import{% endif %}</button>
   </form>
@@ -110,12 +120,5 @@
   </form>
 </section>
 {% endblock %}
-{% endblock %}
-{% block scripts %}
-<script>
-  // htmx ignores 4xx bodies by default; inline validation answers 422 with the re-rendered form.
-  document.body.addEventListener("htmx:beforeSwap", function (event) {
-    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
-  });
-</script>
+ </div>
 {% endblock %}

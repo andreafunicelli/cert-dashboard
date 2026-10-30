@@ -1,6 +1,7 @@
 {% extends "renewals/_layout.html.j2" %}
 {% block title %}Done · {{ r.common_name }} · Cert Dashboard{% endblock %}
 {% block panel %}
+{% from "_inventory_ui.html.j2" import identifier %}
 {% from "renewals/_macros.html.j2" import field_error, header, general_errors %}
 <section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
   {{ header(r, state, step, steps, previous, tz) }}
@@ -13,6 +14,9 @@
   {% if state == "deployed" %}
   <h2>Finish the renewal</h2>
   <p>A deploy of the new certificate succeeded. Confirm that it is in use to close the renewal.</p>
+  <details class="confirmation"{% if errors %} open{% endif %}>
+  <summary>Finalize {{ r.common_name }}{% if previous %} and retire {{ previous.common_name }} (#{{ previous.id }}){% endif %}</summary>
+  <p>Review the new certificate above. Confirming closes this renewal and irreversibly updates the previous certificate's inventory status.</p>
   <form method="post" action="/renewals/{{ r.id }}/finalize"
         hx-post="/renewals/{{ r.id }}/finalize" hx-target="#renewal-panel" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -27,14 +31,16 @@
     <label for="reason">Reason (required to revoke)</label>
     <textarea id="reason" name="reason" rows="2" cols="60" maxlength="1000">{{ form.reason }}</textarea>
     {{ field_error(errors, "reason") }}
-    <button type="submit">Mark done</button>
+    <button class="button-destructive" type="submit">Mark done</button>
+    <a href="/renewals/{{ r.id }}">Cancel confirmation</a>
   </form>
+  </details>
   {% else %}
   <h2>Renewal complete</h2>
   <dl class="fields">
     <dt>Completed</dt><dd>{{ time_tag(r.state_changed_at, tz) }}</dd>
     <dt>Previous certificate</dt><dd>{% if previous %}<a href="/certificates/{{ previous.id }}">{{ previous.common_name }}</a>: {{ previous.status.value }}{% else %}none{% endif %}</dd>
-    <dt>CSR SHA-256</dt><dd><code>{{ r.csr_sha256 }}</code></dd>
+    <dt>CSR SHA-256</dt><dd>{{ identifier(r.csr_sha256) }}</dd>
   </dl>
   {% endif %}
 </section>

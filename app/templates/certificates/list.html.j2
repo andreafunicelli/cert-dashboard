@@ -1,6 +1,8 @@
 {% extends "base.html.j2" %}
 {% block title %}Certificates · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/certificates.css">{% endblock %}
 {% block content %}
+{% from "_inventory_ui.html.j2" import certificate_state %}
 <h1>Certificates</h1>
 <section class="panel wide" aria-label="Filters">
   <form method="get" action="/certificates" class="filters">
@@ -44,40 +46,40 @@
 <table class="certificates">
   <thead><tr>
     <th scope="col"><a href="{{ sort_url('common_name') }}">Common name</a></th>
-    <th scope="col">SANs</th>
+    <th scope="col" class="numeric">SANs</th>
     <th scope="col"><a href="{{ sort_url('issuer_cn') }}">Issuer</a></th>
     <th scope="col"><a href="{{ sort_url('not_after') }}">Expires</a></th>
     <th scope="col">Owner</th>
     <th scope="col"><a href="{{ sort_url('status') }}">Status</a></th>
     <th scope="col">Source</th>
     <th scope="col">Key</th>
-    <th scope="col">Bindings</th>
+    <th scope="col" class="numeric">Bindings</th>
   </tr></thead>
   <tbody>
   {% for cert in page.items %}
   {% set chip = expiry_chip(cert.not_after, now) %}
   <tr data-cn="{{ cert.common_name }}">
     <td><a href="/certificates/{{ cert.id }}">{{ cert.common_name }}</a></td>
-    <td>{{ cert.sans | length }}</td>
+    <td class="numeric">{{ cert.sans | length }}</td>
     <td>{{ cert.issuer_cn }}</td>
-    <td>{{ time_tag(cert.not_after, tz) }} <span class="chip {{ chip.css }}">{{ chip.label }}</span></td>
+    <td class="numeric">{{ time_tag(cert.not_after, tz) }} <span class="chip {{ chip.css }}">{{ icon('danger' if chip.css == 'chip-expired' else ('ok' if chip.css == 'chip-ok' else 'warn')) }}{{ chip.label }}</span></td>
     <td>{% if cert.owner_name %}{{ cert.owner_name }}{% elif cert.owner_email %}{{ cert.owner_email }}{% endif %}{% if cert.team %}<br><small>{{ cert.team }}</small>{% endif %}</td>
-    <td>{{ cert.status.value }}</td>
+    <td>{{ certificate_state(cert, now) }}<small class="lifecycle">{{ cert.status.value }}</small></td>
     <td>{% if cert.renews_id %}Renewed{% else %}Imported{% endif %}</td>
     <td>{% if cert.key_id %}yes{% else %}no{% endif %}</td>
-    <td>{{ cert.binding_count }}</td>
+    <td class="numeric">{{ cert.binding_count }}</td>
   </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
 {% else %}
-<p class="panel wide">No certificates match these filters. <a href="/certificates/import">Import a certificate</a> or <a href="/certificates">clear the filters</a>.</p>
+<div class="empty-state"><h2>No matching certificates</h2><p>No certificates match these filters. <a href="/certificates/import">Import a certificate</a> or <a href="/certificates">clear the filters</a>.</p></div>
 {% endif %}
 
 <nav class="pager" aria-label="Pages">
   {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
-  <span>Page {{ page.page }} of {{ pages }}</span>
+  <span aria-current="page">Page <span class="mono">{{ page.page }}</span> of <span class="mono">{{ pages }}</span></span>
   {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
 </nav>
 {% endblock %}

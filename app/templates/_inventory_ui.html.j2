@@ -1,0 +1,38 @@
+{# Presentation only: no lifecycle or trust decisions are changed here. #}
+{% from "_ui.html.j2" import icon %}
+
+{% macro enhanced_forms() -%}
+<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+{%- endmacro %}
+
+{% macro certificate_state(cert, now) -%}
+{% if cert.status.value == 'revoked' %}
+<span class="badge badge-danger">{{ icon('danger') }}Revoked</span>
+{% elif cert.status.value == 'superseded' %}
+<span class="badge badge-warn">{{ icon('warn') }}Superseded</span>
+{% elif cert.status.value != 'active' or not cert.not_after or not cert.not_before or not now %}
+<span class="badge badge-info">{{ icon() }}Unknown validity</span>
+{% elif cert.not_before > now %}
+<span class="badge badge-warn">{{ icon('warn') }}Not yet valid</span>
+{% elif cert.not_after < now %}
+<span class="badge badge-danger">{{ icon('danger') }}Expired</span>
+{% elif (cert.not_after - now).days < 60 %}
+<span class="badge badge-warn">{{ icon('warn') }}Expiring</span>
+{% else %}
+<span class="badge badge-ok">{{ icon('ok') }}Valid</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro chain_verdict(status) -%}
+{% set kind = 'ok' if status == 'trusted' else ('danger' if status == 'untrusted_root' else 'warn') %}
+<span class="badge badge-{{ kind }} badge-chain-{{ status or 'unchecked' }}">{{ icon(kind) }}{{ {'trusted': 'Trusted chain', 'incomplete': 'Incomplete chain', 'untrusted_root': 'Untrusted root', 'unchecked': 'Chain not verified'}.get(status, 'Incomplete chain verification — unavailable') }}</span>
+{%- endmacro %}
+
+{% macro scan_state(status) -%}
+{% set kind = 'ok' if status == 'ok' else ('danger' if status in ['expired', 'mismatch', 'unreachable', 'error'] else 'info') %}
+<span class="badge badge-{{ kind }}">{{ icon(kind) }}{{ {'ok': 'No findings', 'expired': 'Findings: expired', 'mismatch': 'Findings: mismatch', 'unreachable': 'Scan failed: unreachable', 'error': 'Scan failed: error'}.get(status, 'Not scanned') }}</span>
+{%- endmacro %}
+
+{% macro identifier(value, csr=false) -%}
+<code class="identifier" tabindex="0"{% if csr %} data-csr-sha256{% endif %} title="{{ value }} — Select the entire value to copy; use Ctrl+C or Command+C">{%- for group in (value | string) | batch(4) -%}<span class="identifier-group">{{ group | join }}</span>{%- endfor -%}</code>
+{%- endmacro %}

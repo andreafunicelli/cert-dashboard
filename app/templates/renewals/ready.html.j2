@@ -1,11 +1,13 @@
 {% extends "renewals/_layout.html.j2" %}
 {% block title %}Ready · {{ r.common_name }} · Cert Dashboard{% endblock %}
 {% block panel %}
+{% from "_inventory_ui.html.j2" import identifier %}
+{% from "_ui.html.j2" import icon %}
 {% from "renewals/_macros.html.j2" import header, general_errors, cancel_form %}
 <section class="panel wide" id="renewal-panel" data-step="{{ step }}" data-state="{{ state }}">
   {% if warnings %}
   <section class="notice warning-note" data-section="warnings" role="status">
-    <h2>Trust warnings</h2>
+    <h2>{{ icon('warn') }}Trust warnings</h2>
     <ul class="warnings">{% for warning in warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
     <p>This does not block the renewal, but deployment requires a trusted chain.
       <a href="/settings?tab=trust">Review trust anchors in Settings</a>, or import the missing chain on the certificate page.</p>
@@ -20,9 +22,9 @@
       <dt>Certificate</dt><dd><a href="/certificates/{{ certificate.id }}">{{ certificate.common_name }}</a> (#{{ certificate.id }})</dd>
       <dt>Issuer</dt><dd>{{ certificate.issuer_cn }}</dd>
       <dt>Valid until</dt><dd>{{ time_tag(certificate.not_after, tz) }}</dd>
-      <dt>SHA-256 fingerprint</dt><dd><code>{{ certificate.sha256_fingerprint }}</code></dd>
-      <dt>Chain status</dt><dd>{{ certificate.chain_status.value }}</dd>
-      <dt>CSR SHA-256</dt><dd><code>{{ r.csr_sha256 }}</code></dd>
+      <dt>SHA-256 fingerprint</dt><dd>{{ identifier(certificate.sha256_fingerprint) }}</dd>
+      <dt>Stored chain assessment</dt><dd><span class="mono">{{ certificate.chain_status.value }}</span>. This is cached, not a current trust verdict; review any trust warnings above. Deployment rechecks trust.</dd>
+      <dt>CSR SHA-256</dt><dd>{{ identifier(r.csr_sha256) }}</dd>
     </dl>
     {% endif %}
   </section>
@@ -31,6 +33,7 @@
   {% else %}
   <p class="hint">Deployment is not available in this version; the renewal stays issued until a deploy succeeds.</p>
   {% endif %}
+  {% if certificate %}<p><a href="/certificates/{{ certificate.id }}">Review certificate, chain and export options</a></p>{% endif %}
 
   {% if can_cancel %}{{ cancel_form(r, errors, csrf_token) }}{% endif %}
 </section>

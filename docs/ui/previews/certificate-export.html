@@ -1,0 +1,76 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Export PFX · gateway.ops.example.test · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/certificates.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span aria-current="page"><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Export gateway.ops.example.test as PFX</h1>
+<p><a href="/certificates/42">Back to certificate</a></p>
+<section class="panel" id="export-panel">
+
+
+  <p>The PFX contains the private key, the certificate and its stored intermediate chain. It is built in memory,
+    encrypted with the password you choose below, and sent once; nothing is written to disk.
+    The export is recorded in the audit log (without any password).</p>
+  <form method="post" action="/certificates/42/export.pfx" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="password">Your current password (to confirm it is you)</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" maxlength="1024" required>
+    <label for="pfx_password">PFX password (12 to 1,024 characters)</label>
+    <input id="pfx_password" name="pfx_password" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+    <label for="pfx_password_confirm">Repeat the PFX password</label>
+    <input id="pfx_password_confirm" name="pfx_password_confirm" type="password" autocomplete="new-password" minlength="12" maxlength="1024" required>
+    <p class="hint">Keep the PFX password safe: it cannot be recovered. Passwords are never shown again, so re-enter them after any error.</p>
+    <button type="submit">Download PFX</button>
+  </form>
+
+</section>
+</main>
+
+</body>
+</html>

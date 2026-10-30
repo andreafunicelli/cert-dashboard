@@ -1,11 +1,14 @@
 {% extends "base.html.j2" %}
 {% block title %}Import from server · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/import.css">{% endblock %}
 {% block content %}
 <section class="panel" id="import-progress">
   <h1>Import from server</h1>
   <p>Endpoint <code>{{ job.endpoint }}</code>{% if job.sni %} (SNI <code>{{ job.sni }}</code>){% endif %}</p>
   {% block status %}
+  {% from "_ui.html.j2" import icon %}
   <div id="import-status" data-status="{{ job.status }}" aria-live="polite"{% if job.polling %} hx-get="/imports/{{ job.id }}/progress" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+    <p><span class="badge badge-{{ 'ok' if job.status == 'succeeded' else ('danger' if job.status == 'failed' else 'warn') }}">{{ icon('ok' if job.status == 'succeeded' else ('danger' if job.status == 'failed' else 'warn')) }}{{ job.status }}</span></p>
     {% if job.status == "queued" %}
     <p role="status">Queued. The worker will connect shortly.</p>
     {% elif job.status == "running" or job.status == "paused" %}

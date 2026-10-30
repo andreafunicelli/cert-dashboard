@@ -1,0 +1,125 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>gateway.ops.example.test · Scans · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config"><link rel="stylesheet" href="../../../app/static/pages/scans.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span aria-current="page"><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+<p><a href="/scans">← All scans</a></p>
+<h1>gateway.ops.example.test:443</h1>
+<section class="panel wide" id="endpoint-panel" aria-label="Endpoint">
+  <p>
+<span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>Not scanned</span>
+    </p>
+  <p>No scan result is available. Run a scan to establish the endpoint state.</p>
+
+  <dl class="fields">
+    <dt>SNI</dt><dd>gateway.ops.example.test</dd>
+    <dt>Source</dt><dd>manual</dd>
+    <dt>Server</dt><dd>edge-01</dd>
+    <dt>Expected certificate</dt><dd><a href="/certificates/42">gateway.ops.example.test</a> <code class="identifier" tabindex="0" title="0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef — Select the entire value to copy; use Ctrl+C or Command+C"><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span><span class="identifier-group">0123</span><span class="identifier-group">4567</span><span class="identifier-group">89ab</span><span class="identifier-group">cdef</span></code></dd>
+    <dt>Last checked</dt><dd>—</dd>
+    <dt>Observed common name</dt><dd>—</dd>
+    <dt>Observed issuer</dt><dd>—</dd>
+    <dt>Observed expiry</dt><dd>—</dd>
+    <dt>Observed fingerprint</dt><dd>—</dd>
+    <dt>Chain length / TLS</dt><dd class="mono">— / —</dd>
+  </dl>
+  <form class="inline" method="post" action="/scans/run">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="scope" value="endpoint">
+    <input type="hidden" name="endpoint_id" value="12">
+    <button type="submit">Scan now</button>
+  </form>
+
+</section>
+
+
+<section class="panel wide" id="manage-panel" aria-label="Manage endpoint">
+  <h2>Manage</h2>
+  <h3 id="expectation-form">Expected certificate</h3>
+  <p class="hint">Update the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.</p>
+
+  <form method="post" action="/scans/12/expectation" hx-post="/scans/12/expectation" hx-target="#manage-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="expect_certificate">Active certificate</label>
+    <select id="expect_certificate" name="certificate_id" required>
+
+      <option value="">Choose…</option>
+      <option value="42" selected>gateway.ops.example.test (#42, expires 2026-11-19)</option>
+    </select>
+    <button type="submit">Set expectation</button>
+  </form>
+
+  <h3>Scheduled scans</h3>
+
+  <form method="post" action="/scans/12/active" hx-post="/scans/12/active" hx-target="#manage-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="active" value="false">
+    <button type="submit">Deactivate</button>
+    <small>Endpoints are never deleted; deactivating keeps the history.</small>
+  </form>
+</section>
+
+
+
+
+<section class="panel wide" id="history" aria-label="History">
+
+
+  <h2>History</h2>
+  <p class="hint">The last 0 results (newest first) for gateway.ops.example.test:443.</p>
+  <p>This endpoint has not been scanned yet.</p>
+
+</section>
+</main>
+
+</body>
+</html>

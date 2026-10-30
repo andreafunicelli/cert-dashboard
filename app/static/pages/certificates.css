@@ -1,0 +1,18 @@
+/* Inventory layout; controls and data containers use shared components. */
+.certificates td { overflow-wrap: anywhere; }
+.certificates time { display: block; white-space: nowrap; font-size: var(--text-sm); }
+.certificates .numeric .chip { margin-top: var(--space-2); }
+.certificates .lifecycle { display: block; margin-top: var(--space-1); color: var(--text-muted); }
+.list-summary { margin-block: var(--space-5); }
+.lineage { overflow-wrap: anywhere; color: var(--text-muted); }
+#actions-panel .actions { align-items: flex-start; }
+#actions-panel .button { background: var(--surface-raised); color: var(--accent); }
+#actions-panel button { margin-top: var(--space-0); }
+#summary-panel .fields dd, #key-panel .fields dd { min-width: 0; }
+#summary-panel .notes { max-height: var(--material-height); overflow: auto; }
+#summary-panel .hint { margin-bottom: var(--space-0); }
+#bindings-panel td, #endpoints-panel td, #history-panel td { overflow-wrap: anywhere; }
+#status-panel select, #status-panel textarea, #chain-panel textarea { max-width: var(--panel-width); }
+#chain-panel textarea { font-family: var(--font-mono); }
+textarea { resize: vertical; max-height: var(--material-height); }
+#key-panel .fields dd { font-variant-numeric: tabular-nums; }

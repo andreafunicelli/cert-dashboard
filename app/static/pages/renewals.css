@@ -1,0 +1,19 @@
+/* The route's six real screens remain the source of step position. */
+#renewal-panel { max-width: none; }
+#renewal-panel .steps { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); padding: var(--space-4) var(--space-6); border-block: var(--line) solid var(--separator); }
+#renewal-panel .steps li { padding: var(--space-2); color: var(--text-muted); }
+#renewal-panel .steps [aria-current="step"] { color: var(--accent); background: var(--surface-inset); }
+#renewal-panel h2 { margin-top: var(--space-6); }
+#renewal-panel form > input, #renewal-panel form > select, #renewal-panel form > textarea { max-width: var(--panel-width); }
+#renewal-panel textarea:not([name="notes"]):not([name="reason"]) { font-family: var(--font-mono); }
+#renewal-panel textarea { resize: vertical; max-height: var(--material-height); }
+#renewal-panel .algorithm-notes { margin-block: var(--space-4); max-width: var(--measure); }
+#renewal-panel .algorithm-notes li { margin-block: var(--space-2); }
+#renewal-panel .confirmation { margin-top: var(--space-6); }
+#renewal-panel .fields dd { min-width: 0; }
+#renewal-panel p, #renewal-panel .notes { overflow-wrap: anywhere; }
+#renewal-panel .notes { max-height: var(--material-height); overflow: auto; }
+#renewal-panel code:not(.identifier) { display: inline-block; max-width: 100%; overflow: auto; white-space: nowrap; overflow-wrap: normal; vertical-align: middle; user-select: all; }
+#renewal-panel fieldset { border: var(--line) solid var(--border); margin: var(--space-4) var(--space-0); }
+#renewal-panel input[type="radio"], #renewal-panel input[type="checkbox"] { display: inline-block; width: auto; min-height: auto; }
+#renewal-panel .checks { max-height: var(--material-height); overflow: auto; }

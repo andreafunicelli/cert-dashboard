@@ -1,0 +1,120 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Done · gateway.ops.example.test · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config"><link rel="stylesheet" href="../../../app/static/pages/renewals.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+
+<section class="panel wide" id="renewal-panel" data-step="done" data-state="deployed">
+
+
+
+<h1>Renew gateway.ops.example.test</h1>
+<p class="step-position">Step <span class="mono">6</span> of <span class="mono">6</span>: <strong>Done</strong></p>
+<ol class="steps" aria-label="Renewal steps">
+
+  <li>Basics</li>
+
+  <li>CSR</li>
+
+  <li>Order</li>
+
+  <li>Upload</li>
+
+  <li>Ready</li>
+
+  <li aria-current="step"><strong>Done</strong></li>
+
+</ol>
+<p>State: <span class="badge badge-renewal-deployed"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>deployed</span>
+  · Renewing <a href="/certificates/42">gateway.ops.example.test</a>
+  (valid until <time datetime="2026-11-19T12:00:00Z">2026-11-19 12:00 UTC</time>)</p>
+
+<p>CSR SHA-256: <code class="identifier" tabindex="0" data-csr-sha256 title="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 — Select the entire value to copy; use Ctrl+C or Command+C"><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span></code> · <a href="/renewals/fixture-renewal/csr.pem">Download CSR</a></p>
+
+<p><a href="/certificates/42">Back to certificate</a></p>
+
+
+
+  <p>New certificate: <a href="/certificates/42">gateway.ops.example.test</a>
+    (#42, valid until <time datetime="2026-11-19T12:00:00Z">2026-11-19 12:00 UTC</time>).</p>
+
+
+
+  <h2>Finish the renewal</h2>
+  <p>A deploy of the new certificate succeeded. Confirm that it is in use to close the renewal.</p>
+  <details class="confirmation">
+  <summary>Finalize gateway.ops.example.test and retire gateway.ops.example.test (#42)</summary>
+  <p>Review the new certificate above. Confirming closes this renewal and irreversibly updates the previous certificate's inventory status.</p>
+  <form method="post" action="/renewals/fixture-renewal/finalize"
+        hx-post="/renewals/fixture-renewal/finalize" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label><input type="checkbox" name="confirm" value="yes" required> I confirm the new certificate is deployed and working.</label>
+
+    <fieldset>
+      <legend>The previous certificate (gateway.ops.example.test) becomes</legend>
+      <label><input type="radio" name="previous_status" value="superseded" checked> superseded (default)</label>
+      <label><input type="radio" name="previous_status" value="revoked" > revoked (the CA revoked it)</label>
+    </fieldset>
+
+    <label for="reason">Reason (required to revoke)</label>
+    <textarea id="reason" name="reason" rows="2" cols="60" maxlength="1000"></textarea>
+
+    <button class="button-destructive" type="submit">Mark done</button>
+    <a href="/renewals/fixture-renewal">Cancel confirmation</a>
+  </form>
+  </details>
+
+</section>
+</main>
+
+</body>
+</html>

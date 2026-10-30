@@ -1,0 +1,158 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CSR · gateway.ops.example.test · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config"><link rel="stylesheet" href="../../../app/static/pages/renewals.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+
+<section class="panel wide" id="renewal-panel" data-step="csr" data-state="csr_generated">
+
+
+
+<h1>Renew gateway.ops.example.test</h1>
+<p class="step-position">Step <span class="mono">2</span> of <span class="mono">6</span>: <strong>CSR</strong></p>
+<ol class="steps" aria-label="Renewal steps">
+
+  <li>Basics</li>
+
+  <li aria-current="step"><strong>CSR</strong></li>
+
+  <li>Order</li>
+
+  <li>Upload</li>
+
+  <li>Ready</li>
+
+  <li>Done</li>
+
+</ol>
+<p>State: <span class="badge badge-renewal-csr_generated"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>csr_generated</span>
+  · Renewing <a href="/certificates/42">gateway.ops.example.test</a>
+  (valid until <time datetime="2026-11-19T12:00:00Z">2026-11-19 12:00 UTC</time>)</p>
+
+<p>CSR SHA-256: <code class="identifier" tabindex="0" data-csr-sha256 title="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 — Select the entire value to copy; use Ctrl+C or Command+C"><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span></code> · <a href="/renewals/fixture-renewal/csr.pem">Download CSR</a></p>
+
+<p><a href="/certificates/42">Back to certificate</a></p>
+
+
+  <h2>Certificate signing request</h2>
+  <div class="bounded" tabindex="0" role="region" aria-label="Frozen certificate names"><p>Names: <strong>gateway.ops.example.test</strong> (DNS:gateway-0.ops.example.test, DNS:gateway-1.ops.example.test, DNS:gateway-2.ops.example.test, DNS:gateway-3.ops.example.test, DNS:gateway-4.ops.example.test, DNS:gateway-5.ops.example.test, DNS:gateway-6.ops.example.test, DNS:gateway-7.ops.example.test, DNS:gateway-8.ops.example.test, DNS:gateway-9.ops.example.test, DNS:gateway-10.ops.example.test, DNS:gateway-11.ops.example.test, DNS:gateway-12.ops.example.test, DNS:gateway-13.ops.example.test, DNS:gateway-14.ops.example.test, DNS:gateway-15.ops.example.test, DNS:gateway-16.ops.example.test, DNS:gateway-17.ops.example.test, DNS:gateway-18.ops.example.test, DNS:gateway-19.ops.example.test, DNS:gateway-20.ops.example.test, DNS:gateway-21.ops.example.test, DNS:gateway-22.ops.example.test, DNS:gateway-23.ops.example.test, DNS:gateway-24.ops.example.test, DNS:gateway-25.ops.example.test, DNS:gateway-26.ops.example.test, DNS:gateway-27.ops.example.test, DNS:gateway-28.ops.example.test, DNS:gateway-29.ops.example.test, DNS:gateway-30.ops.example.test, DNS:gateway-31.ops.example.test, DNS:gateway-32.ops.example.test, DNS:gateway-33.ops.example.test, DNS:gateway-34.ops.example.test, DNS:gateway-35.ops.example.test, DNS:gateway-36.ops.example.test, DNS:gateway-37.ops.example.test, DNS:gateway-38.ops.example.test, DNS:gateway-39.ops.example.test). They can no longer be changed.</p></div>
+  <pre class="material" id="csr-pem" tabindex="0" role="region" aria-label="Certificate signing request PEM">-----BEGIN CERTIFICATE REQUEST-----
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+FIXTURE-NOT-A-VALID-CSR
+-----END CERTIFICATE REQUEST-----</pre>
+  <p><a class="button" href="/renewals/fixture-renewal/csr.pem">Download CSR</a></p>
+  <p>SHA-256: <code class="identifier" tabindex="0" title="abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 — Select the entire value to copy; use Ctrl+C or Command+C"><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span><span class="identifier-group">abcd</span><span class="identifier-group">ef01</span><span class="identifier-group">2345</span><span class="identifier-group">6789</span></code></p>
+  <p class="hint">Compare this hash with the request shown in the CA portal; it proves you submitted the right CSR.</p>
+
+  <h2>At the CA</h2>
+  <p class="checklist"><strong>CA portal checklist:</strong> order a certificate, paste this CSR, complete validation, download the certificate and any intermediate.</p>
+
+  <h2>Record the order</h2>
+  <form method="post" action="/renewals/fixture-renewal/submit"
+        hx-post="/renewals/fixture-renewal/submit" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="order_reference">CA order reference</label>
+    <input id="order_reference" name="order_reference" maxlength="200" required autocomplete="off">
+
+    <p class="hint">The date is recorded automatically. The renewal then waits for the issued certificate.</p>
+    <button type="submit">I have ordered it</button>
+  </form>
+
+
+<details class="confirmation cancel">
+  <summary>Cancel this renewal: gateway.ops.example.test</summary>
+  <p>Confirm cancellation of gateway.ops.example.test (renewal <span class="mono">fixture-renewal</span>). This cannot be undone.</p>
+  <form method="post" action="/renewals/fixture-renewal/cancel"
+        hx-post="/renewals/fixture-renewal/cancel" hx-target="#renewal-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="cancel_reason">Reason (required)</label>
+    <textarea id="cancel_reason" name="reason" rows="2" cols="60" maxlength="1000" required></textarea>
+
+    <p class="hint">The private key, the CSR and the history are kept; the renewal is closed and the reason is audited.</p>
+    <button class="button-destructive" type="submit">Cancel renewal</button>
+    <a href="/renewals/fixture-renewal">Keep renewal</a>
+  </form>
+</details>
+
+</section>
+</main>
+
+</body>
+</html>

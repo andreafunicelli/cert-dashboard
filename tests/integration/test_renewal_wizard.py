@@ -1,5 +1,6 @@
 """Task 19: resumable manual-CA renewal wizard (real Postgres, real HTTP stack, form-only flows)."""
 
+import json
 import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -923,7 +924,11 @@ def test_step_pages_wire_htmx_forms_with_a_panel_target(signed_in, wizard):
     renewal_id = wizard.renewal_id(wizard.create(name, [name]))
     page = signed_in.get(f"/renewals/{renewal_id}?step=basics")
     assert 'id="renewal-panel"' in page.text and 'hx-target="#renewal-panel"' in page.text
-    assert 'method="post"' in page.text and "htmx:beforeSwap" in page.text  # non-JS forms still work
+    assert 'method="post"' in page.text  # non-JS forms still work
+    config = re.search(r"<meta name=\"htmx-config\" content='([^']+)'", page.text)
+    assert config is not None
+    assert {"code": "422", "swap": True, "error": False} in json.loads(config.group(1))["responseHandling"]
+    assert "<script>" not in page.text  # 422 handling uses vendored HTMX, not inline JS
 
 
 def test_wizard_audits_record_no_pem_or_secret_material(wizard):
