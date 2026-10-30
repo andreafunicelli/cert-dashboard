@@ -1,0 +1,114 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Account · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/account.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Account</h1>
+<p>Signed in as <strong>operator</strong>.</p>
+<p class="help">Manage your password, sign-in protection and current session.</p>
+
+
+
+<section class="panel" aria-labelledby="password-heading">
+  <h2 id="password-heading">Change password</h2>
+
+
+  <form method="post" action="/account/password">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="pw-current">Current password</label>
+    <input id="pw-current" name="current_password" type="password" autocomplete="current-password" required>
+    <label for="pw-new">New password (at least 12 characters)</label>
+    <input id="pw-new" name="new_password" type="password" autocomplete="new-password" minlength="12" required>
+    <label for="pw-confirm">Repeat new password</label>
+    <input id="pw-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+    <button type="submit">Change password</button>
+  </form>
+  <p class="hint">Changing your password signs out every other session.</p>
+
+</section>
+
+
+<section class="panel" aria-labelledby="totp-heading">
+  <h2 id="totp-heading">Two-factor authentication</h2>
+
+
+    <p>Two-factor authentication is <strong>enabled</strong>. Recovery codes remaining: <span class="mono">8</span>.</p>
+    <p><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> Protected by two-factor authentication</span></p>
+    <p class="help">Each recovery code works once. Keep the codes in a secure place separate from your password.</p>
+
+    <p class="form-error" role="alert">Current password is incorrect.</p>
+    <details class="confirmation" open>
+    <summary>Disable two-factor authentication</summary>
+    <p>This removes your authenticator and recovery codes. Future sign-ins will require only your password. Every other session will be signed out.</p>
+    <form method="post" action="/account/totp/disable">
+      <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+      <label for="disable-password">Current password</label>
+      <input id="disable-password" name="current_password" type="password" autocomplete="current-password" required>
+      <div class="actions"><button class="button-destructive" type="submit">Disable two-factor authentication</button><a href="/account">Cancel</a></div>
+    </form>
+    </details>
+
+</section>
+
+
+<section class="panel" aria-labelledby="sessions-heading">
+<h2 id="sessions-heading">Current session</h2>
+<p>Sign out of this browser only. Other sessions stay signed in.</p>
+<form method="post" action="/logout">
+  <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+  <button class="button-secondary" type="submit">Sign out</button>
+</form>
+</section>
+</main>
+
+</body>
+</html>

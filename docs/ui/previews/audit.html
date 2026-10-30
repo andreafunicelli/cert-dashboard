@@ -1,0 +1,154 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Audit log · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/audit.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span aria-current="page"><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Audit log</h1>
+<p>Append-only history, newest first. This view is read-only.</p>
+<section class="panel wide audit-filters" aria-label="Filters">
+  <form method="get" action="/audit" class="filters">
+    <label>Actor <input name="actor" value="" maxlength="200"></label>
+    <label>Action prefix <input name="action_prefix" value="" maxlength="100" placeholder="certificate."></label>
+    <label>Target type <input name="target_type" value="" maxlength="200"></label>
+    <label>Target ID <input name="target_id" value="" maxlength="200"></label>
+    <label>From (inclusive, UTC) <input name="start" value="" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
+    <label>Until (exclusive, UTC) <input name="end" value="" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
+    <label>IP or CIDR <input name="ip" value="" maxlength="45" placeholder="192.0.2.10 or 192.0.2.0/24"></label>
+
+    <button type="submit">Apply filters</button>
+    <a href="/audit">Reset</a>
+  </form>
+</section>
+
+<p class="list-summary" data-total="2"><span class="mono">2</span> events
+  · <a href="/audit/export.json" download="audit.json">Export list as JSON</a> (metadata only, newest 5,000)</p>
+
+
+<div class="table-wrap">
+<table class="audit">
+  <thead><tr>
+    <th scope="col">Time</th>
+    <th scope="col">Actor</th>
+    <th scope="col">Action</th>
+    <th scope="col">Target</th>
+    <th scope="col">IP</th>
+
+  </tr></thead>
+  <tbody>
+
+
+  <tr data-audit-row>
+    <td><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></td>
+    <td><strong class="audit-value" title="operator">operator</strong></td>
+    <td><span class="audit-value mono" title="certificate.import">certificate.import</span></td>
+    <td><span class="audit-value" title="certificate">certificate</span> <small class="audit-value mono" title="42">42</small></td>
+    <td><span class="audit-value mono" title="2001:db8::1">2001:db8::1</span></td>
+  </tr>
+  <tr class="audit-detail-row"><td colspan="5"><details>
+      <summary>Show event</summary>
+      <div class="audit-detail">
+      <dl class="fields">
+        <dt>Actor</dt><dd>operator</dd>
+        <dt>Action</dt><dd class="mono">certificate.import</dd>
+        <dt>Target</dt><dd>certificate <span class="mono">42</span></dd>
+        <dt>Time (UTC)</dt><dd class="mono">2026-10-19T12:00:00Z</dd>
+        <dt>IP</dt><dd class="mono">2001:db8::1</dd>
+        <dt>User agent</dt><dd>fixture-browser/1.0 long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-</dd>
+      </dl>
+      <pre>{
+  &#34;common_name&#34;: &#34;api.example.test&#34;,
+  &#34;path&#34;: &#34;/etc/tls/long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-&#34;,
+  &#34;note&#34;: &#34;&lt;script&gt;fixture escaping check&lt;/script&gt;&#34;
+}</pre>
+      </div>
+    </details></td>
+  </tr>
+
+
+  <tr data-audit-row>
+    <td><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></td>
+    <td><strong class="audit-value" title="worker:edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-">worker:edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-</strong></td>
+    <td><span class="audit-value mono" title="job.failed">job.failed</span></td>
+    <td><span class="audit-value" title="certificate">certificate</span> <small class="audit-value mono" title="42">42</small></td>
+    <td><span class="audit-value mono" title="2001:db8::1">2001:db8::1</span></td>
+  </tr>
+  <tr class="audit-detail-row"><td colspan="5"><details>
+      <summary>Show event</summary>
+      <div class="audit-detail">
+      <dl class="fields">
+        <dt>Actor</dt><dd>worker:edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-</dd>
+        <dt>Action</dt><dd class="mono">job.failed</dd>
+        <dt>Target</dt><dd>certificate <span class="mono">42</span></dd>
+        <dt>Time (UTC)</dt><dd class="mono">2026-10-19T12:00:00Z</dd>
+        <dt>IP</dt><dd class="mono">2001:db8::1</dd>
+        <dt>User agent</dt><dd>fixture-browser/1.0 long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-long-agent-</dd>
+      </dl>
+      <pre>{
+  &#34;common_name&#34;: &#34;api.example.test&#34;,
+  &#34;path&#34;: &#34;/etc/tls/long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-long-path-&#34;,
+  &#34;note&#34;: &#34;&lt;script&gt;fixture escaping check&lt;/script&gt;&#34;
+}</pre>
+      </div>
+    </details></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span class="mono" aria-current="page">Page 1 of 1</span>
+
+</nav>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,234 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Overview · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/overview.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span aria-current="page"><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Overview</h1>
+<h2>Certificate expiry</h2>
+<section class="counters" aria-label="Certificate expiry">
+
+
+  <a class="counter counter-expired" data-counter="expired" href="/certificates?expiry=expired&amp;status=active"><strong>2</strong><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Expired</span></a>
+
+
+  <a class="counter counter-lt7" data-counter="lt7" href="/certificates?expiry=lt7&amp;status=active"><strong>3</strong><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Expiring in &lt; 7 days</span></a>
+
+
+  <a class="counter counter-lt30" data-counter="lt30" href="/certificates?expiry=lt30&amp;status=active"><strong>7</strong><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> Expiring in &lt; 30 days</span></a>
+
+
+  <a class="counter counter-lt60" data-counter="lt60" href="/certificates?expiry=lt60&amp;status=active"><strong>12</strong><span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg> Expiring in &lt; 60 days</span></a>
+
+
+  <a class="counter counter-total_active" data-counter="total_active" href="/certificates?status=active"><strong>148</strong><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> Total active</span></a>
+
+</section>
+
+
+<section class="panel wide status-strip" data-status-strip="true" aria-label="Status">
+  <div><h2>Worker</h2><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> stale</span>
+  <p class="help">Last heartbeat <time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time>. <a href="/settings?tab=status">Worker details</a></p></div>
+  <div><h2>Inventory revision</h2><p><code title="abc123def4567890">abc123def456</code> (<span class="mono">5</span> h old)</p></div>
+  <div><h2>Last digest</h2><p><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></p></div>
+</section>
+
+
+
+
+<aside class="banner banner-critical overview-failures" role="status">
+  <strong><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Recent failures</strong>
+  <ul><li><a href="/audit?target_type=job&amp;target_id=fixture-job-1">scan: 2 endpoints</a> — <time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></li></ul>
+  <p class="help">Failures among the most recent jobs, not a complete failure history.</p>
+</aside>
+
+<h2>TLS health</h2>
+<section class="counters" aria-label="TLS health">
+
+
+  <a class="counter tls-counter tls-ok" data-tls="ok" href="/scans?status=ok"><strong>96</strong><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> OK</span></a>
+
+
+  <a class="counter tls-counter tls-mismatch" data-tls="mismatch" href="/scans?status=mismatch"><strong>2</strong><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Mismatch</span></a>
+
+
+  <a class="counter tls-counter tls-expired" data-tls="expired" href="/scans?status=expired"><strong>1</strong><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Expired</span></a>
+
+
+  <a class="counter tls-counter tls-unreachable" data-tls="unreachable" href="/scans?status=unreachable"><strong>1</strong><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Unreachable</span></a>
+
+
+  <a class="counter tls-counter tls-error" data-tls="error" href="/scans?status=error"><strong>0</strong><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Error</span></a>
+
+
+  <a class="counter tls-counter tls-never_scanned" data-tls="never_scanned" href="/scans"><strong>4</strong><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> Never scanned</span></a>
+
+
+  <a class="counter tls-counter tls-unknown_certificates" data-tls="unknown_certificates" href="/bindings?match_state=unknown"><strong>1</strong><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> Unknown certificates on servers</span></a>
+
+
+  <a class="counter tls-counter tls-key_mismatch_bindings" data-tls="key_mismatch_bindings" href="/bindings?match_state=key_mismatch"><strong>1</strong><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Bindings with a key mismatch</span></a>
+
+</section>
+<p class="help">Latest recorded results, not a live probe. Scan freshness is not summarized here; <a href="/scans">check last-scan times in Scans</a>. Never scanned opens the full endpoint list.</p>
+
+<nav class="actions" aria-label="Overview actions"><a class="button button-secondary" href="/certificates">Review certificates</a><a class="button button-secondary" href="/scans">Review scans</a><a href="/audit?target_type=job">Job history</a></nav>
+
+
+<h2>Recent jobs</h2>
+
+<div class="table-wrap">
+<table class="recent-jobs">
+  <thead><tr><th scope="col">Type</th><th scope="col">Target</th><th scope="col">Status</th><th scope="col" class="numeric">Duration</th><th scope="col">Actor</th><th scope="col">Finished</th><th scope="col">Details</th></tr></thead>
+  <tbody>
+
+  <tr class="job job-failed row-attention" data-job-id="fixture-job-1">
+    <td>scan</td><td>2 endpoints</td>
+    <td><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> failed</span></td>
+    <td class="numeric">2m 0s</td>
+    <td>operator</td><td><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></td><td><a href="/audit?target_type=job&amp;target_id=fixture-job-1" aria-label="Details for scan job">Details</a></td>
+  </tr>
+
+  <tr class="job" data-job-id="fixture-job-2">
+    <td>deploy</td><td>certificate 42 (dry_run)</td>
+    <td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> succeeded</span></td>
+    <td class="numeric">0m 18s</td>
+    <td>operator</td><td><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></td><td><a href="/deploy/fixture-job-2" aria-label="Details for deploy job">Details</a></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+
+
+<h2>Unknown certificates on servers</h2>
+<div class="table-wrap">
+<table class="unknown-bindings">
+  <thead><tr><th scope="col">Server</th><th scope="col">Virtual host</th><th scope="col">On-disk fingerprint</th><th scope="col">Action</th></tr></thead>
+  <tbody>
+
+  <tr data-binding-id="1">
+    <td><a href="/servers/1">edge.example.test</a></td><td>api.example.test:<span class="mono">443</span></td>
+    <td><code>a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1</code></td>
+    <td><a href="/certificates/import?from_binding=1">Import as certificate</a></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+<p class="hint">The newest <span class="mono">1</span> unknown bindings; <a href="/bindings?match_state=unknown">see all</a>.</p>
+
+
+
+<h2>Renewals in flight</h2>
+
+<ul class="renewals-in-flight plain">
+
+  <li data-renewal-id="fixture-renewal"><a href="/renewals/fixture-renewal">api.example.test</a> <span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg> submitted</span> · <span class="mono">10 days</span> in this state</li>
+
+</ul>
+
+
+</main>
+
+</body>
+</html>

@@ -1,9 +1,10 @@
 {% extends "base.html.j2" %}
 {% block title %}Audit log · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/audit.css">{% endblock %}
 {% block content %}
 <h1>Audit log</h1>
 <p>Append-only history, newest first. This view is read-only.</p>
-<section class="panel wide" aria-label="Filters">
+<section class="panel wide audit-filters" aria-label="Filters">
   <form method="get" action="/audit" class="filters">
     <label>Actor <input name="actor" value="{{ values.actor or '' }}" maxlength="200"></label>
     <label>Action prefix <input name="action_prefix" value="{{ values.action_prefix or '' }}" maxlength="100" placeholder="certificate."></label>
@@ -18,7 +19,7 @@
   </form>
 </section>
 
-<p class="list-summary" data-total="{{ total }}">{{ total }} event{{ "" if total == 1 else "s" }}
+<p class="list-summary" data-total="{{ total }}"><span class="mono">{{ total }}</span> event{{ "" if total == 1 else "s" }}
   · <a href="{{ export_url }}" download="audit.json">Export list as JSON</a> (metadata only, newest 5,000)</p>
 
 {% if items %}
@@ -30,25 +31,31 @@
     <th scope="col">Action</th>
     <th scope="col">Target</th>
     <th scope="col">IP</th>
-    <th scope="col">Details</th>
+
   </tr></thead>
   <tbody>
   {% for item in items %}
   {% set row = item.row %}
   <tr data-audit-row>
     <td><time datetime="{{ item.utc }}">{{ item.local }}</time></td>
-    <td>{{ row.actor_label }}</td>
-    <td>{{ row.action }}</td>
-    <td>{{ row.target_type }}{% if row.target_id is not none %} <small>{{ row.target_id }}</small>{% endif %}</td>
-    <td>{{ item.ip or "—" }}</td>
-    <td><details>
-      <summary>Show</summary>
+    <td><strong class="audit-value" title="{{ row.actor_label }}">{{ row.actor_label }}</strong></td>
+    <td><span class="audit-value mono" title="{{ row.action }}">{{ row.action }}</span></td>
+    <td><span class="audit-value" title="{{ row.target_type }}">{{ row.target_type }}</span>{% if row.target_id is not none %} <small class="audit-value mono" title="{{ row.target_id }}">{{ row.target_id }}</small>{% endif %}</td>
+    <td><span class="audit-value mono" title="{{ item.ip or '—' }}">{{ item.ip or "—" }}</span></td>
+  </tr>
+  <tr class="audit-detail-row"><td colspan="5"><details>
+      <summary>Show event</summary>
+      <div class="audit-detail">
       <dl class="fields">
-        <dt>Time (UTC)</dt><dd>{{ item.utc }}</dd>
-        <dt>IP</dt><dd>{{ item.ip or "—" }}</dd>
+        <dt>Actor</dt><dd>{{ row.actor_label }}</dd>
+        <dt>Action</dt><dd class="mono">{{ row.action }}</dd>
+        <dt>Target</dt><dd>{{ row.target_type }}{% if row.target_id is not none %} <span class="mono">{{ row.target_id }}</span>{% endif %}</dd>
+        <dt>Time (UTC)</dt><dd class="mono">{{ item.utc }}</dd>
+        <dt>IP</dt><dd class="mono">{{ item.ip or "—" }}</dd>
         <dt>User agent</dt><dd>{{ row.user_agent or "—" }}</dd>
       </dl>
       <pre>{{ item.details_json }}</pre>
+      </div>
     </details></td>
   </tr>
   {% endfor %}
@@ -56,12 +63,12 @@
 </table>
 </div>
 {% else %}
-<p class="panel wide">No audit events match these filters. <a href="/audit">Clear the filters</a>.</p>
+<section class="empty-state"><h2>No audit events match these filters</h2><p>Try a wider date range or a different actor. Events appear here as operations are recorded.</p><a href="/audit">Clear the filters</a></section>
 {% endif %}
 
 <nav class="pager" aria-label="Pages">
   {% if page > 1 %}<a rel="prev" href="{{ page_url(page - 1) }}">Previous</a>{% endif %}
-  <span>Page {{ page }} of {{ pages }}</span>
+  <span class="mono" aria-current="page">Page {{ page }} of {{ pages }}</span>
   {% if page < pages %}<a rel="next" href="{{ page_url(page + 1) }}">Next</a>{% endif %}
 </nav>
 {% endblock %}
