@@ -872,18 +872,41 @@ the table at the end of the section and keep it with the installation.
 4. **`known_hosts` built from host keys verified out of band.** Never trust `ssh-keyscan` alone: an
    attacker who answers first would be pinned forever. Read each host key from the console, the hypervisor
    or the configuration management system and compare it with the host's own
-   `/etc/ssh/ssh_host_ed25519_key.pub`:
+   `/etc/ssh/ssh_host_ed25519_key.pub`. The entry must name the address SSH **connects to**, not the
+   inventory hostname: with the inventory below the worker runs `ssh cdeploy@10.0.0.11` on port 22, so the
+   entry is the bare address. A bracketed `[10.0.0.11]:22` would never match — OpenSSH brackets the
+   address only for a non-default port — and the first discovery would fail closed with `auth`.
 
    ```sh
-   ssh-keyscan -t ed25519 -p 22 <host>                # candidate only: compare it byte for byte
-   ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub   # on the host, out of band
-   printf '[%s]:%s ssh-ed25519 %s\n' "<host>" "22" "<verified key>" >> /etc/cert-dashboard/known_hosts
+   ssh-keyscan -t ed25519 -p 22 10.0.0.11              # candidate only: compare it byte for byte
+   ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub    # on that host, out of band
+   printf '10.0.0.11 ssh-ed25519 %s\n' "<verified key>" >> /etc/cert-dashboard/known_hosts
+   ssh-keygen -F 10.0.0.11 -f /etc/cert-dashboard/known_hosts     # must print the entry and exit 0
    ```
 
-   Non-default SSH ports must use the `[host]:port` form. Install the file root-owned `0644` and mount it
-   at `/etc/ssh/ssh_known_hosts` (section 11.2).
-5. **Inventory repository** (a static Ansible inventory, one file per host or one `hosts.yml`):
+   A host reached on a non-default port (`ansible_port: 2222`) is written `[10.0.0.11]:2222` and looked up
+   the same way; hash the bare inventory hostname only for a host with **no** `ansible_host`, because that
+   is the address the worker then connects to.
 
+   **The inventory Git remote is a second address.** The worker fetches the repository with the same key
+   and the same file (`git_environment()` in `app/services/inventory.py` sets `GIT_SSH_COMMAND` with
+   `StrictHostKeyChecking=yes`), so pin the Git server too: for
+   `ssh://cdeploy@10.0.0.5:2222/srv/inventory.git` the entry is `[10.0.0.5]:2222`, and the bare `10.0.0.5`
+   when it listens on 22. An `https://` repository needs no entry; TLS verifies it. Install the file
+   root-owned `0644`, mount it at `/etc/ssh/ssh_known_hosts` (section 11.2), then prove every lookup and
+   one real connection before the first discovery:
+
+   ```sh
+   ssh-keygen -F 10.0.0.11 -f /etc/cert-dashboard/known_hosts          # a target, default port
+   ssh-keygen -F '[10.0.0.5]:2222' -f /etc/cert-dashboard/known_hosts   # the Git remote, port 2222
+   ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+       -o UserKnownHostsFile=/etc/cert-dashboard/known_hosts \
+       -i /etc/cert-dashboard/secrets/ansible_ssh_key cdeploy@10.0.0.11 true
+   ```
+5. **Inventory repository** (a static Ansible inventory, one file per host or one `hosts.yml`). The
+   **first committed revision lists one host only** — that is what makes the first discovery read-only:
+
+   <!-- runbook:first-inventory -->
    ```yaml
    all:
      hosts:
@@ -893,44 +916,55 @@ the table at the end of the section and keep it with the installation.
          webserver_type: nginx          # or apache; omit to auto-detect
      children:
        canary_ring:
-         hosts: {web01.example.internal: {}}
-       ring_a:
-         hosts: {web02.example.internal: {}, web03.example.internal: {}}
+         hosts:
+           web01.example.internal: {}
    ```
 
-   Hostnames are inventory names, `ansible_host` is what the worker connects to, and the groups drive the
-   canary and the batches. Add vaulted group variables only if the playbooks need them.
+   Nothing else may be in this revision: no other entry under `all.hosts`, no host in a group's `hosts`,
+   nothing in `host_vars/` or `group_vars/`. Test pull counts every member of `all`, group children
+   included (`app/services/inventory.py`), so a stray group host silently widens the first discovery.
+   `tests/unit/test_operations_docs.py` lists this exact block with the worker's own
+   `ansible-inventory --list` and asserts one host; `web02` and `web03` arrive in the second commit of
+   step 9.
 
-   **Start the repository with only the first host** (`web01` above) and add the rest in step 9. A discovery
-   always syncs the *whole* inventory into `server` rows but connects **only to the hosts in its scope**
-   (`app/jobs/handlers/discover.py`), and **Servers → a server → Discover** needs that row to exist — for an
-   unknown hostname `app/web/servers.py` answers 404. A per-host discovery is therefore impossible before
-   the very first run, and **Discover all** over the full inventory would already connect to every host,
-   which is exactly what the one-host read-only check must rule out. With a one-host inventory,
+   Hostnames are inventory names, `ansible_host` is the address the worker connects to (the one the
+   `known_hosts` entry of item 4 must name), and the groups drive the canary and the batches. Add vaulted
+   group variables only if the playbooks need them.
+
+   **Start the repository with only the first host** and add the rest in step 9. A discovery always syncs
+   the *whole* inventory into `server` rows but connects **only to the hosts in its scope**
+   (`app/jobs/handlers/discover.py`), and **Servers → a server → Discover** needs that row to exist — for
+   an unknown hostname `app/web/servers.py` answers 404. A per-host discovery is therefore impossible
+   before the very first run, and **Discover all** over the full inventory would already connect to every
+   host, which is exactly what the one-host read-only check must rule out. With a one-host inventory,
    **Discover all** is that narrow, read-only run.
-6. **Compose credentials override** installed (`docker-compose.credentials.yml`), secrets provisioned
-   (section 2), `web` and `worker` running:
-   `docker compose -f docker-compose.yml -f docker-compose.credentials.yml up -d web worker`.
+6. **Section 2 completed**: secrets provisioned (2.1), schema migrated (2.2 step 2), the first
+   administrator created **once** (2.2 step 3), 2FA enrolled (2.2 step 5), the compose credentials
+   override installed and `web` and `worker` running:
+   `docker compose -f docker-compose.yml -f docker-compose.credentials.yml up -d web worker`. This
+   acceptance starts from that installed state and never re-runs the one-time `bootstrap-admin`: on an
+   initialized database it exits nonzero and creates nothing.
 7. A **test host** of each webserver type you will manage, holding a copy of a real vhost and a real
    certificate/key pair, reachable from the dashboard host on the webserver's TLS port.
 
 ### 12.2 Ordered steps, commands and expected results
 
-Steps 6–9 stage the inventory on purpose: the repository lists **one** host for the read-only check and the
-rest are added once that check passed (the reason is in 12.1 item 5). Everything after step 9 needs the
-full inventory.
+Steps 1–3 verify the administrator and the 2FA that section 2 created; the one-time `bootstrap-admin` is
+not repeated (§12.1 item 6). Steps 6–9 stage the inventory on purpose: the repository lists **one** host for
+the read-only check and the rest are added once that check passed (the reason is in 12.1 item 5).
+Everything after step 9 needs the full inventory.
 
 | # | Step | Command / action | Expected result |
 | --- | --- | --- | --- |
-| 1 | Bootstrap the admin | `docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal` | `created admin user_id=... username=admin`; the login page no longer offers bootstrap |
-| 2 | Log in and enrol 2FA | browser → `/login`, then **Account → Set up two-factor authentication**, confirm with a code | "Two-factor authentication is enabled"; the recovery codes are shown once — store them |
+| 1 | Administrator carried from §2.2 step 3 | open `/login`; do **not** re-run `bootstrap-admin` (on an initialized database it exits nonzero and creates nothing) | no bootstrap form on `/login`; the admin created in §2.2 step 3 signs in — its `user_id` is the bootstrap evidence. If this acceptance runs on a fresh database *before* §2.2 step 3, create the admin there **once** and record `created admin user_id=...` |
+| 2 | 2FA carried from §2.2 step 5 (enrol here only if it was skipped) | **Account**: either confirm *Two-factor authentication is enabled*, or **Set up two-factor authentication** and confirm with a code | enabled; the recovery codes are shown once — store them |
 | 3 | Log out, log back in with 2FA | browser | the second factor is asked and the dashboard opens |
 | 4 | SMTP | **Settings → SMTP** (host, port, security, from, optional username), **Send test email** | the relay answers and the message arrives; the tab shows the step list and reply codes |
 | 5 | Expiry alert for a certificate 7 days out | issue (or pick) a certificate whose `notAfter` is 7 days away and import it with **Certificates → Import**, format **PEM**, pasting the certificate (public part only); **Settings → Alerts**: at least one recipient, a threshold list containing 7 (default `60,30,14,7,1,0`) and *Run the daily expiry check* ticked; **Settings → Schedule**: set *Expiry check* a few minutes ahead (UTC) | the next scheduler tick (≤ 30 s) enqueues `alert_expiry`; the recipient receives `Certificate <CN> expires in 7 days` and **Settings → Alerts** records the delivery; set the schedule back to 07:00 |
 | 6 | Inventory, **first host only** | **Settings → Inventory**: URL, ref, path, web server variable → save, then **Test pull** | resolved revision, revision date, **hosts 1** and the group count; Test pull creates no `server` row, which is why the repository starts with one host |
 | 7 | Read-only discovery of **one** host | `touch /tmp/before` on the host, then **Servers → Discover all** (the inventory holds only this host, so the job contacts only it) | the server and its bindings appear; `find /etc /var/backups -newer /tmp/before` on the host prints **nothing** |
 | 8 | Spot-check against reality | on the host: `grep -RE '^[[:space:]]*(ssl_certificate\|SSLCertificateFile)[[:space:]]' /etc/nginx /etc/apache2` | the `(vhost, certificate path)` pairs equal the bindings shown by **Bindings** (`/bindings?server_id=...`) |
-| 9 | Full inventory | add the remaining hosts to the inventory repository, commit, push, then **Settings → Inventory → Test pull** and **Servers → Discover all** | the revision and host count follow the repository; every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
+| 9 | Full inventory (second commit) | add the remaining hosts as in §12.2.1, commit and push, then **Settings → Inventory → Test pull** and **Servers → Discover all** | Test pull reports **hosts 3** and 2 groups, the revision follows the repository; every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
 | 10 | Import a real certificate + key | **Certificates → Import** (PFX with its password, or PEM plus its key) | the detail page shows the key and the chain; `key.import` is audited without key material |
 | 11 | Rediscover, then check `matched` (D2) | **Servers → the host that serves that certificate → Discover** (or **Discover all**) | its bindings become `matched`, each with `on_disk_key_public_sha256` equal to the key's `public_key_sha256` (DER, section 11.6); the match state is computed *by discovery*, so right after the import the bindings still show the previous state |
 | 12 | Export it again and compare | detail → **Export PFX** (re-enter your password, choose an export password) | the exported PKCS#12 opens and carries the same leaf and public key (`openssl pkcs12 -in export.pfx -nokeys -info`) |
@@ -938,9 +972,74 @@ full inventory.
 | 14 | Renewal end to end | **Certificates → detail → Renew**: generate the CSR, download it, order at the CA portal, paste/upload the issued certificate and chain | the renewal reaches `issued`; the new certificate has a key and `renews_id` pointing at the old one |
 | 15 | First deploy, canary first | **Deploy**: choose the issued renewal, tick the bindings of **at least two hosts** (a one-host job has no later batch and never pauses), designate the canary host, batch 100%, **pause after canary** on → **Start deploy** | the canary host `succeeded`, the job is `paused`, and the canary serves the new certificate (`openssl s_client -connect <canary>:<port> -servername <vhost> \| openssl x509 -noout -fingerprint -sha256` equals the certificate's SHA-256 fingerprint) |
 | 16 | Continue | **Continue** on the job screen | the remaining hosts run; the job is `succeeded`; the renewal is `deployed`; after a **Discover all** every deployed binding is `matched`; the digest is clean (no failed job, no rolled-back host, no mismatch) |
-| 17 | Forced rollback drill (test host only) | put the previous certificate and key back (`install` from a copy, `nginx -t && nginx -s reload`), run **Discover** for that host, `kill -STOP $(pgrep -o nginx)` (or the Apache parent), deploy the same certificate **to that host only** (a one-host job finishes without pausing — expected here), then `kill -CONT` | the host row is `rolled_back` with reason `verify_failed`, `files_restored` true, the previous fingerprint served, and no `needs_attention` |
+| 17 | Forced rollback drill (test host only) | restore the previous certificate and key (`install` from a copy, `nginx -t && nginx -s reload`), **Discover** that host, then run the block of §12.2.2 (it stops the master and always resumes it) and start the deploy of the same certificate **to that host only** (a one-host job finishes without pausing — expected here); press Enter only when the job screen shows `rolled_back` | the host row is `rolled_back` with reason `verify_failed`, `files_restored` true and no `needs_attention`; after the block the master's `ps` state is no longer `T` and the host serves the previous fingerprint |
 | 18 | Manual recovery drill | restore one file from `/var/backups/cert-dashboard/<job_id>/…` as in section 11.5, config test, reload, then **Discover** | the binding is `matched` again and the served fingerprint equals the file's |
 | 19 | Restore drill | section 4.2: `pg_restore` into a staging database, start a staging stack with the **same** `master_key`, open a certificate, **Export PFX**, then `python -m app.cli verify-key --certificate-id <id>` in a `web` one-shot container | the key decrypts with the same keyring, `verify-key` prints `verified certificate_id=... public_key_sha256=...`, and the PFX opens |
+
+#### 12.2.1 The second inventory commit (step 9)
+
+The first revision listed one host on purpose; this commit adds the other two, and only now may a
+discovery contact them:
+
+<!-- runbook:full-inventory -->
+```yaml
+all:
+  hosts:
+    web01.example.internal:
+      ansible_host: 10.0.0.11
+      ansible_user: cdeploy
+      webserver_type: nginx
+  children:
+    canary_ring:
+      hosts:
+        web01.example.internal: {}
+    ring_a:
+      hosts:
+        web02.example.internal:
+          ansible_host: 10.0.0.12
+          ansible_user: cdeploy
+          webserver_type: nginx
+        web03.example.internal:
+          ansible_host: 10.0.0.13
+          ansible_user: cdeploy
+          webserver_type: apache
+```
+
+```sh
+git -C <inventory working copy> add hosts.yml
+git -C <inventory working copy> commit -m 'inventory: add web02 and web03'
+git -C <inventory working copy> push
+```
+
+Pin `known_hosts` for every new address exactly as in 12.1 item 4 (`ssh-keygen -F 10.0.0.12 -f
+/etc/cert-dashboard/known_hosts` and so on) **before** Test pull: an unpinned address fails the discovery
+closed with `auth` on that host.
+
+#### 12.2.2 The forced-rollback drill always resumes the master (step 17)
+
+The deploy must see the suspended webserver, and the master must be resumed even if the deploy errors, a
+command fails or the operator interrupts the shell. One root shell on the test host wraps the whole drill
+in an `EXIT`/`HUP`/`INT`/`TERM` trap and prints the proof at the end:
+
+```sh
+master=$(pgrep -o -f 'nginx: master process' || pgrep -o -x apache2)
+[ -n "$master" ] || { echo 'no webserver master found' >&2; exit 1; }
+resume() { kill -CONT "$master" 2>/dev/null || true; }
+trap 'resume' EXIT HUP INT TERM
+kill -STOP "$master"
+echo "master $master is stopped: start the deploy, wait for rolled_back, then press Enter here"
+read -r _ || true                                   # a trapped signal also ends this wait
+resume
+trap - EXIT HUP INT TERM
+ps -o pid=,stat= -p "$master"                        # state must not be T (stopped)
+openssl s_client -connect <host>:<port> -servername <vhost> </dev/null 2>/dev/null \
+  | openssl x509 -noout -fingerprint -sha256         # the restored certificate
+```
+
+If the shell is killed with `SIGKILL` or the session dies, run `kill -CONT "$master"` from any root shell
+before doing anything else: the drill is complete only when `ps` shows the master awake. If it is awake but
+still serves the deployed certificate, it resumed with a pending reload — `nginx -t && nginx -s reload`
+(Apache: `apache2ctl configtest && apache2ctl graceful`), then check the fingerprint again.
 
 ### 12.3 Evidence to record
 
@@ -950,6 +1049,8 @@ this table.
 
 | Item | Value | Operator | Date |
 | --- | --- | --- | --- |
+| Bootstrap admin `user_id` and 2FA enabled (from §2.2 steps 3 and 5) | | | |
+| `known_hosts` lookups verified (`ssh-keygen -F` for every target and the Git remote) | | | |
 | Test pull revision (`inventory_rev`), first host only | | | |
 | Discovery job id (single host) | | | |
 | Bindings vs `grep` spot-check (host, pairs) | | | |
@@ -964,6 +1065,7 @@ this table.
 | Served fingerprints per host after the deploy | | | |
 | Digest result (failed jobs, rolled-back hosts, mismatches) | | | |
 | Forced-rollback outcome (`status`, `reason`, `files_restored`, served fingerprint) | | | |
+| Forced rollback: master resumed (`ps` state) and served fingerprint after resume | | | |
 | Restore drill: restored database, `verify-key` output, PFX export | | | |
 
 A run is accepted only when every row is filled and every expected result above was observed. Any
