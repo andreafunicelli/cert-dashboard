@@ -54,6 +54,28 @@ These palette checks are not a complete accessibility audit.
 - Shell stacks below 720px (media query `max-width: 719px`). Navigation wraps;
   the open user menu stays in flow on small screens. Tables scroll inside `.table-wrap`.
 
+## Page styles
+
+Shared tokens and components live in `app/static/app.css`. Styles specific to one
+area live in `app/static/pages/<area>.css`, loaded by that area's own template
+through the empty-by-default `extra_css` block immediately after the shared stylesheet:
+
+```jinja
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/certificates.css">{% endblock %}
+```
+
+Fixed area filenames (one area, one file; never name a file after a lane):
+`overview.css`, `account.css`, `users.css`, `audit.css`, `certificates.css`,
+`renewals.css`, `import.css`, `scans.css`, `servers.css`, `bindings.css`,
+`deploy.css`, `settings.css`, `email.css`.
+
+- **`app.css` is shared property.** A lane card may add a shared token or component
+  only when genuinely needed, and must call out that shared-file change in its PR
+  description so the reviewer can anticipate conflicts.
+- Page styles never go in `app.css` or a `<style>` element. Inline styles are
+  forbidden by the CSP contract; use external stylesheets, not `style` attributes.
+- Use plain CSS and the existing `:root` tokens; no new colour literals.
+
 ## Canonical components
 
 | Component | Markup / classes |
