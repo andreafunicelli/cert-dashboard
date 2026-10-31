@@ -12,7 +12,7 @@ It is not a CA and signs nothing. There is no ACME/Let's Encrypt flow and no CA 
 never edits nginx or Apache configuration, it does not check OCSP or CRL, and it has no
 high-availability or multi-tenant mode. Every active user is an administrator: v1 has no RBAC.
 
-![Overview page: expiry counters for expired, under 7, under 30 and under 60 days, worker and inventory state, TLS health counters](docs/screenshots/overview.png)
+![Overview page: expiry counters for expired, under 7, under 30 and under 60 days plus total active, worker state and last heartbeat, TLS health counters including one mismatch, and the recent jobs table](docs/screenshots/overview.png)
 
 **What you get**
 
@@ -52,9 +52,9 @@ a supplied key is encrypted before it is stored.
   JSON; the detail page adds chain status, key presence and public fingerprint, lineage, audit rows,
   the endpoints panel and the deploy panel.
 
-![Certificate list: filters, status badges with days remaining, key and binding columns](docs/screenshots/certificate-list.png)
+![Certificate list: filters, five imported certificates with expiry badges from twelve days expired to 399 days left, and the key and binding columns](docs/screenshots/certificate-list.png)
 
-![Certificate detail: expiring and incomplete-chain badges, SANs, issuer, fingerprint and download actions](docs/screenshots/certificate-detail.png)
+![Certificate detail: a valid certificate with 199 days left, SANs, subject, issuer, fingerprint and download actions, and the validation block that reports an incomplete chain, names the missing issuer and explains that the cached status is refreshed by the next trust re-check](docs/screenshots/certificate-detail.png)
 
 ![Import screen: upload form with optional chain and key, and the pull-from-host-and-port form](docs/screenshots/certificate-import.png)
 
@@ -94,7 +94,9 @@ adds endpoints from bindings; you can also add them by hand.
 - Observed certificates are never imported, matched into inventory or trusted. `chain_status` changes
   only through an explicit trust recheck, which runs daily and after every trust-anchor change.
 
-![Scan detail: a mismatch finding with the expected certificate beside the certificate the endpoint actually serves](docs/screenshots/scan-mismatch.png)
+![Scans page: the add-endpoint form, filters, and the endpoint list with expected and observed certificate, expiry, mismatch status and last check per row](docs/screenshots/scan-list.png)
+
+![Scan detail: a mismatch finding with the expected and observed SHA-256 fingerprints side by side, the chain length and TLS version, likely actions, and the endpoint history](docs/screenshots/scan-detail.png)
 
 ## Renewal
 
@@ -159,10 +161,10 @@ never reloads a service.
   rows share the transaction of the change they describe. The browser filters by actor, action prefix,
   target, time and IP, and exports the newest 5,000 rows as JSON metadata.
 
-![Account page: password change, enabled two-factor authentication with recovery codes, and the current session](docs/screenshots/account-mfa.png)
+![Account page: password change, two-factor authentication offered but not enabled in this capture, and the current session](docs/screenshots/account-mfa.png)
 
-*The data in these images is synthetic: they are renders of the repository's own preview fixtures
-(`docs/ui/previews/`), not captures of a real inventory.*
+*Screenshots are captures of a running instance populated with synthetic data, except the deploy,
+renewal and alert-settings images, which are renders of the same templates with fixture data.*
 
 ## Security model
 
@@ -285,7 +287,7 @@ as `settings.update` with the before and after values.
   `"worker": "stale"`, the container turns unhealthy and Settings → Status lists `worker_stale`.
   `/health/live` and `/health/ready` cover the web process and the database.
 
-![Settings status: worker heartbeat and state, queue counts, SMTP delivery history, keyring versions and database size](docs/screenshots/settings-status.png)
+![Settings status: worker heartbeat and queue counts, SMTP delivery failures, keyring versions and database size, the warnings for settings that are still missing, and the last scheduled job runs](docs/screenshots/settings-status.png)
 
 ## Architecture
 
@@ -332,5 +334,4 @@ reusing the code.
 
 Status: the v1 scope of the spec is implemented. Plans 1–3 are merged (inventory and renewal, TLS
 scanning and alerts, discovery and deployment) and the interface redesign merged in PRs #70–#75. The
-limits stated above are the ones a reader will hit: manual CA only, nginx and Apache over SSH only,
-single host, no RBAC, no OCSP or CRL, LDAP reserved but not implemented.
+limits stated above are the ones a reader will hit.
