@@ -1,0 +1,177 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Settings · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/settings.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  </nav>
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Settings</h1>
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
+<nav class="tabs" aria-label="Settings sections">
+  <ul>
+
+    <li><a href="/settings?tab=smtp">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=inventory">Inventory<span class="field-change" data-settings-tab-draft="inventory" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=deployment" aria-current="page">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=scanning">Scanning<span class="field-change" data-settings-tab-draft="scanning" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=schedule">Schedule<span class="field-change" data-settings-tab-draft="schedule" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=general">General<span class="field-change" data-settings-tab-draft="general" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=status">Status<span class="field-change" data-settings-tab-draft="status" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=maintenance">Maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (unsaved draft)</span></a></li>
+
+  </ul>
+</nav>
+
+
+
+
+<section class="panel wide" id="settings-panel" data-tab="deployment" data-settings-saved="false" data-settings-errors="false" aria-labelledby="tab-heading">
+  <h2 id="tab-heading">Deployment</h2>
+  <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
+
+
+
+
+  <form class="settings-form" data-settings-draft method="post" action="/settings/deployment" hx-post="/settings/deployment" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+
+    <div class="settings-field">
+
+    <label for="f-batch_percent">Batch size (%)</label>
+    <input id="f-batch_percent" name="batch_percent" value="10" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-concurrency">Concurrency</label>
+    <input id="f-concurrency" name="concurrency" value="5" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <input type="hidden" name="pause_after_canary" value="false">
+    <label for="f-pause_after_canary" class="checkbox"><input type="checkbox" id="f-pause_after_canary" name="pause_after_canary" value="true" checked> Pause after canary</label>
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+      <p class="help">If disabled, a successful canary proceeds without waiting for operator approval.</p>
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-pause_timeout_hours">Pause timeout (hours)</label>
+    <input id="f-pause_timeout_hours" name="pause_timeout_hours" value="24" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-backup_retention_days">Backup retention (days)</label>
+    <input id="f-backup_retention_days" name="backup_retention_days" value="30" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-host_timeout_seconds">Host timeout (seconds)</label>
+    <input id="f-host_timeout_seconds" name="host_timeout_seconds" value="600" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <button type="submit">Save Deployment settings</button>
+  </form>
+
+
+</section>
+
+</main>
+
+<script src="../../../app/static/settings.js" defer></script>
+
+</body>
+</html>

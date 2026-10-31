@@ -2,28 +2,19 @@
    htmx replaces this whole region every two seconds while the job moves, so a job that pauses or stops brings
    its banner and its controls with it instead of leaving the first response frozen beside a dead poll. #}
 <div id="deploy-job-live" data-status="{{ view.status }}"{% if view.polling %} hx-get="/jobs/{{ view.job_id }}/progress" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-<section class="panel wide" id="deploy-header" aria-label="Deploy job">
-  <dl>
-    <dt>Job</dt><dd><code>{{ view.job_id }}</code></dd>
-    <dt>Phase</dt><dd><span class="chip" data-phase="{{ view.phase }}">{{ view.phase }}</span></dd>
-    <dt>Status</dt><dd data-job-status="{{ view.status }}">{{ view.status }}</dd>
-    <dt>Started by</dt><dd>{{ view.actor }}</dd>
-    <dt>Started</dt><dd>{% if view.started_at %}{{ time_tag(view.started_at, tz) }}{% else %}not started{% endif %}</dd>
-    <dt>Elapsed</dt><dd>{% if view.elapsed_seconds is none %}—{% elif view.elapsed_seconds >= 60 %}{{ view.elapsed_seconds // 60 }} min {{ view.elapsed_seconds % 60 }} s{% else %}{{ view.elapsed_seconds }} s{% endif %}</dd>
-    <dt>Inventory revision</dt><dd>{% if view.inventory_rev %}<code>{{ view.inventory_rev }}</code>{% else %}—{% endif %}</dd>
-  </dl>
-</section>
+{% from "_ui.html.j2" import icon %}
+{% from "deploy/_ui.html.j2" import deploy_state %}
 
 {% if view.status == "paused" %}
 <section class="panel wide banner-warning" role="alert" data-banner="approval" aria-label="Waiting for approval">
-  <h2>Canary succeeded — continue?</h2>
+  <h2>{{ icon('warn') }} Canary succeeded — continue?</h2>
   <p>The rollout is waiting for approval since {{ time_tag(view.paused_at, tz) }}.
   {% if hours_left %}{{ hours_left }} hour{{ "" if hours_left == 1 else "s" }} left before automatic cancellation.{% else %}Less than 1 hour left before automatic cancellation.{% endif %}</p>
   <p>No worker, slot or lock is held while the job waits; resuming re-checks drift on every host.</p>
 </section>
 {% elif view.status == "failed" %}
 <section class="panel wide banner-critical" role="alert" data-banner="failure" aria-label="Rollout stopped">
-  <h2>Rollout stopped</h2>
+  <h2>{{ icon('danger') }} Rollout stopped</h2>
   {% if view.first_failed_host %}
   <p>The first failed host is <strong>{{ view.first_failed_host }}</strong>{% if view.failure_reason %} ({{ view.failure_reason }}){% endif %}.</p>
   {% if view.failure_restoration == "restored" %}Its files were restored from the backup, so the host is serving what it served before the rollout.
@@ -34,8 +25,21 @@
   {# No host stopped the rollout: the job itself failed before any host row did (§8.7, Contract decisions 7 and 16). #}
   <p data-failure="job">{{ view.job_failure_reason }}</p>
   {% endif %}
+  <p><a href="#deploy-controls">Review retry controls</a> · <a href="/servers">Run discovery and inspect the host</a> before retrying.</p>
 </section>
 {% endif %}
+
+<section class="panel wide" id="deploy-header" aria-label="Deploy job">
+  <dl class="fields">
+    <dt>Status / phase</dt><dd><span data-job-status="{{ view.status }}">{{ deploy_state(view.status) }}</span> <span class="chip" data-phase="{{ view.phase }}">{{ view.phase }}</span></dd>
+    <dt>Job</dt><dd><code>{{ view.job_id }}</code></dd>
+    <dt>Started by</dt><dd>{{ view.actor }} · {% if view.started_at %}{{ time_tag(view.started_at, tz) }}{% else %}not started{% endif %}</dd>
+    <dt>Elapsed</dt><dd class="mono">{% if view.elapsed_seconds is none %}—{% elif view.elapsed_seconds >= 60 %}{{ view.elapsed_seconds // 60 }} min {{ view.elapsed_seconds % 60 }} s{% else %}{{ view.elapsed_seconds }} s{% endif %}</dd>
+    <dt>Inventory revision</dt><dd>{% if view.inventory_rev %}<code>{{ view.inventory_rev }}</code>{% else %}—{% endif %}</dd>
+  </dl>
+  <p class="hint">Rollback is automatic when a canary fails after writing files. Continue, cancel and per-host retry are the operator controls; there is no manual rollback action.</p>
+  <p><a href="/deploy/{{ view.job_id }}">Refresh progress</a> if live updates are unavailable. No automatic scrolling.</p>
+</section>
 
 <div id="deploy-progress">
   <section class="panel wide" aria-label="Totals">
@@ -49,7 +53,7 @@
     </ul>
   </section>
   {% for batch in view.batches %}
-  <details class="panel wide batch" data-batch="{{ loop.index0 }}"{% if view.polling and batch[0].status in ("running", "pending") %} open{% endif %}>
+  <details class="panel wide batch" data-batch="{{ loop.index0 }}"{% if (batch | selectattr('status', 'in', ['failed', 'rolled_back']) | list) or (view.polling and batch[0].status in ("running", "pending")) %} open{% endif %}>
     <summary>Batch {{ loop.index0 + 1 }}{% if loop.index0 == 0 %} — canary{% endif %} · {{ batch | length }} host{{ "" if batch | length == 1 else "s" }}</summary>
     <div class="table-wrap"><table class="deploy-hosts">
       <thead><tr><th scope="col">Host</th><th scope="col">Bindings</th><th scope="col">Status</th><th scope="col">Old → new fingerprint</th><th scope="col">Duration</th><th scope="col">Rollback</th><th scope="col">Backup</th><th scope="col">Log</th></tr></thead>
@@ -58,11 +62,11 @@
       <tr class="deploy-host" data-host="{{ host.hostname }}" data-status="{{ host.status }}">
         <td>{{ host.hostname }}{% if host.needs_attention %} <span class="chip chip-critical" data-badge="needs-attention">needs manual attention</span>{% endif %}</td>
         <td>{% for binding in host.bindings %}{{ binding }}{% if not loop.last %}<br>{% endif %}{% endfor %}</td>
-        <td>{{ "not run" if host.status == "pending" else host.status }}{% if host.reason %}<br><small>{{ host.reason }}</small>{% endif %}</td>
+        <td>{{ deploy_state(host.status) }}{% if host.reason %}<br><small>{{ host.reason }}</small>{% endif %}</td>
         <td>{% if host.old_fingerprint %}<code title="{{ host.old_fingerprint }}">{{ host.old_fingerprint[:12] }}…</code>{% else %}—{% endif %}
             → {% if host.new_fingerprint %}<code title="{{ host.new_fingerprint }}">{{ host.new_fingerprint[:12] }}…</code>{% else %}—{% endif %}</td>
-        <td>{{ host.duration_seconds if host.duration_seconds is not none else "—" }}</td>
-        <td>{% if host.rolled_back %}rolled back{% elif host.rollback_error %}not restored{% else %}—{% endif %}</td>
+        <td class="numeric">{{ host.duration_seconds if host.duration_seconds is not none else "—" }}</td>
+        <td>{% if host.rolled_back %}{{ deploy_state('rolled_back') }}<br>Automatic restoration to <code>{{ host.old_fingerprint or 'unknown prior fingerprint' }}</code>.<br><small>Rollback time is not supplied by this report.</small>{% elif host.rollback_error %}{{ deploy_state('restore_failed') }}<br>{{ host.rollback_error }}{% else %}—{% endif %}</td>
         <td>{% if host.backup_dir %}<input class="copy-path" type="text" readonly value="{{ host.backup_dir }}" aria-label="Backup path on {{ host.hostname }}">{% else %}—{% endif %}</td>
         <td>{% if host.log_excerpt %}<details><summary>Excerpt</summary><pre>{{ host.log_excerpt }}</pre></details>{% else %}—{% endif %}</td>
       </tr>
@@ -85,20 +89,24 @@
   </form>
   {% endif %}
   {% if view.cancellable %}
+  <details class="confirmation" id="deploy-cancel-confirmation" hx-preserve><summary>Cancel this rollout</summary>
+  <p>No further host will be started. This does not undo hosts already deployed.</p>
   <form class="inline" method="post" action="/deploy/{{ view.job_id }}/cancel" hx-post="/deploy/{{ view.job_id }}/cancel" hx-target="#deploy-job-live" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit">Cancel job</button>
+    <button type="submit" class="button-destructive">Cancel job</button>
   </form>
+  <a href="/deploy/{{ view.job_id }}">Keep rollout</a>
+  </details>
   {% endif %}
   <p><a href="/deploy/{{ view.job_id }}/report.json" download="deploy-{{ view.job_id }}.json">Download the per-host report as JSON</a></p>
   {% for host in view.hosts if host.retryable %}
   <form class="retry" method="post" action="/deploy/{{ view.job_id }}/hosts/{{ host.server_id }}/retry" hx-post="/deploy/{{ view.job_id }}/hosts/{{ host.server_id }}/retry" hx-target="#deploy-job-live" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <h3>Retry {{ host.hostname }}</h3>
-    <p class="hint">A retry is a new audited job for this host only, with its own guardrails and trust check.</p>
+    <p class="hint">A retry is a new audited job for this host only, with its own guardrails and trust check. It can replace certificate files and reload the service again; review the host and enter a reason before confirming.</p>
     <label>Reason <input name="reason" maxlength="500" required></label>
     <label>Override reason (only when the chain is not trusted) <input name="override_reason" maxlength="500"></label>
-    <button type="submit">Retry host</button>
+    <button type="submit" class="button-destructive">Retry host</button>
   </form>
   {% endfor %}
 </section>

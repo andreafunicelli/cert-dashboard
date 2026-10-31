@@ -1,0 +1,218 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Deploy · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/deploy.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span aria-current="page"><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Deploy</h1>
+<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.</p>
+
+
+<div id="deploy-screen">
+<details class="deploy-options"><summary>Change certificate, targets and rollout options</summary>
+<form id="deploy-options" class="panel wide" method="get" action="/deploy"
+      hx-get="/deploy/preview" hx-target="#deploy-preview" hx-swap="innerHTML" hx-trigger="change, submit">
+  <h2>Plan</h2>
+  <label for="certificate_id">Certificate</label>
+
+  <select id="certificate_id" name="certificate_id"
+          hx-get="/deploy" hx-include="#deploy-options" hx-select="#deploy-screen"
+          hx-target="#deploy-screen" hx-swap="outerHTML" hx-trigger="change consume">
+
+    <option value="42" selected>gateway.ops.example.test (#42) — chain trusted — expires 2027-04-28 12:00 UTC</option>
+
+  </select>
+
+  <label for="group">Group filter (optional)</label>
+  <input id="group" name="group" value="" maxlength="253" placeholder="canary_ring">
+
+  <label for="host">Host filter (optional)</label>
+  <input id="host" name="host" value="" maxlength="253" placeholder="web01.example.internal">
+
+  <fieldset>
+    <legend>Target bindings</legend>
+    <p class="hint">Untick a binding to leave it out of the plan; changing the certificate reloads the plan with that certificate's default targets.</p>
+
+    <label class="inline"><input type="checkbox" name="binding_id" value="12" checked>
+      edge-01.example.test · gateway.ops.example.test:443 — <code>/etc/tls/gateway.pem</code> (matched)</label>
+
+
+    <input type="hidden" name="selection_for" value="42">
+    <input type="hidden" name="selection" value="explicit">
+  </fieldset>
+
+  <label class="inline"><input type="hidden" name="include_unknown" value="0"><input type="checkbox" name="include_unknown" value="1">
+    Include bindings whose certificate is unknown (audited as <code>deploy.include_unknown</code>)</label>
+
+  <label for="batch_percent">Batch percent</label>
+  <input id="batch_percent" name="batch_percent" type="number" min="1" max="100" value="10">
+
+  <label class="inline"><input type="hidden" name="pause_after_canary" value="0"><input type="checkbox" name="pause_after_canary" value="1" checked>
+    Pause after the canary for approval</label>
+
+  <label for="canary_server_id">Canary server</label>
+  <select id="canary_server_id" name="canary_server_id">
+    <option value="" selected>default (first server of the smallest group)</option>
+
+    <option value="1">edge-01.example.test</option>
+
+  </select>
+
+  <label for="not_before">Not before (UTC)</label>
+  <input id="not_before" name="not_before" type="datetime-local" value="">
+  <p class="hint">The deploy window is a not-before time only, at most seven days ahead; times are shown in UTC and stored in UTC.</p>
+
+  <button type="submit">Preview</button>
+</form>
+</details>
+
+<div id="deploy-preview">
+
+<div id="deploy-preview-body" data-plan-sha256="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc">
+
+<h2 class="deploy-verdict" data-verdict="allowed"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> Guardrails passed — review before deploying</h2>
+
+
+
+
+
+
+<section class="panel wide" id="deploy-preview-totals">
+  <h2>Certificate and rollout scope</h2>
+  <dl class="fields">
+    <dt>Certificate</dt>
+    <dd><a href="/certificates/42">gateway.ops.example.test</a> (#42)
+      · chain trusted · <code data-certificate-fingerprint>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code>
+      · expires <time datetime="2027-04-28T12:00:00Z">2027-04-28 12:00 UTC</time></dd>
+    <dt>Hosts</dt><dd class="mono" data-total="hosts">1</dd>
+    <dt>Bindings</dt><dd class="mono" data-total="bindings">1</dd>
+    <dt>Files</dt><dd class="mono" data-total="files">1</dd>
+    <dt>Groups</dt><dd class="mono" data-total="groups">1</dd>
+    <dt>Batches</dt>
+    <dd class="mono" data-batches>batch 0 (canary): 1 host</dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="deploy-preview-hosts">
+  <h2>What will change</h2>
+  <div class="table-wrap"><table class="deploy-preview">
+    <thead><tr><th scope="col">Host</th><th scope="col">Batch</th><th scope="col">Bindings</th><th scope="col">Files</th></tr></thead>
+    <tbody>
+
+    <tr data-host="edge-01.example.test" data-batch="0">
+      <td>edge-01.example.test<br><small>edge</small></td>
+      <td>1 — canary</td>
+      <td>
+
+        <div data-binding="12">
+          <div>gateway.ops.example.test:443 — matched</div>
+
+          <div class="hint" data-identity
+               data-current-cn="gateway.ops.example.test"
+               data-current-fingerprint="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+               data-new-cn="gateway.ops.example.test"
+               data-new-fingerprint="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa">
+            current: gateway.ops.example.test (#41)
+            · <code>bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb</code>
+            · expires <time datetime="2026-11-01T12:00:00Z">2026-11-01 12:00 UTC</time><br>
+            new: gateway.ops.example.test (#42)
+            · <code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code>
+            · expires <time datetime="2027-04-28T12:00:00Z">2027-04-28 12:00 UTC</time>
+          </div>
+
+        </div>
+
+      </td>
+      <td>
+
+        <div data-file="/etc/tls/gateway.pem"><code>/etc/tls/gateway.pem</code> <span class="badge" data-action="replace">replace</span> root:root 0640</div>
+
+      </td>
+    </tr>
+
+    </tbody>
+  </table></div>
+</section>
+
+
+
+
+
+<section class="panel wide" id="deploy-confirm-panel">
+  <h2>Confirm replacement on the target hosts</h2>
+  <p>Starting this deploy replaces the listed certificate files and may reload the web service. Automatic rollback restores backups if the canary fails after writing files.</p>
+  <form id="deploy-confirm" method="post" action="/deploy" hx-post="/deploy" hx-target="#deploy-preview" hx-swap="innerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="certificate_id" value="42">
+    <input type="hidden" name="plan_sha256" value="cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc">
+    <input type="hidden" name="selection" value="explicit">
+    <input type="hidden" name="binding_id" value="12">
+    <input type="hidden" name="include_unknown" value="0">
+    <input type="hidden" name="pause_after_canary" value="1">
+    <input type="hidden" name="batch_percent" value="10">
+    <input type="hidden" name="canary_server_id" value="1">
+
+    <p data-confirmation>Deploy to 1 host, starting with canary edge-01.example.test first.</p>
+    <p class="hint">The plan hash is echoed back, so a plan that changes between this preview and the start is refused instead of started.</p>
+
+    <label class="checkbox"><input type="checkbox" name="confirm" value="yes" required> I confirm this plan.</label>
+    <button type="submit" class="button-destructive">Start deploy</button>
+  </form>
+</section>
+
+</div>
+</div>
+</div>
+
+</main>
+
+</body>
+</html>

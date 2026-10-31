@@ -1,0 +1,199 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Settings · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/settings.css"><link rel="stylesheet" href="../../../app/static/pages/email.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  </nav>
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Settings</h1>
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
+<nav class="tabs" aria-label="Settings sections">
+  <ul>
+
+    <li><a href="/settings?tab=smtp" aria-current="page">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=inventory">Inventory<span class="field-change" data-settings-tab-draft="inventory" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=deployment">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=scanning">Scanning<span class="field-change" data-settings-tab-draft="scanning" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=schedule">Schedule<span class="field-change" data-settings-tab-draft="schedule" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=general">General<span class="field-change" data-settings-tab-draft="general" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=status">Status<span class="field-change" data-settings-tab-draft="status" hidden> (unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=maintenance">Maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (unsaved draft)</span></a></li>
+
+  </ul>
+</nav>
+
+
+
+
+<section class="panel wide" id="settings-panel" data-tab="smtp" data-settings-saved="false" data-settings-errors="false" aria-labelledby="tab-heading">
+  <h2 id="tab-heading">SMTP</h2>
+  <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
+
+
+
+  <p><a href="#smtp-test-result">Delivery outcome: queued</a>. Test send uses saved SMTP settings, not unsaved edits.</p>
+  <form class="settings-form" data-settings-draft method="post" action="/settings/smtp" hx-post="/settings/smtp" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+
+    <div class="settings-field">
+
+    <label for="f-host">Host</label>
+    <input id="f-host" name="host" value="smtp.example.test" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-port">Port</label>
+    <input id="f-port" name="port" value="587" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-security">Security</label>
+    <select id="f-security" name="security">
+      <option value="none">None</option><option value="starttls" selected>STARTTLS</option><option value="ssl">SSL/TLS</option>
+    </select>
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-from">From address</label>
+    <input id="f-from" name="from" value="alerts@example.test" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <label for="f-username">Username</label>
+    <input id="f-username" name="username" value="dashboard" maxlength="600" autocomplete="off">
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+    </div>
+
+    <div class="settings-field">
+
+    <input type="hidden" name="tls_verify" value="false">
+    <label for="f-tls_verify" class="checkbox"><input type="checkbox" id="f-tls_verify" name="tls_verify" value="true" checked> Verify SMTP TLS certificate</label>
+
+      <span class="field-change" hidden>Unsaved change</span>
+
+      <p class="warning-note">Disabling verification lets an impersonated SMTP server intercept mail credentials and content.</p>
+
+
+
+    </div>
+
+    <button type="submit">Save SMTP settings</button>
+  </form>
+
+
+  <p class="hint">SMTP password: provided only via the worker secret file <code>smtp_password</code>; not settable or visible here.</p>
+  <form method="post" action="/settings/smtp/test"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button type="submit">Send test email</button></form>
+
+
+
+  <div id="smtp-test-result" data-test-status="queued" hx-get="/settings/smtp/test/fixture-smtp-job" hx-trigger="every 2s" hx-swap="outerHTML">
+    <h3><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg> Last test e-mail</h3>
+    <p><strong>Queued</strong> since <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time>; the worker has not finished it yet.</p>
+
+    <p>SMTP conversation (step and reply code only):</p>
+    <ol class="smtp-steps"><li>connect 220</li><li>auth 535</li></ol>
+
+    <p class="help">This is the worker's recorded result, not an inbox receipt. A successful SMTP handoff does not guarantee inbox delivery. <a href="/settings?tab=smtp#smtp-test-result">Refresh result</a> if live updates are unavailable.</p>
+  </div>
+
+
+
+
+</section>
+
+</main>
+
+<script src="../../../app/static/settings.js" defer></script>
+
+</body>
+</html>

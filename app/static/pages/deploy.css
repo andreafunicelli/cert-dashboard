@@ -1,0 +1,21 @@
+.deploy-verdict { display: flex; align-items: center; gap: var(--space-2); }
+.deploy-verdict[data-verdict="blocked"] { color: var(--danger); }
+.deploy-verdict[data-verdict="override"] { color: var(--warn); }
+.deploy-verdict[data-verdict="allowed"] { color: var(--ok); }
+.deploy-options { margin-bottom: var(--space-5); }
+.panel.banner-critical, .panel.banner-warning { overflow-wrap: anywhere; }
+.deploy-options > summary { font-weight: var(--weight-medium); }
+#deploy-options fieldset { margin-block: var(--space-5); border: var(--line) solid var(--border); }
+#deploy-options label.inline { display: flex; align-items: baseline; gap: var(--space-2); overflow-wrap: anywhere; }
+#deploy-options label.inline input[type="checkbox"] { flex-shrink: 0; }
+#deploy-options select { max-width: 100%; }
+#deploy-preview-body h2, #deploy-job-live h2 { margin-top: var(--space-0); }
+#deploy-job-live .totals { display: flex; flex-wrap: wrap; gap: var(--space-4); padding: var(--space-0); list-style: none; }
+.totals strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.deploy-host[data-status="failed"], .deploy-host[data-status="rolled_back"] { background: var(--danger-surface); }
+.deploy-preview td, .deploy-hosts td { overflow-wrap: anywhere; }
+.deploy-preview [data-identity] { min-width: var(--field-width); }
+.deploy-hosts code { display: inline-block; max-width: var(--identifier-width); }
+.deploy-hosts pre { max-width: var(--panel-width); max-height: var(--material-height); }
+#deploy-confirm-panel { border-color: var(--danger); }
+#deploy-controls .retry { border-top: var(--line) solid var(--separator); margin-top: var(--space-5); padding-top: var(--space-4); }

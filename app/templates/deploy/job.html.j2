@@ -1,16 +1,9 @@
 {% extends "base.html.j2" %}
 {% block title %}Deploy {{ view.job_id }} · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/deploy.css">{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
 <p><a href="/overview">← Overview</a></p>
 <h1>Deploy <a href="/certificates/{{ view.certificate_id }}">{{ view.certificate_cn }}</a></h1>
 
 {% include "deploy/_progress.html.j2" %}
-{% endblock %}
-{% block scripts %}
-<script>
-  // htmx ignores 4xx bodies by default; a refused control answers 422 with the re-rendered live region.
-  document.body.addEventListener("htmx:beforeSwap", function (event) {
-    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
-  });
-</script>
 {% endblock %}

@@ -1,27 +1,36 @@
 {% extends "base.html.j2" %}
 {% block title %}Settings · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/settings.css">{% if tab == 'smtp' or tab == 'alerts' %}<link rel="stylesheet" href="/static/pages/email.css">{% endif %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
 <h1>Settings</h1>
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
 <nav class="tabs" aria-label="Settings sections">
   <ul>
   {% for item in tabs %}
-    <li><a href="/settings?tab={{ item.name }}"{% if item.name == tab %} aria-current="page"{% endif %}>{{ item.label }}</a></li>
+    <li><a href="/settings?tab={{ item.name }}"{% if item.name == tab %} aria-current="page"{% endif %}>{{ item.label }}<span class="field-change" data-settings-tab-draft="{{ item.name }}" hidden> (unsaved draft)</span></a></li>
   {% endfor %}
   </ul>
 </nav>
 {% block panel %}
+{% from "_ui.html.j2" import icon %}
 {% macro disabled_action(label, reason) %}<p class="action-disabled"><button type="button" disabled aria-disabled="true">{{ label }}</button> <span class="hint">{{ reason }}</span></p>{% endmacro %}
-<section class="panel wide" id="settings-panel" data-tab="{{ tab }}" aria-labelledby="tab-heading">
+{% set draft_saved = saved or (tab == 'trust' and ('Public CA bundle included.' in (flash | default([])) or 'Public CA bundle excluded.' in (flash | default([])))) %}
+<section class="panel wide" id="settings-panel" data-tab="{{ tab }}" data-settings-saved="{{ 'true' if draft_saved else 'false' }}" data-settings-errors="{{ 'true' if errors else 'false' }}" aria-labelledby="tab-heading">
   <h2 id="tab-heading">{{ tab_label }}</h2>
+  <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
   {% if saved %}<p class="notice" role="status">Settings saved.</p>{% endif %}
   {% if errors.get("form") %}<div class="form-error" data-field="form" role="alert">{% for message in errors["form"] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}
   {% if tab == "trust" %}
   <p data-public-bundle>Public bundle: certifi {{ bundle.version }}, {{ bundle.roots }} roots, include-public-bundle = {{ "true" if bundle.enabled else "false" }}</p>
   <p class="hint">The public roots are read-only, in-memory entries of the pinned certifi bundle; they are never listed or stored as rows.</p>
-  <form method="post" action="/settings/trust">
+  <form data-settings-draft method="post" action="/settings/trust">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="settings-field">
     <input type="hidden" name="include_public_bundle" value="false">
     <label for="f-include-public-bundle" class="checkbox"><input type="checkbox" id="f-include-public-bundle" name="include_public_bundle" value="true"{% if bundle.enabled %} checked{% endif %}> Trust the public CA bundle</label>
+    <span class="field-change" hidden>Unsaved change</span>
+    </div>
+    <p class="help">Disabling this removes public CA roots from chain verification. Certificates relying on those roots may become untrusted.</p>
     <p class="hint">Saving rechecks the stored chain statuses immediately.</p>
     <button type="submit">Save and recheck</button>
   </form>
@@ -35,7 +44,7 @@
   </form>
   {% endif %}
   {% if anchors %}
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Subject</th><th>SHA-256 fingerprint</th><th>Source</th><th>Notes</th><th>Added</th><th>Added by</th><th>Remove</th></tr></thead>
     <tbody>
     {% for a in anchors %}
@@ -51,18 +60,20 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <label for="f-delete-{{ a.id }}">Type DELETE to confirm</label>
             <input id="f-delete-{{ a.id }}" name="confirm" autocomplete="off" required>
-            <button type="submit">Delete</button>
+            <p class="help">Removes this root and rechecks stored chains. Certificates that depend on it may become untrusted.</p>
+            <button type="submit" class="button-destructive">Delete</button>
           </form>
         </td>
       </tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
   {% else %}
   <p>No uploaded trust anchors.</p>
   {% endif %}
 
   <h3>Add an internal root</h3>
+  <p class="help">Trust-anchor upload fields are not kept as drafts. Add the anchor before leaving this page; file selections, pasted PEM and notes are lost on navigation.</p>
   <form method="post" action="/settings/trust-anchors" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="f-anchor-file">PEM file</label>
@@ -122,16 +133,16 @@
 
   <h3>Last runs</h3>
   {% if snapshot.last_runs %}
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Schedule</th><th>Last run</th></tr></thead>
     <tbody>{% for key, value in snapshot.last_runs.items() %}<tr><td>{{ key }}</td><td>{{ time_tag(when(value), timezone) }}</td></tr>{% endfor %}</tbody>
-  </table>
+  </table></div>
   {% else %}<p>No scheduled run has been recorded yet.</p>{% endif %}
   {% if snapshot.last_jobs %}
-  <table>
+  <div class="table-wrap"><table>
     <thead><tr><th>Job type</th><th>Last finished job</th><th>Finished</th></tr></thead>
     <tbody>{% for key, value in snapshot.last_jobs.items() %}<tr><td>{{ key }}</td><td>{{ value.status }}</td><td>{{ time_tag(when(value.finished_at), timezone) }}</td></tr>{% endfor %}</tbody>
-  </table>
+  </table></div>
   {% else %}<p>No job has finished yet.</p>{% endif %}
   {% elif tab == "maintenance" %}
   {% set k = snapshot.keyring %}
@@ -169,12 +180,14 @@ docker compose up -d --force-recreate web worker</code></pre></li>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="f-prune-confirm">Type {{ prune_confirmation }} to confirm</label>
     <input id="f-prune-confirm" name="confirm" autocomplete="off" required>
-    <button type="submit">Queue retention cleanup</button>
+    <button type="submit" class="button-destructive">Queue retention cleanup</button>
   </form>
   {% else %}
-  <form method="post" action="/settings/{{ tab }}" hx-post="/settings/{{ tab }}" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
+  {% if tab == 'smtp' %}<p><a href="#smtp-test-result">Delivery outcome: {{ smtp_test.status if smtp_test else 'not tested' }}</a>. Test send uses saved SMTP settings, not unsaved edits.</p>{% endif %}
+  <form class="settings-form" data-settings-draft method="post" action="/settings/{{ tab }}" hx-post="/settings/{{ tab }}" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% for f in fields %}
+    <div class="settings-field">
       {% if f.widget == "checkbox" %}
     <input type="hidden" name="{{ f.name }}" value="false">
     <label for="f-{{ f.name }}" class="checkbox"><input type="checkbox" id="f-{{ f.name }}" name="{{ f.name }}" value="true"{% if values[f.name] %} checked{% endif %}> {{ f.label }}</label>
@@ -190,8 +203,13 @@ docker compose up -d --force-recreate web worker</code></pre></li>
     <label for="f-{{ f.name }}">{{ f.label }}</label>
     <input id="f-{{ f.name }}" name="{{ f.name }}" value="{{ values[f.name] }}" maxlength="600" autocomplete="off"{% if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}>
       {% endif %}
+      <span class="field-change" hidden>Unsaved change</span>
       {% if f.hint %}<p class="hint">{{ f.hint }}</p>{% endif %}
+      {% if f.name == 'tls_verify' %}<p class="warning-note">Disabling verification lets an impersonated SMTP server intercept mail credentials and content.</p>{% endif %}
+      {% if f.name == 'pause_after_canary' %}<p class="help">If disabled, a successful canary proceeds without waiting for operator approval.</p>{% endif %}
+      {% if f.name == 'cleanup_enabled' %}<p class="help">If disabled, old jobs, sessions and artifacts are not pruned by the scheduled cleanup.</p>{% endif %}
       {% if errors.get(f.name) %}<div class="form-error" data-field="{{ f.name }}" role="alert">{% for message in errors[f.name] %}<p>{{ f.label }} {{ message }}</p>{% endfor %}</div>{% endif %}
+    </div>
     {% endfor %}
     <button type="submit">Save {{ tab_label }} settings</button>
   </form>
@@ -201,9 +219,10 @@ docker compose up -d --force-recreate web worker</code></pre></li>
   {% if disabled.get("test_email") %}{{ disabled_action("Send test email", disabled["test_email"]) }}
   {% else %}<form method="post" action="/settings/smtp/test"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button type="submit">Send test email</button></form>{% endif %}
   {% block smtp_test_result %}
+  {% from "_ui.html.j2" import icon %}
   {% if smtp_test %}{% set st = smtp_test %}
   <div id="smtp-test-result" data-test-status="{{ st.status }}"{% if st.status in ("queued", "running") %} hx-get="/settings/smtp/test/{{ st.job_id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-    <h3>Last test e-mail</h3>
+    <h3>{{ icon('danger' if st.status == 'failed' else 'ok' if st.status == 'succeeded' else 'info') }} Last test e-mail</h3>
     {% if st.status == "succeeded" %}<p><strong>Delivered</strong>{% if st.recipient %} to {{ st.recipient }}{% endif %}, {{ time_tag(when(st.finished_at), timezone) }}</p>
     {% elif st.status == "failed" %}<p><strong>Failed</strong>, {{ time_tag(when(st.finished_at), timezone) }}</p>
     {% elif st.status in ("queued", "running") %}<p><strong>{{ st.status | capitalize }}</strong> since {{ time_tag(when(st.requested_at), timezone) }}; the worker has not finished it yet.</p>
@@ -211,13 +230,14 @@ docker compose up -d --force-recreate web worker</code></pre></li>
     {% if st.steps %}<p>SMTP conversation (step and reply code only):</p>
     <ol class="smtp-steps">{% for s in st.steps %}<li>{{ s.step }}{% if s.code is not none %} {{ s.code }}{% endif %}</li>{% endfor %}</ol>{% endif %}
     {% if st.status == "failed" %}<p class="form-error" role="alert" data-field="smtp-test">{{ st.error_class }}: {{ st.error_message }}</p>{% endif %}
+    <p class="help">This is the worker's recorded result, not an inbox receipt. A successful SMTP handoff does not guarantee inbox delivery. <a href="/settings?tab=smtp#smtp-test-result">Refresh result</a> if live updates are unavailable.</p>
   </div>
   {% else %}<p id="smtp-test-result">No test e-mail has been sent yet.</p>{% endif %}
   {% endblock %}
   {% elif tab == "alerts" %}
   <h3>Recent delivery failures</h3>
   {% if failures %}
-  <table data-failures>
+  <div class="table-wrap"><table data-failures>
     <thead><tr><th>Kind</th><th>Certificate</th><th>Recipients</th><th>Attempts</th><th>Last attempt</th><th>Error</th></tr></thead>
     <tbody>
     {% for f in failures %}
@@ -231,7 +251,7 @@ docker compose up -d --force-recreate web worker</code></pre></li>
       </tr>
     {% endfor %}
     </tbody>
-  </table>
+  </table></div>
   {% else %}<p>No delivery failures.</p>{% endif %}
   {% elif tab == "inventory" %}
   <p id="inventory-revision" data-rev="{{ inventory.current_rev or '' }}">
@@ -266,10 +286,5 @@ docker compose up -d --force-recreate web worker</code></pre></li>
 {% endblock %}
 {% endblock %}
 {% block scripts %}
-<script>
-  // htmx ignores 4xx bodies by default; a refused save answers 422 with the re-rendered panel.
-  document.body.addEventListener("htmx:beforeSwap", function (event) {
-    if (event.detail.xhr.status === 422) { event.detail.shouldSwap = true; event.detail.isError = false; }
-  });
-</script>
+<script src="/static/settings.js" defer></script>
 {% endblock %}
