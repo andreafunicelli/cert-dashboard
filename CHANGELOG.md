@@ -226,6 +226,8 @@ with the pull request that delivered each group of changes.
 
 ### Changed
 
+- `README.md` rewritten around the product, the interface and the operator path, with screenshots
+  rendered from `docs/ui/previews/` and stored under `docs/screenshots/` (PR #76).
 - **Operator decisions D1–D3 (2026-10-25) are recorded and the spec is corrected.** D1: certificate
   chain roles are decided per file by signature verification, never by position or DN equality, so a
   same-CA RSA+ECDSA pair is two bindings; D2: key identity is the SHA-256 of the DER
