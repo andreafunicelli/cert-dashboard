@@ -1,8 +1,11 @@
 {% extends "base.html.j2" %}
 {% block title %}Bindings · Cert Dashboard{% endblock %}
-{% macro owner_mode(owner, group, mode) %}{% if owner or group or mode %}{{ owner or "?" }}:{{ group or "?" }} {{ mode or "?" }}{% else %}—{% endif %}{% endmacro %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/bindings.css">{% endblock %}
+{% from "bindings/_presentation.html.j2" import binding_cells %}
 {% block content %}
 <h1>Where is a certificate used?</h1>
+<p>Follow each certificate from its inventory match to the host, configured path, port and SNI names. Discovery describes files on disk; use endpoint scans to check what is served over TLS.</p>
+<p class="help">Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
 <section class="panel wide" aria-label="Filters">
   <form method="get" action="/bindings" class="filters">
     <label>Certificate id <input type="number" name="certificate_id" min="1" value="{{ values.certificate_id or '' }}"></label>
@@ -32,53 +35,35 @@
   </form>
 </section>
 
-<div class="list-summary" data-total="{{ page.total }}">{{ page.total }} binding{{ "" if page.total == 1 else "s" }}
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }} binding{{ "" if page.total == 1 else "s" }}</span>
   · <a href="{{ export_url }}" download="bindings.json">Export list as JSON</a>
   · <a href="/bindings/help">What do the match states mean?</a></div>
 
 {% if page.items %}
-<div class="table-wrap">
+<div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0">
 <table class="bindings">
   <thead><tr>
-    <th scope="col"><a href="{{ sort_url('server') }}">Server</a></th>
-    <th scope="col"><a href="{{ sort_url('vhost') }}">Virtual host</a></th>
-    <th scope="col">Port</th>
-    <th scope="col">Certificate</th>
-    <th scope="col">Chain</th>
-    <th scope="col">Key</th>
-    <th scope="col">On-disk fingerprint</th>
-    <th scope="col">Matched certificate</th>
-    <th scope="col"><a href="{{ sort_url('match_state') }}">Match</a></th>
-    <th scope="col"><a href="{{ sort_url('last_seen_at') }}">Last seen</a></th>
+    <th scope="col">Relationship · <a href="{{ sort_url('server') }}">Server</a> / <a href="{{ sort_url('vhost') }}">Virtual host</a></th>
+    <th scope="col">Observed on disk</th>
+    <th scope="col">Inventory / expectation</th>
+    <th scope="col"><a href="{{ sort_url('match_state') }}">Match</a> / <a href="{{ sort_url('last_seen_at') }}">Last seen</a></th>
   </tr></thead>
   <tbody>
   {% for b in page.items %}
-  <tr class="binding-row{% if b.match_state in ('key_mismatch', 'missing_file') %} row-attention{% elif not b.is_active %} row-inactive{% endif %}" data-binding-id="{{ b.id }}" data-vhost="{{ b.vhost_name }}">
-    <td><a href="/servers/{{ b.server_id }}">{{ b.server }}</a><br><small>{{ b.webserver }}</small></td>
-    <td>{{ b.vhost_name }}{% if not b.is_active %} <small>(retired)</small>{% endif %}{% if b.vhost_names | length > 1 %}<br><small>{{ b.vhost_names | join(", ") }}</small>{% endif %}</td>
-    <td>{{ b.port }}</td>
-    <td><code>{{ b.cert_path }}</code><br><small>{{ owner_mode(b.cert_owner, b.cert_group, b.cert_mode) }}</small></td>
-    <td>{% if b.chain_path %}<code>{{ b.chain_path }}</code>{% else %}—{% endif %}</td>
-    <td><code>{{ b.key_path }}</code><br><small>{{ owner_mode(b.key_owner, b.key_group, b.key_mode) }}</small></td>
-    <td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
-    <td>{% if b.certificate_id %}<a href="/certificates/{{ b.certificate_id }}">{{ b.certificate_common_name }}</a>{% else %}—{% endif %}</td>
-    <td>{% if b.match_state in ('key_mismatch', 'missing_file') %}<a class="badge badge-revoked" href="/bindings/help#{{ b.match_state }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</a>
-      {%- else %}<span class="badge {{ 'badge-ok' if b.match_state == 'matched' else 'badge-superseded' }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</span>{% endif %}
-      {% if b.notes %}<br><small class="binding-note">{{ b.notes }}</small>{% endif %}
-      {% if b.match_state == "unknown" and b.is_active %}<br><a href="/certificates/import?from_binding={{ b.id }}">Import as certificate</a>{% endif %}</td>
-    <td>{{ time_tag(b.last_seen_at, tz) }}{% if b.stale %}<br><span class="chip chip-warning" data-stale="true" title="The last discovery of this server did not succeed">stale since {{ time_tag(b.last_seen_at, tz) }}</span>{% endif %}</td>
+  <tr class="binding-row{% if b.match_state == 'key_mismatch' %} binding-drift{% elif b.match_state == 'missing_file' %} row-attention{% elif not b.is_active %} row-inactive{% endif %}" data-binding-id="{{ b.id }}" data-vhost="{{ b.vhost_name }}">
+    {{ binding_cells(b, tz) }}
   </tr>
   {% endfor %}
   </tbody>
 </table>
 </div>
 {% else %}
-<p class="panel wide">No bindings match these filters. <a href="/bindings">Clear the filters</a>. Bindings appear once discovery has run.</p>
+<section class="empty-state"><h2>No bindings match these filters</h2><p><a href="/bindings">Clear the filters</a> or <a href="/servers">check discovery on the server</a>. An empty filtered list does not mean discovery found no changes.</p></section>
 {% endif %}
 
 <nav class="pager" aria-label="Pages">
   {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
-  <span>Page {{ page.page }} of {{ pages }}</span>
+  <span>Page <span class="mono">{{ page.page }}</span> of <span class="mono">{{ pages }}</span></span>
   {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
 </nav>
 {% endblock %}

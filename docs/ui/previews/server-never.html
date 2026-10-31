@@ -1,0 +1,109 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>new-host.ops.example.test · Servers · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/servers.css"><link rel="stylesheet" href="../../../app/static/pages/bindings.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span aria-current="page"><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<p><a href="/servers">← All servers</a></p>
+<h1>new-host.ops.example.test</h1>
+<section class="panel wide" id="server-panel" aria-label="Server">
+  <span class="badge"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>Never discovered</span>
+
+  <dl class="fields">
+    <dt>Display name</dt><dd>—</dd>
+    <dt>Groups</dt><dd>production, edge</dd>
+    <dt>Web server</dt><dd>nginx</dd>
+    <dt>Connection address</dt><dd class="mono">192.0.2.10</dd>
+    <dt>Inventory source</dt><dd>inventory/production.yml</dd>
+    <dt>Last discovery</dt><dd>Never discovered</dd>
+    <dt>Bindings</dt><dd><span class="mono">0</span></dd>
+    <dt>Mismatched endpoints</dt><dd><span class="mono">0</span> of <span class="mono">4</span> active endpoints</dd>
+    <dt>Notes</dt><dd class="notes">Fixture only; inspect endpoint scans separately.</dd>
+  </dl>
+</section>
+
+<section class="panel wide" id="actions" aria-label="Actions">
+  <h2>Discovery and endpoint checks</h2>
+
+  <form class="inline" method="post" action="/servers/3/discover">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <button type="submit">Run discovery</button>
+  </form>
+
+  <p><a href="/servers/3/dump">Last raw dump summary</a></p>
+  <p><a href="/scans?server_id=3">Open endpoint scan</a></p>
+</section>
+
+
+
+<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
+  <h2>Last captured discovery</h2>
+  <p>No captured dump is available. This server has not been discovered yet.</p>
+
+</section>
+
+<section class="panel wide" id="bindings-panel">
+  <h2>Bindings</h2>
+  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
+
+  <div class="empty-state"><h3>No bindings recorded for this server</h3><p>Review the last captured discovery above before treating an empty inventory as a clean result.</p></div>
+
+</section>
+
+<section class="panel wide" id="discovery-history">
+  <h2>Discovery history</h2>
+
+  <p>This server has not been discovered yet.</p>
+
+</section>
+</main>
+
+</body>
+</html>

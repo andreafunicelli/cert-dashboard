@@ -1,0 +1,25 @@
+/* One relationship presentation used by bindings and server detail. */
+.bindings { table-layout: fixed; }
+.bindings th, .bindings td { width: 25%; overflow-wrap: anywhere; }
+.bindings td > :first-child { margin-top: var(--space-0); }
+.bindings td p { margin-block: var(--space-2); }
+.bindings .help { margin-top: var(--space-3); }
+.bindings details { margin-top: var(--space-4); }
+.bindings summary { padding-inline: var(--space-0); color: var(--accent); }
+.bindings .fields { display: block; }
+.bindings .fields dt { margin-top: var(--space-3); }
+.bindings .fields dd { margin-top: var(--space-1); }
+.bindings .badge { max-width: 100%; }
+.bindings .badge a { color: inherit; }
+.binding-drift { background: var(--warn-surface); }
+.binding-drift .help, .binding-drift .binding-stale { color: var(--warn); }
+.binding-stale { display: flex; align-items: flex-start; gap: var(--space-1); margin-top: var(--space-3); color: var(--warn); font-size: var(--text-sm); }
+.binding-stale .status-icon { flex: none; margin-top: var(--space-1); }
+.binding-stale-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
+.binding-hash { display: block; user-select: all; }
+.binding-note { font-size: var(--text-sm); }
+.list-summary { margin-block: var(--space-5); }
+@media (max-width: 719px) {
+  /* Narrow screens keep the four-column comparison intact and scroll inside the region. */
+  .bindings { min-width: 48rem; }
+}

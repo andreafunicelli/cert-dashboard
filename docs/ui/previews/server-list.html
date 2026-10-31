@@ -1,0 +1,191 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Servers · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/servers.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span aria-current="page"><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Servers</h1>
+<p>Keep failed hosts in view. Discovery records configured files; endpoint scans check the certificate served over TLS.</p>
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/servers" class="filters">
+    <label>Search <input type="search" name="search" value="" maxlength="200" placeholder="Host name"></label>
+    <label>Group <input name="group" value="" maxlength="200"></label>
+    <label>Servers
+      <select name="active">
+        <option value="true" selected>Active</option>
+        <option value="false">Inactive</option>
+        <option value="all">All</option>
+      </select></label>
+    <input type="hidden" name="sort" value="hostname">
+    <input type="hidden" name="page_size" value="50">
+    <button type="submit">Apply filters</button>
+    <a href="/servers">Reset</a>
+  </form>
+</section>
+
+<div class="list-summary" data-total="4"><span class="mono">4</span> servers
+  · <a href="/servers/export.json" download="servers.json">Export list as JSON</a>
+  · <a href="/bindings">Where is a certificate used?</a></div>
+
+<section class="panel wide" id="discovery-actions" aria-label="Discovery">
+  <h2>Discovery</h2>
+  <p class="help">Run across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.</p>
+
+  <form class="inline" method="post" action="/servers/discover">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="scope" value="all">
+    <button type="submit">Discover all</button>
+  </form>
+
+  <form class="inline" method="post" action="/servers/discover">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <input type="hidden" name="scope" value="group">
+    <label>Group <select name="group">
+      <option value="production">production</option><option value="edge">edge</option>
+    </select></label>
+    <button type="submit">Discover group</button>
+  </form>
+
+
+</section>
+
+
+<div class="table-wrap">
+<table class="servers">
+  <thead><tr>
+    <th scope="col"><a href="/servers?sort=hostname">Server</a></th>
+    <th scope="col">Groups</th>
+    <th scope="col">Web server</th>
+    <th scope="col" class="numeric"><a href="/servers?sort=binding_count">Bindings</a></th>
+    <th scope="col"><a href="/servers?sort=last_discovery_at">Last discovery</a></th>
+    <th scope="col" class="numeric"><a href="/servers?sort=mismatch_count">TLS drift</a></th>
+  </tr></thead>
+  <tbody>
+
+  <tr data-server-id="1">
+    <td><a href="/servers/1">edge-01.ops.example.test</a><br><small>Public gateway</small></td>
+    <td>production, edge</td>
+    <td>nginx</td>
+    <td class="numeric">4<p><span class="badge badge-warn" title="Bindings with a key mismatch or a missing file"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>2 need attention</span></p></td>
+    <td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Discovered</span>
+<p><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p></td>
+    <td class="numeric"><a href="/scans?server_id=1&amp;status=mismatch"><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>1 drifted</span></a></td>
+  </tr>
+
+  <tr data-server-id="2">
+    <td><a href="/servers/2">unreachable.ops.example.test</a><br><small>Last inventory retained</small></td>
+    <td>production, edge</td>
+    <td>nginx</td>
+    <td class="numeric">4<p><span class="badge badge-warn" title="Bindings with a key mismatch or a missing file"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>2 need attention</span></p></td>
+    <td><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>Discovery failed</span>
+<p><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p><p class="help"><a href="/servers/2#server-panel">View host failure reason</a></p></td>
+    <td class="numeric"><a href="/scans?server_id=2&amp;status=mismatch"><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>1 drifted</span></a></td>
+  </tr>
+
+  <tr data-server-id="3">
+    <td><a href="/servers/3">new-host.ops.example.test</a></td>
+    <td>production, edge</td>
+    <td>nginx</td>
+    <td class="numeric">0</td>
+    <td><span class="badge"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>Never discovered</span></td>
+    <td class="numeric">0</td>
+  </tr>
+
+  <tr data-server-id="4">
+    <td><a href="/servers/4">long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-.ops.example.test</a><br><small>Long identity fixture</small></td>
+    <td>long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-</td>
+    <td>nginx</td>
+    <td class="numeric">4<p><span class="badge badge-warn" title="Bindings with a key mismatch or a missing file"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>2 need attention</span></p></td>
+    <td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Discovered</span>
+<p><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p></td>
+    <td class="numeric"><a href="/scans?server_id=4&amp;status=mismatch"><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>1 drifted</span></a></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span>Page <span class="mono">1</span> of <span class="mono">1</span></span>
+
+</nav>
+</main>
+
+</body>
+</html>
