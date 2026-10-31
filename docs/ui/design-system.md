@@ -272,7 +272,11 @@ binding-state badges and relationship cells once for both tables, using `_ui` SV
   the row links directly to server detail, where the supplied newest host error
   appears before actions. A missing error says “No failure reason recorded”, never
   guesses SSH/DNS/authentication failure. Stale bindings stay stored observations,
-  not fresh verdicts about an unreachable host.
+  not fresh verdicts about an unreachable host. The stale note is one flex row of
+  exactly two items — icon plus a single `.binding-stale-text` span holding the whole
+  sentence. Status notes never split their sentence into bare text nodes beside an
+  icon: each text node would become its own flex item and wrap into character
+  columns. A preview contract asserts that structure.
 
 `infrastructure_fixtures()` additively extends the existing renderer. It produces
 `server-list.html`, `server-list-empty.html`, `server-detail.html`,

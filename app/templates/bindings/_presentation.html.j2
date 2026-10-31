@@ -58,7 +58,7 @@
 <td class="binding-result">
   {{ binding_state(b, on_server) }}
   <p class="help">Last seen {{ time_tag(b.last_seen_at, tz) }}</p>
-  {% if b.stale %}<p class="binding-stale" data-stale="true" title="The last discovery of this server did not succeed">{{ icon('warn') }}stale since {{ time_tag(b.last_seen_at, tz) }} — the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.</p>{% endif %}
+  {% if b.stale %}<p class="binding-stale" data-stale="true" title="The last discovery of this server did not succeed">{{ icon('warn') }}<span class="binding-stale-text">stale since {{ time_tag(b.last_seen_at, tz) }} — the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.</span></p>{% endif %}
   {% if b.notes %}<p class="binding-note">{{ b.notes }}</p>{% endif %}
   {% if b.match_state == 'unknown' and b.is_active %}<p><a href="/certificates/import?from_binding={{ b.id }}">Import as certificate</a></p>{% endif %}
 </td>

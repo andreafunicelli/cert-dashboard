@@ -14,7 +14,8 @@
 .binding-drift { background: var(--warn-surface); }
 .binding-drift .help, .binding-drift .binding-stale { color: var(--warn); }
 .binding-stale { display: flex; align-items: flex-start; gap: var(--space-1); margin-top: var(--space-3); color: var(--warn); font-size: var(--text-sm); }
-.binding-stale .status-icon { margin-top: var(--space-1); }
+.binding-stale .status-icon { flex: none; margin-top: var(--space-1); }
+.binding-stale-text { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; }
 .binding-hash { display: block; user-select: all; }
 .binding-note { font-size: var(--text-sm); }
 .list-summary { margin-block: var(--space-5); }

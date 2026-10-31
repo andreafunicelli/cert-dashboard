@@ -2,6 +2,7 @@
 
 import re
 from copy import deepcopy
+from html.parser import HTMLParser
 from pathlib import Path
 
 from jinja2 import StrictUndefined
@@ -96,6 +97,51 @@ def test_recorded_empty_never_failed_and_parse_suspected_are_different():
     assert "No raw dump has been captured" in rendered("server-dump-empty")
     assert "4 bindings" in rendered("server-dump")
     assert "Last captured dump, not necessarily the latest attempted run" in rendered("server-dump")
+
+
+def test_stale_note_stays_one_contiguous_text_block():
+    """The stale note is a flex row: icon + one text container, never bare text nodes."""
+
+    class TopLevel(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.stack, self.children = [], []
+
+        def handle_starttag(self, tag, attrs):
+            if not self.stack:
+                self.children.append(("element", tag, dict(attrs)))
+            self.stack.append(tag)
+
+        def handle_startendtag(self, tag, attrs):
+            if not self.stack:
+                self.children.append(("element", tag, dict(attrs)))
+
+        def handle_endtag(self, tag):
+            if self.stack and self.stack[-1] == tag:
+                self.stack.pop()
+
+        def handle_data(self, data):
+            if not self.stack and data.strip():
+                self.children.append(("text", data.strip()))
+
+    for name in ("binding-list", "server-detail"):
+        html = rendered(name)
+        match = re.search(r'<p class="binding-stale"[^>]*>(.*?)</p>', html, re.DOTALL)
+        assert match, name
+        assert 'data-stale="true"' in match.group(0)
+        assert 'title="The last discovery of this server did not succeed"' in match.group(0)
+        parser = TopLevel()
+        parser.feed(match.group(1))
+        assert [c[2].get("class") for c in parser.children if c[0] == "element"] == ["status-icon", "binding-stale-text"], parser.children
+        assert not [c for c in parser.children if c[0] == "text"], "no bare text node may sit beside the sentence"
+        span = re.search(r'<span class="binding-stale-text">(.*?)</span>', match.group(1), re.DOTALL)
+        assert span, name
+        body = re.sub(r"<[^>]+>", "", span.group(1))
+        assert body.startswith("stale since ") and body.endswith("not a current host verdict.")
+        assert " — the latest discovery of this server did not succeed. " in body
+    css = (Path(__file__).resolve().parents[1] / "app/static/pages/bindings.css").read_text()
+    assert ".binding-stale-text { min-width: 0; flex: 1 1 auto;" in css
+    assert ".binding-stale .status-icon { flex: none;" in css
 
 
 def test_missing_error_and_stale_observations_never_become_healthy_claims():
