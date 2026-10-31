@@ -196,12 +196,14 @@ and the secret ownership table are in [`docs/operations.md`](docs/operations.md)
 ```sh
 git clone https://github.com/andreafunicelli/cert-dashboard.git
 cd cert-dashboard
+set -eu
 
 # 1. Build the runtime image every command below uses.
 docker build -t cert-dashboard:local .
 
-# 2. Generate the first master key and install it 0400 10001:10001 (as root); this is the recipe from
-#    docs/operations.md §2.1, where the digest is checked before the file is installed.
+# 2. Generate the first master key and install it 0400 10001:10001 (as root): the recipe from
+#    docs/operations.md §2.1. The block stops on the first failure, so a failed digest check ends it
+#    before install and shred run.
 install -d -m 0711 -o 0 -g 0 /etc/cert-dashboard/secrets
 tmp="$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)"; install -d -m 0700 -o 10001 -g 10001 "$tmp"
 metadata="$(docker run --rm -v "$tmp":/out cert-dashboard:local python -m app.cli generate-master-key --version 1 --output /out/master_key.new)"
@@ -211,10 +213,12 @@ printf '%s  %s\n' "$expected" "$tmp/master_key.new" | sha256sum --check -
 install -m 0400 -o 10001 -g 10001 "$tmp/master_key.new" /etc/cert-dashboard/secrets/master_key
 shred -u -- "$tmp/master_key.new"; rmdir -- "$tmp"
 
-# 3. Provision the other three secrets, then apply the canonical owners and modes.
+# 3. Provision the other three secrets straight into their files (nothing on argv, nothing in shell
+#    history), then apply the canonical owners and modes. The two database passwords must differ.
 umask 077
 head -c 48 /dev/urandom | base64 -w0 > /etc/cert-dashboard/secrets/session_secret
-# db_password and db_owner_password: two distinct values, written straight into their files.
+head -c 48 /dev/urandom | base64 -w0 > /etc/cert-dashboard/secrets/db_password
+head -c 48 /dev/urandom | base64 -w0 > /etc/cert-dashboard/secrets/db_owner_password
 sh scripts/install-secrets.sh /etc/cert-dashboard/secrets
 
 # 4. Start the database and apply the schema with the owner-only migrate service.
