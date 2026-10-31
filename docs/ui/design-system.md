@@ -159,7 +159,9 @@ changed. HTMX 422 behaviour uses the existing declarative `enhanced_forms()` mac
   CLI key rotation are not configuration drafts and are not persisted.
 - No draft is a server-side save. Closing the browser tab ends its drafts; anyone
   using that same browser tab can read its non-secret drafts. Storage denial is
-  reported visibly and falls back to save-before-navigation. The always-visible
+  reported visibly and the tab confirmation explicitly warns that switching
+  discards unsaved changes; cancelling keeps the values and unload guard active.
+  The always-visible
   no-JavaScript notice explains that unsaved values are lost across sections.
 
 Extend `scripts/render_previews.py` via `operations_fixtures()`; do not create a

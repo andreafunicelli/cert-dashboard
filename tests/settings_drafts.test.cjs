@@ -22,6 +22,7 @@ function harness(initialPanel, stored = new Map(), unavailable = false, tabMarke
   const events = {};
   const windowEvents = {};
   let accepted = false;
+  const prompts = [];
   const storage = {};
   for (const action of ['getItem', 'setItem', 'removeItem']) storage[action] = (key, value) => {
     if (unavailable) throw Error('storage denied');
@@ -32,10 +33,10 @@ function harness(initialPanel, stored = new Map(), unavailable = false, tabMarke
   const document = {querySelector: () => current, querySelectorAll: () => tabMarkers, addEventListener: (name, fn) => { events[name] = fn; }};
   const window = {sessionStorage: storage, location: {href: 'https://example.test/settings?tab=smtp&saved=1'},
     history: {state: null, replaceState: (_state, _title, url) => { window.location.href = String(url); }},
-    confirm: () => accepted, addEventListener: (name, fn) => { windowEvents[name] = fn; }};
+    confirm: message => { prompts.push(message); return accepted; }, addEventListener: (name, fn) => { windowEvents[name] = fn; }};
   // Execute only the fixed repository asset, not user-provided source.
   vm.runInNewContext(source, {document, window, URL});
-  return {stored, events, windowEvents, window,
+  return {stored, events, windowEvents, window, prompts,
     edit: (control, value) => { if (control.type === 'checkbox') control.checked = value; else control.value = value; events.input({target: control}); },
     swap: next => { current = next; events['htmx:afterSwap'](); },
     accept: value => { accepted = value; }};
@@ -109,6 +110,7 @@ test('tab changes confirm; cancelled navigation keeps edits; other exits warn be
   const click = {target: {closest: () => ({})}, button: 0, preventDefault: () => { prevented = true; }};
   h.events.click(click);
   assert.ok(prevented);
+  assert.match(h.prompts.at(-1), /keep the non-secret draft/);
   prevented = false;
   h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
   assert.ok(prevented);
@@ -129,4 +131,32 @@ test('unavailable storage is visible, does not crash, and does not drop dirty in
   h.edit(host, 'new');
   assert.equal(host.marker.hidden, false);
   assert.match(p.status.textContent, /storage is unavailable/);
+});
+
+test('denied storage tab navigation warns of discard; cancel keeps edits and unload protection', () => {
+  const host = field('host', 'old');
+  const h = harness(panel('smtp', [host]), new Map(), true);
+  h.edit(host, 'new');
+  let prevented = false;
+  const click = {target: {closest: () => ({})}, button: 0, preventDefault: () => { prevented = true; }};
+  h.events.click(click);
+  assert.match(h.prompts.at(-1), /storage is unavailable/i);
+  assert.match(h.prompts.at(-1), /discard unsaved changes/i);
+  assert.doesNotMatch(h.prompts.at(-1), /keep.*draft/i);
+  assert.equal(prevented, true);
+  assert.equal(host.value, 'new');
+  assert.equal(host.marker.hidden, false);
+  prevented = false;
+  h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
+  assert.equal(prevented, true);
+  h.accept(true);
+  prevented = false;
+  h.events.click(click);
+  assert.equal(prevented, false);
+  h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
+  assert.equal(prevented, false);
+  assert.equal(h.stored.size, 0);
+  h.windowEvents.pageshow();
+  h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
+  assert.equal(prevented, true);
 });

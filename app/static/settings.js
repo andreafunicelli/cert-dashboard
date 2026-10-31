@@ -89,7 +89,10 @@
   document.addEventListener('click', event => {
     const link = event.target.closest('.tabs a');
     if (!link || !dirty || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-    if (!window.confirm('This section has unsaved changes. Switch sections and keep the non-secret draft? Repository URL edits will be lost.')) {
+    const message = storageAvailable
+      ? 'This section has unsaved changes. Switch sections and keep the non-secret draft? Repository URL edits will be lost.'
+      : 'Draft storage is unavailable. Switch sections and discard unsaved changes? Cancel to stay and save them.';
+    if (!window.confirm(message)) {
       event.preventDefault();
     } else {
       leavingForTab = true;
