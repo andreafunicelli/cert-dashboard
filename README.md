@@ -1,258 +1,332 @@
 # cert-dashboard
 
-An internal dashboard for keeping track of the TLS certificates an organisation owns: import
-them, see what expires next, watch what the registered endpoints actually serve, mail the
-people who need to know, run a manual-CA renewal from CSR to an issued, deployment-ready
-certificate, and download audited copies of the material when a server needs it. It runs as
-one Compose stack on a single internal Docker host, talks to no external service, and stores
-private keys and TOTP seeds encrypted under a keyring the operators hold.
+An internal dashboard for the TLS certificates an organisation owns that a public CA cannot renew
+over ACME. It imports them, shows what expires next, watches what the registered endpoints actually
+serve, mails the people who need to know, walks a manual-CA renewal from key and CSR to an issued
+certificate, and deploys the result to nginx and Apache hosts with automatic rollback.
 
-## Status
+It runs as one Compose stack on a single internal Linux host and talks to no external service.
+Private keys and TOTP seeds are stored encrypted under a keyring the operators hold.
 
-| Plan | State |
-| --- | --- |
-| Plan 1 — core (Tasks 1–23) | Merged on `main` (PRs #1–#17) |
-| Plan 2 — TLS observation, scanning and alerts (Tasks 1–17) | Merged on `main` (PRs #21–#38) |
-| Plan 3 — server discovery and automated deploy (Tasks 1–20) | Merged on `main` (PRs #41–#65, including the follow-up fixes #60, #63 and #65) |
+It is not a CA and signs nothing. There is no ACME/Let's Encrypt flow and no CA API integration, it
+never edits nginx or Apache configuration, it does not check OCSP or CRL, and it has no
+high-availability or multi-tenant mode. Every active user is an administrator: v1 has no RBAC.
 
-Working today: certificate inventory, upload and pull import, TLS scanning of registered
-endpoints with classified results and history, the daily background trust recheck, expiry
-alerts and a daily digest over SMTP, the renewal wizard through issued and deployed, read-only
-discovery of nginx and Apache servers over SSH, canary-first certificate deployment with drift
-protection and automatic per-host rollback, audited downloads, audit browser, users/MFA, typed
-settings, the job queue, the worker and its scheduler, and the Overview, Scans, Servers,
-Bindings and Deploy screens. Every Plan 1–3 control is registered; a control is disabled only
-for a live reason (no worker with `ansible_ssh_key`, empty inventory, guardrail).
+![Overview page: expiry counters for expired, under 7, under 30 and under 60 days, worker and inventory state, TLS health counters](docs/screenshots/overview.png)
 
-## Architecture
+**What you get**
 
-- `web` — FastAPI/Uvicorn on `127.0.0.1:8000`: server-rendered Jinja2 with a locally
-  served htmx, PostgreSQL-backed sessions and CSRF on every mutating request.
-- `worker` — `python -m app.jobs.worker`: four job slots, a 30-second heartbeat, the
-  scheduler, retention cleanup, the worker-side pull import, TLS scanning (20 connections in
-  flight), the background trust recheck, worker-only SMTP delivery for expiry alerts and
-  the digest, and the Ansible-driven discovery and deploy jobs (read-only collection, then
-  host-atomic writes with backup, config test, reload, verification and rollback).
-- `db` — PostgreSQL 16 holding inventory, jobs, users and the append-only audit log;
-  private keys and TOTP seeds are stored encrypted.
-- One image (`cert-dashboard:local`) runs both `web` and `worker`; `migrate` is a separate
-  one-shot Compose profile service that only receives the database owner password.
-- The host owns what the application deliberately does not: TLS termination and the front
-  proxy in front of `web`, `pg_dump` backups, the off-host copies of the master key and the
-  SMTP relay.
+- Certificate inventory: import by upload or from `host:port`, per-chain trust assessment, encrypted
+  private keys, audited PEM, chain and PFX downloads.
+- Expiry awareness: thresholds, e-mail alerts and a daily digest over your own SMTP relay.
+- TLS observation: scheduled scans that record what an endpoint serves next to what is stored.
+- Manual-CA renewal: a resumable wizard from key and CSR to an issued certificate.
+- Deployment: discovery from an Ansible inventory, canary-first rollout, automatic per-host rollback.
+- Access and audit: local accounts with TOTP MFA, an append-only audit trail, database sessions.
+
+## Contents
+
+- [Certificate inventory](#certificate-inventory) · [Expiry awareness](#expiry-awareness) ·
+  [TLS observation](#tls-observation) · [Renewal](#renewal)
+- [Deployment](#deployment) · [Access and audit](#access-and-audit)
+- [Security model](#security-model) · [Quick start](#quick-start) · [Configuration](#configuration)
+- [Operations](#operations) · [Architecture](#architecture) · [Development](#development)
+- [License and status](#license-and-status)
+
+## Certificate inventory
+
+Import by upload (PEM, CRT or PFX; 1 MiB per object, 4 MiB per request) or pull the chain a host
+actually serves from `host:port` with an optional SNI name. Chain and key are optional on upload, and
+a supplied key is encrypted before it is stored.
+
+- A certificate already stored is matched by SHA-256 fingerprint and a key by SPKI hash, so an import
+  attaches the key to the existing row instead of duplicating the certificate
+  (`certificate.import_duplicate`).
+- Every stored chain is assessed against the internal CA roots you upload plus the pinned public
+  bundle: `trusted`, `incomplete`, `untrusted_root` or `unchecked`. Roots are never stored as part of a
+  chain, and an untrusted chain is a warning, not a blocked import.
+- Downloads are leaf PEM, chain PEM, full chain PEM and a password-protected PFX rebuilt in memory
+  after you re-enter your own password, each audited (`certificate.download`, `key.export`,
+  `key.export_failed`). There is no PEM private-key export.
+- The list filters, sorts, keeps bookmarkable queries, shows 50 rows per page (up to 100) and exports
+  JSON; the detail page adds chain status, key presence and public fingerprint, lineage, audit rows,
+  the endpoints panel and the deploy panel.
+
+![Certificate list: filters, status badges with days remaining, key and binding columns](docs/screenshots/certificate-list.png)
+
+![Certificate detail: expiring and incomplete-chain badges, SANs, issuer, fingerprint and download actions](docs/screenshots/certificate-detail.png)
+
+![Import screen: upload form with optional chain and key, and the pull-from-host-and-port form](docs/screenshots/certificate-import.png)
+
+## Expiry awareness
+
+Each active certificate is evaluated against `alert.thresholds_days` (`60, 30, 14, 7, 1, 0` by
+default), and the smallest threshold it has crossed produces one e-mail per certificate and threshold.
+
+- Recipients: the certificate's owner first, then `alert.recipients`, deduplicated. The daily digest
+  goes to `alert.recipients` only, with no owner fallback, so an empty list leaves every digest as a
+  failed `no_recipients` row.
+- A `notification_log` ledger with a unique dedupe key and a row lock stops a threshold from being
+  mailed twice. Delivery is at-least-once: a crash between the relay accepting the mail and the ledger
+  commit can resend one message. Only transient failures retry (connect, timeout, 4xx reply), up to
+  three attempts; AUTH, TLS and permanent rejections wait for the next scheduled run and appear in
+  Settings → Alerts.
+- The digest at `07:30` UTC lists expiring and expired certificates, new TLS mismatches, unknown
+  certificates, stale servers, failed jobs, rolled-back hosts and failed notifications, and is sent
+  even when every section is empty.
+- Mail leaves the worker only, over STARTTLS, SSL/TLS or plaintext as configured, and AUTH is
+  attempted only over TLS. `smtp_password` is a worker-only file secret.
+
+![Alerts settings: threshold days, team recipients, digest and expiry-check switches, recent delivery failures](docs/screenshots/alert-settings.png)
+
+## TLS observation
+
+An endpoint is `host:port` plus an optional SNI name and an optional expected certificate. Discovery
+adds endpoints from bindings; you can also add them by hand.
+
+- The worker scans every endpoint daily at `02:00` UTC (`scan.daily_at`) or on demand, with 20
+  connections in flight and 10 s per endpoint. Each attempt stores one classified result — `ok`,
+  `mismatch`, `expired`, `unreachable` or `error` — with the served fingerprint, common name, issuer,
+  expiry, TLS version, chain length and elapsed time; the last 20 results per endpoint stay browsable,
+  and an unreachable endpoint is retried alone, up to three times, without re-scanning healthy ones.
+- The expected certificate is snapshotted into each result, so the detail page shows what is stored
+  next to what is served.
+- Observed certificates are never imported, matched into inventory or trusted. `chain_status` changes
+  only through an explicit trust recheck, which runs daily and after every trust-anchor change.
+
+![Scan detail: a mismatch finding with the expected certificate beside the certificate the endpoint actually serves](docs/screenshots/scan-mismatch.png)
+
+## Renewal
+
+The renewal wizard has six steps — Basics, CSR, Order, Upload, Ready, Done — and resumes where it
+stopped.
+
+- The key is generated on the server (RSA 2048/3072/4096 or ECDSA P-256/P-384, RSA 2048 by default)
+  and stored encrypted; the CSR is downloaded from the page.
+- The CA step is explicit: the CSR page shows the request's SHA-256 to compare with the CA portal, the
+  ordering checklist, and a field for the CA order reference. The dashboard never contacts a CA.
+- The issued certificate is uploaded with an optional chain, and the gate checks the key and CSR SPKI,
+  the CN/SAN set and the validity dates before the renewal becomes `issued`, ready to deploy.
+- A renewal becomes `deployed` only after a succeeded deploy job with a succeeded binding carrying the
+  new fingerprint; `finalize` then changes the previous certificate's status. A paused, failed or
+  cancelled deploy never advances it.
+
+![Renewal wizard at the CSR step: step list, CSR hash, download link, the at-the-CA checklist and the order reference field](docs/screenshots/renewal-csr.png)
+
+## Deployment
+
+Settings → Inventory points the worker at a Git repository of Ansible inventory (URL, ref, checkout
+path, `webserver_var`). The worker keeps a read-only checkout and runs Ansible read-only against the
+listed nginx and Apache hosts: it reads configuration, certificates and keys, never writes a file and
+never reloads a service.
+
+- Certificate roles are decided by verifying file content: a chain file counts only when it really
+  signs the leaf, and an unreadable or incomplete chain is diagnosed instead of guessed. Apache
+  includes are read recursively as well as through `apachectl -S`; nginx includes come from `nginx -T`.
+- Reconciliation upserts servers and bindings without duplicates, never imports an unknown certificate
+  and never deletes a binding. A host that previously had bindings and suddenly yields none is marked
+  `parse_suspected` instead of being emptied.
+- The deploy preview shows every host's current and new identity, the files that change and the batch
+  plan. Starting requires echoing the preview's `plan_sha256` and ticking the confirmation, so a plan
+  that changed in between is refused rather than started. Guardrails refuse a start without a key, with
+  an expired or revoked certificate, with no target, when every binding is already on the new
+  fingerprint, when another deploy is queued, running or paused, or when the chain is not trusted
+  without an audited override.
+- Rollout is canary first, then batches of `max(1, ceil(total × deploy.batch_percent / 100))`. With
+  *pause after canary* the job waits for **Continue**, which re-checks drift on every host; a forgotten
+  pause auto-cancels after `deploy.pause_timeout_hours`.
+- Each host is backed up to `/var/backups/cert-dashboard/<job_id>/` with a `manifest.json`, written
+  atomically, config-tested, reloaded and verified on the served port. Any failure from the first write
+  onwards triggers exactly one automatic rollback of every backed-up path; the first failed host stops
+  the rollout and hosts that never started are `skipped`. Backups are pruned after
+  `deploy.backup_retention_days` (30; `0` keeps them forever), always keeping the newest copy of a path.
+- Deploy jobs are never retried automatically; **Retry host** creates a new audited job.
+
+![Deploy preview: guardrails passed, the batch plan, current and new certificate per host, and the confirmation checkbox](docs/screenshots/deploy-preview.png)
+
+![Deploy job after a failed canary: the failed host, its restored files and the rolled-back total](docs/screenshots/deploy-rollback.png)
+
+## Access and audit
+
+- Local accounts only. The LDAP backend exists as a reserved stub that returns `not_supported`; no
+  directory integration is implemented in v1, and every active user is an administrator.
+- TOTP two-factor authentication with single-use recovery codes. Ten consecutive failures lock an
+  account for 15 minutes, a password change revokes the other sessions, and the last active user
+  cannot be deactivated.
+- Sessions are opaque rows in PostgreSQL: 24 h absolute, 8 h idle, a per-session CSRF token on every
+  non-GET request, and a 10-minute pre-authentication session with no admin authority.
+- The audit log is append-only for the application role, which cannot update or delete it, and audit
+  rows share the transaction of the change they describe. The browser filters by actor, action prefix,
+  target, time and IP, and exports the newest 5,000 rows as JSON metadata.
+
+![Account page: password change, enabled two-factor authentication with recovery codes, and the current session](docs/screenshots/account-mfa.png)
+
+*The data in these images is synthetic: they are renders of the repository's own preview fixtures
+(`docs/ui/previews/`), not captures of a real inventory.*
+
+## Security model
+
+- **Encrypted at rest.** Private keys and TOTP seeds are AES-256-GCM ciphertext with a row-bound AAD,
+  under a versioned keyring that holds at most two live versions.
+- **Key custody is yours.** `master_key` is a file secret (`0400`, `10001:10001`) the database never
+  contains. Keep three copies in two locations, rotate at least annually or when a custodian leaves or
+  a copy may have leaked, and restore a dump into a staging stack every quarter. A version that no copy
+  holds makes every key wrapped under it unrecoverable: those certificates must be re-keyed and
+  re-issued, because there is no recovery path without the keyring.
+- **File secrets only.** `master_key`, `session_secret`, `db_password`, `db_owner_password` and the
+  optional worker credentials are read-only file mounts, read once at startup, and never appear in the
+  database, a compose value, argv, a log or the UI.
+- **Nothing leaves the host.** No telemetry, licence check or external API call. The only outbound
+  traffic is to your SMTP relay, from the worker, and SSH/Ansible to the hosts you configure.
+- **Refusals.** No PEM private-key export. No deploy without a key, valid dates and a trusted chain, or
+  an audited override that still cannot bypass key, validity, drift or config-test checks. Trust
+  anchors must be self-signed CA roots, observed certificates are never trusted, audit rows are never
+  deleted, and nginx or Apache configuration is never edited.
+- **Hardened runtime.** UID 10001, read-only root filesystem, all capabilities dropped,
+  `no-new-privileges`, `noexec` `/tmp`, a private tmpfs for decrypted key material, 4 MiB request
+  bodies, PFX parsing in a resource-limited child process, and structured logs that carry route, status
+  and request ID but never query strings, cookies, bodies or exception text.
 
 ## Quick start
 
-Requirements: Docker Engine with the Compose plugin, a Linux host, and root access for the
-one-time secret provisioning. Full prerequisites, secret ownership/modes, backup and
-rotation procedures live in [`docs/operations.md`](docs/operations.md).
+Requires Docker Engine with the Compose plugin, a Linux host, and root for the one-time secret
+provisioning. `web` is published on `127.0.0.1:8000`; put your TLS proxy in front of it. Prerequisites
+and the secret ownership table are in [`docs/operations.md`](docs/operations.md) §1–§2.
 
 ```sh
-# 0. Build the runtime image used by every compose command below.
+git clone https://github.com/andreafunicelli/cert-dashboard.git
+cd cert-dashboard
+
+# 1. Build the runtime image every command below uses.
 docker build -t cert-dashboard:local .
 
-# 1. Generate the first master key and install it 0400 10001:10001 (see
-#    docs/operations.md §2.1 for the digest-verified container recipe), provision
-#    session_secret, db_password and db_owner_password, then canonicalise ownership.
+# 2. Generate the first master key and install it 0400 10001:10001 (as root); this is the recipe from
+#    docs/operations.md §2.1, where the digest is checked before the file is installed.
+install -d -m 0711 -o 0 -g 0 /etc/cert-dashboard/secrets
+tmp="$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)"; install -d -m 0700 -o 10001 -g 10001 "$tmp"
+metadata="$(docker run --rm -v "$tmp":/out cert-dashboard:local python -m app.cli generate-master-key --version 1 --output /out/master_key.new)"
+printf '%s\n' "$metadata"
+expected="${metadata%% *}"; expected="${expected#sha256=}"
+printf '%s  %s\n' "$expected" "$tmp/master_key.new" | sha256sum --check -
+install -m 0400 -o 10001 -g 10001 "$tmp/master_key.new" /etc/cert-dashboard/secrets/master_key
+shred -u -- "$tmp/master_key.new"; rmdir -- "$tmp"
+
+# 3. Provision the other three secrets, then apply the canonical owners and modes.
+umask 077
+head -c 48 /dev/urandom | base64 -w0 > /etc/cert-dashboard/secrets/session_secret
+# db_password and db_owner_password: two distinct values, written straight into their files.
 sh scripts/install-secrets.sh /etc/cert-dashboard/secrets
 
-# 2. Start the database and apply the schema with the owner-only migrate service.
+# 4. Start the database and apply the schema with the owner-only migrate service.
 docker compose up -d db
 docker compose --profile migrate -f docker-compose.yml -f docker-compose.migrate.yml run --rm migrate
 
-# 3. Create the first administrator. Run interactively: the password is typed at the
-#    prompt and never reaches argv, logs or the audit row.
+# 5. Create the first administrator, interactively: the password is typed at the prompt and never
+#    reaches argv, logs or the audit row.
 docker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal
 
-# 4. Start the application and sign in at http://127.0.0.1:8000/ (or through your proxy).
+# 6. Start the application and sign in at http://127.0.0.1:8000/ (or through your proxy).
 docker compose up -d web worker
 ```
 
-After signing in, enroll TOTP on the Account page, import the first certificate, then
-check **Settings → Status**: the worker must be `ok`, the keyring SHA-256 must match the
-fingerprint you recorded, and there must be no missing-key-version warning.
+Then enroll TOTP on the Account page, import the first certificate, and open **Settings → Status**: the
+worker must be `ok`, the keyring SHA-256 must match the fingerprint printed in step 2, and there must
+be no `missing_key_versions` warning. Worker credentials for SMTP, SSH and Git are mounted through
+`docker-compose.credentials.yml` (`docs/operations.md` §2.3).
 
-## What it does
+## Configuration
 
-**Inventory.** Import PEM/CRT/PFX bundles by upload (1 MiB per file, PFX parsed in a
-resource-limited child process) or pull the chain a host actually serves from
-`host:port`. Certificates are deduplicated by SPKI hash, keys are attached to the
-existing row instead of duplicated, renewal lineage is tracked, and every stored chain
-is assessed against internal trust anchors plus the pinned public bundle.
+Environment values come from `docker-compose.yml`; everything else is a typed setting edited in the UI
+and stored in `app_setting`. Times are UTC.
 
-**Observe what is served.** Register `host:port` (plus an optional SNI name) endpoints on the Scans
-screen and the worker connects to each on the daily schedule or on demand, with a 10-second
-`scan.timeout_seconds` deadline and at most 20 connections in flight. Every attempt records one
-classified result — `ok`, `mismatch`, `expired`, `unreachable` or `error` — with the served
-fingerprint, common name, issuer, expiry, TLS version, chain length and elapsed time; the last 20 are
-browsable per endpoint and an unreachable endpoint is retried alone, at most three times, without
-re-scanning the healthy ones. Observed certificates are **never imported, matched into inventory or
-trusted**: scanning only records what the endpoint serves, and the expected certificate is snapshotted
-into each result. A daily background recheck keeps the stored trust paths current, and the Settings
-status page shows any chain that stopped being trusted.
+| Name | Where | Default | What it does |
+| --- | --- | --- | --- |
+| `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER` | compose | `db`, `5432`, `cert_dashboard`, `app_role` | Database endpoint and runtime role |
+| `WORKER_CONCURRENCY`, `MAX_PARALLEL_JOBS` | compose | `4`, `2` | Job slots and jobs run at the same time |
+| `TRUSTED_PROXIES` | compose | empty | Proxy CIDRs, so client IPs in the audit log are real |
+| `DASHBOARD_URL` | compose, worker | empty | Absolute `http(s)` base URL for links in e-mail |
+| `SSH_KNOWN_HOSTS` | worker | `/etc/ssh/ssh_known_hosts` | Pinned host keys; a missing file fails discovery and deploy closed |
+| `SECRETS_DIR` | CLI | `/run/secrets` | Where the CLI reads the file secrets |
+| `smtp.host`, `smtp.port`, `smtp.security`, `smtp.username`, `smtp.from`, `smtp.tls_verify` | Settings → SMTP | empty; port from security (`587`, `465`, `25`); empty; empty; empty; `on` | Relay |
+| `alert.thresholds_days`, `alert.recipients`, `alert.digest_enabled` | Settings → Alerts | `60, 30, 14, 7, 1, 0`; empty; `on` | Thresholds, team recipients, digest |
+| `scan.enabled`, `scan.daily_at`, `scan.timeout_seconds` | Settings → Scanning | `on`, `02:00`, `10` | Endpoint scan |
+| `discovery.enabled`, `discovery.nightly_at`, `expiry_check.enabled`, `expiry_check.daily_at`, `digest.daily_at`, `cleanup.enabled`, `cleanup.daily_at` | Settings → Schedule | `on`, `03:00`, `on`, `07:00`, `07:30`, `on`, `04:00` | Daily jobs |
+| `retention.days`, `ui.timezone` | Settings → General | `90`, `UTC` | Finished jobs kept; display time zone |
+| `inventory.repo_url`, `inventory.ref`, `inventory.path`, `inventory.webserver_var` | Settings → Inventory | empty, empty, empty, `webserver_type` | Inventory checkout |
+| `deploy.batch_percent`, `deploy.concurrency`, `deploy.pause_after_canary`, `deploy.pause_timeout_hours`, `deploy.host_timeout_seconds`, `deploy.backup_retention_days` | Settings → Deployment | `10`, `5`, `on`, `24`, `600`, `30` | Rollout and backup retention |
+| `trust.include_public_bundle` | Settings → Trust anchors | `on` | Also validate against the pinned certifi bundle |
 
-**Alert and digest.** Each active certificate is watched against `alert.thresholds_days`
-(60/30/14/7/1/0 by default): the smallest crossed threshold produces one e-mail per certificate and
-threshold, addressed to the certificate's owner first and then the team list, listing the certificate
-facts, its active bindings and its renewal state. A `notification_log` ledger with a unique dedupe key
-and a row lock stops a threshold from being mailed twice, and three bounded attempts (30 s and 120 s
-backoff, transient failures only) retry a failing send; delivery is **at-least-once**, so a crash
-between the relay accepting the mail and the ledger commit can resend the same message once (see
-`docs/development.md`), and a scheduler tick step sweeps the failures of the day. A daily digest lists the
-expiring, expired, new TLS mismatches, unknown certificates, stale servers, failed jobs, rolled-back
-hosts and failed notifications plus the inventory revision — and is sent even when there is nothing to
-report. Mail leaves the worker only, over STARTTLS, SSL/TLS or plaintext as configured, and AUTH is
-attempted only over TLS.
+Every change is validated against that key's own rule before anything is written, then recorded once
+as `settings.update` with the before and after values.
 
-**Discover what is configured.** The worker keeps a read-only checkout of the inventory Git repository
-and, nightly or on demand from Servers, runs Ansible against the listed nginx and Apache hosts to read
-their TLS configuration (never writing, never reloading; `become` only to read). Each host yields one
-§6.2 document: vhost, port, config file, certificate/chain/key paths, owners, modes, fingerprints and
-the key's DER SPKI hash. Certificate roles are decided by verifying content, not position (D1): a
-same-CA RSA+ECDSA pair stays two bindings, a chain file is used only when it really signs the leaf,
-and unreadable or incomplete chains are diagnosed instead of guessed. Apache includes are read
-recursively in addition to `apachectl -S`; nginx includes arrive through `nginx -T` (D3). Key hashes
-use DER, matching `private_key.public_key_sha256` (D2). Reconciliation upserts servers and bindings
-without duplicates, never imports an unknown certificate, never deletes a binding, and treats a
-previously populated host that suddenly yields zero bindings as `parse_suspected` rather than
-deactivating everything. Unreachable hosts are retried (3 attempts, 30/120 s); `auth` failures are
-never retried and tell you to check `known_hosts` and the deploy key. Raw dumps stay on the worker's
-artifacts volume (`0600`, 30-day cleanup); the UI shows only the summary.
+## Operations
 
-**Deploy with rollback.** Choose an issued certificate (or a keyed active one) on the Deploy screen;
-the preview shows every host's current and new identity, the writes and the batch plan, and the POST
-must echo its `plan_sha256` and a confirmation sentence. Guardrails refuse a start without a key, with
-an expired/revoked certificate, with no target, when every binding is already on the new fingerprint,
-when another deploy is queued/running/paused, or when the chain is not `trusted` without an audited
-override — and the override never bypasses key, validity, drift or config-test checks. The rollout is
-canary first, then batches of `max(1, ceil(total × deploy.batch_percent / 100))` hosts; with *pause
-after canary* the job releases its claim and waits for **Continue**, which re-checks drift on every
-host; a forgotten pause auto-cancels after `deploy.pause_timeout_hours`. The first failed host stops
-the rollout and never-started hosts are `skipped`; a host locked by another deploy is skipped without
-stopping it. Each host is backed up to `/var/backups/cert-dashboard/<job_id>/` with a `manifest.json`
-(root `0700`, keys `0600`, certificates `0644` or stricter), written atomically, tested, reloaded and
-verified on the served port; any failure from the first write onwards triggers exactly one automatic
-rollback that restores every backed-up path. Deploy jobs are never retried automatically — **Retry
-host** creates a new audited job — and a renewal becomes `deployed` only after a succeeded job with a
-succeeded binding carrying the new fingerprint. Backups are pruned by `deploy.backup_retention_days`
-(default 30, `0` = keep forever), always keeping the newest copy of each path. The full operator
-runbook, including the first real-host §10.4 acceptance, is
-[`docs/operations.md` §11–§12](docs/operations.md#11-discovery-and-deployment).
+- **Backup.** The database holds the encrypted keys, certificates, users and the audit log; it never
+  holds the master key, and a dump must never be stored beside it. Take
+  `docker compose exec -T db pg_dump -Fc -U db_owner -d cert_dashboard > cert_dashboard-$(date +%F).dump`
+  and prove it readable with `pg_restore --list`. Scheduling is the host's job: keep 30 daily and 12
+  weekly copies off-host and restore one into a staging stack every quarter (`docs/operations.md` §4).
+- **Key rotation.** Generate version N+1 merged from the current file, install it, restart `web` and
+  `worker`, then `docker compose run --rm web python -m app.cli rotate-master-key` re-encrypts every key
+  and TOTP seed in audited batches of 100 and prints counts only; `verify-key --certificate-id` checks
+  one row. Remove the old version only after both counts are zero and a PFX export succeeded
+  (`docs/operations.md` §6).
+- **Upgrades.** Back up, build or pull the new image, run the migrate command from the quick start, then
+  `docker compose up -d web worker`. Migrations are forward-only.
+- **Logs.** `docker compose logs -f web worker`. The `json-file` driver rotates at 50 MB with five files
+  per container; request logs carry route, status and request ID, never query strings, cookies, bodies
+  or exception text.
+- **Worker alive.** The worker writes a heartbeat every 30 seconds. When the newest heartbeat is older
+  than 5 minutes every page shows a red banner (*Worker is not running*), `/healthz` returns
+  `"worker": "stale"`, the container turns unhealthy and Settings → Status lists `worker_stale`.
+  `/health/live` and `/health/ready` cover the web process and the database.
 
-**Find and inspect.** The Overview shows disjoint expiry buckets (expired, < 7, 7–< 30,
-30–< 60 days) with setup guidance when the inventory is empty, plus TLS health, recent jobs, renewals
-in flight and a status strip. The certificate, Scans, Servers and Bindings lists have filters, sorting,
-bookmarkable queries, 1–100 rows per page and a JSON export; the certificate detail page shows public
-fields, key presence/public fingerprint, related audits, lineage, chain status warnings, its endpoints
-panel and editable metadata.
+![Settings status: worker heartbeat and state, queue counts, SMTP delivery history, keyring versions and database size](docs/screenshots/settings-status.png)
 
-**Renew, deploy, finalise.** A resumable manual-CA wizard walks through CSR generation (RSA
-2048/3072/4096 or ECDSA P-256/P-384, RSA 2048 by default), download of the CSR, submission to
-the CA, and upload of the issued PEM with optional chain; it then stops at **issued / ready to
-deploy**. The issued-certificate gate checks key **and** CSR SPKI, CN/SAN set and validity
-before accepting. The state machine continues to `deployed` and `done`: Plan 3's deploy handler
-advances a renewal to `deployed` through its success hook only after a **succeeded** job with a
-succeeded binding row carrying the new fingerprint, and `finalize` then changes the previous
-certificate's status. The ready page links the Deploy screen; a paused, failed or cancelled
-deploy never advances the renewal.
+## Architecture
 
-**Export.** Leaf, chain and full-chain PEM downloads and a password-protected PFX export
-are audited. The PFX is rebuilt in memory after you re-enter your own password; nothing is
-written to disk and no PEM private-key export exists.
+`web` is FastAPI/Uvicorn on `127.0.0.1:8000`: server-rendered Jinja2 with a locally served htmx,
+PostgreSQL-backed sessions and CSRF on every mutating request. `worker` is `python -m app.jobs.worker`:
+four job slots, the scheduler, TLS scans, the trust recheck, SMTP delivery, and the Ansible discovery
+and deploy jobs. `db` is PostgreSQL 16 and holds everything except the secrets. One image
+(`cert-dashboard:local`) runs both processes; `migrate` is a one-shot profile service that receives only
+the database owner password. Named volumes keep `pgdata`, the inventory checkout and the discovery
+artifacts, and the worker gets a private tmpfs for decrypted key material.
 
-**Administer and observe.** Users (local, admin), TOTP MFA with single-use recovery
-codes, login lockout, the read-only audit browser with JSON export, typed settings across
-seven configuration tabs, trust-anchor management, a status snapshot and a
-confirmation-gated maintenance prune.
-
-**Run jobs.** A PostgreSQL `SKIP LOCKED` queue with per-type retry policy, a timeout
-reaper and stale-owner fencing; a worker with heartbeat, `/healthz` and a stale-worker
-banner; daily UTC schedules for the endpoint scan and the trust recheck (02:00 — separate
-schedule keys that deliberately share `scan.daily_at`/`scan.enabled`), the retention cleanup
-(04:00), the expiry check (07:00) and the digest (07:30), the last three each with their own
-time/enable setting.
-
-## Security posture
-
-- **File secrets only.** `master_key`, `session_secret`, `db_password`,
-  `db_owner_password` (and the optional worker credentials) are read-only file mounts with
-  fixed owners and modes; they are never placed in the database, a compose value, an
-  environment listing or the web UI, and they are read once at startup.
-- **Encrypted key material.** Private keys and TOTP seeds are AES-256-GCM encrypted with a
-  row-bound AAD under a versioned keyring; rotation re-encrypts in audited batches and the
-  CLI prints counts and digests only.
-- **Audited everything.** The audit log is append-only for the application role, audit
-  writes share the mutation's transaction, and exports/downloads are recorded
-  (`certificate.download`, `key.export`, `key.export_failed`, `renewal.csr_download`).
-- **Bounded input.** 4 MiB request bodies, 1 MiB per uploaded object, strict parsing, and a
-  PFX reader that runs in a child process with CPU, memory and wall-clock budgets.
-- **Hardened runtime.** Containers run as UID 10001 with a read-only root filesystem,
-  dropped capabilities, `no-new-privileges`, `noexec` `/tmp` and a private tmpfs for
-  decrypted key material that is wiped at worker startup.
-- **No secret in a log.** Structured request logs carry route, status and request ID, never
-  URLs with query strings, cookies, bodies or exception text; the same redaction covers
-  audit details.
-- **Observed, never trusted.** A scan records what an endpoint serves and changes nothing else:
-  the served certificate is never imported, matched into inventory or trusted, and `chain_status`
-  changes only through an explicit trust recheck.
-- **Mail credentials stay in the worker.** `smtp_password` is a worker-only file secret; the web
-  process never loads it and never opens an SMTP connection, AUTH runs only over STARTTLS or SSL/TLS,
-  a STARTTLS server can never make the client fall back to plaintext, and SMTP failures are kept as
-  fixed step names plus numeric reply codes — no peer reply text, exception text or AUTH challenge is
-  stored, logged or rendered.
-- **SSH and Ansible credentials are file-only.** `ansible_ssh_key`, `known_hosts` (mounted at
-  `/etc/ssh/ssh_known_hosts` via `SSH_KNOWN_HOSTS`), the optional vault password and the optional Git
-  token exist only as read-only file secrets. The runner builds the child environment from scratch;
-  keys reach Ansible and `git` as `0600` files in the tmpfs staging directory and are removed in
-  `finally`; nothing secret appears in argv, extra-vars, `ansible-runner` artifacts, job payloads,
-  results, errors, audit details or logs. The `ANSIBLE_SSH_ARGS` value in
-  `docker-compose.credentials.yml` is **no longer read** — change host-key checking in `known_hosts`,
-  never in that variable. A missing `known_hosts` fails discovery and deploy closed, before any
-  connection.
-- **Discovery only reads.** The playbooks never write on a target and never reload a service; they
-  `become` only to read root-owned configuration, certificates and keys. Raw dumps can contain the
-  target's own inline credentials, so they stay on the worker's artifacts volume (`0600`, 30-day
-  cleanup), are never served to the browser, and the UI renders only a summary.
-- **Deploy is backed up and reversible.** Every host write is preceded by a backup
-  (`/var/backups/cert-dashboard/<job_id>/`, root `0700`, key backups `0600`, certificate backups
-  `0644` or stricter, `manifest.json`), and any failure from the first write through verification
-  triggers exactly one automatic rollback of every manifest path. Drift, config test, key presence
-  and the leaf/key SPKI match are checked on the host; a failed rollback or a host timeout is marked
-  *needs manual attention*. The trust override is audited as `deploy.chain_override` and never
-  bypasses those checks.
-
-## Documentation
-
-- [`docs/operations.md`](docs/operations.md) — install, secrets, migrate, backup/restore,
-  master-key rotation, operational signals, Settings tabs, discovery and deployment (§11) and
-  the §10.4 real-host acceptance runbook (§12).
-- [`docs/development.md`](docs/development.md) — checkout and test commands, web modules,
-  job queue/worker internals, discovery/deploy modules, playbook static rules, test fixtures.
-- [`docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`](docs/superpowers/specs/2026-10-19-cert-dashboard-design.md)
-  — the normative design (sections cited throughout the code).
-- [`docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`](docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md)
-  — the executed Plan 1 task list and its contract decisions.
-- [`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md`](docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md)
-  — the executed Plan 2 task list (scanning, alerts, digest, screens).
-- [`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md`](docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md)
-  — the executed Plan 3 task list (discovery, deployment, the D1–D3 operator decisions and the
-  §10.4 acceptance).
+The worker is separate because its work is long, outbound and privileged: SSH to managed hosts, SMTP to
+the relay, deploys that take minutes. Keeping it out of the request path means a slow scan or a hung
+host never blocks a page, the web process never loads the SMTP password or the SSH key, and the queue
+survives a restart of either process.
 
 ## Development
-
-Python 3.12 with `uv`. `tests/unit` needs no database and no network; its `test_topology`
-cases (35, of which 20 need a live daemon) additionally need a reachable Docker daemon, so the
-local gate filters them. Integration tests need Docker — PostgreSQL Testcontainers plus the
-`targets` and `ssh-targets` profiles of `docker-compose.test.yml` — and run in CI, where the
-SSH target images are built once and started with `--no-build --pull never`. CI also enforces
-70 % overall coverage and 85 % on `app/crypto`, `app/services/renewals.py`,
-`app/services/deploy.py` and `app/ansible/parse_*`.
 
 ```sh
 uv sync --frozen
 uv run ruff check .
-uv run pytest -q tests/unit -k 'not test_topology'
+uv run pytest -q tests/unit -k 'not test_topology'   # the local gate on a Docker-less machine
 ```
 
-The complete command set, including the coverage gates and the container smoke test that
-CI runs, is in [`docs/development.md`](docs/development.md#development-and-container-setup).
+Python 3.12 with `uv`. `tests/unit` needs no database and no network; the `test_topology` cases render
+Compose files and need a reachable Docker daemon, so the local gate filters them. Integration tests need
+Docker: PostgreSQL Testcontainers plus the `targets` and `ssh-targets` profiles of
+`docker-compose.test.yml`, which add real nginx and Apache TLS servers and an SMTP capture container. CI
+runs `uv run pytest -q --cov=app ... --cov-fail-under=70` with 85 % gates on `app/crypto`,
+`app/services/renewals.py`, `app/services/deploy.py` and `app/ansible/parse_*`, plus `pip-audit` and
+three compose renders; the application test image runs only `tests/unit`.
+
+The interface has its own documents: `docs/ui/design-system.md` for tokens and rules, and
+`docs/ui/previews/` for 69 rendered previews of every screen, regenerated with
+`python -m scripts.render_previews`. The normative design is
+`docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task history is the three plan files
+in `docs/superpowers/plans/`. The full command set is in
+[`docs/development.md`](docs/development.md#development-and-container-setup).
+
+## License and status
+
+No licence file is present in the repository, so no licence is granted. Add one before distributing or
+reusing the code.
+
+Status: the v1 scope of the spec is implemented. Plans 1–3 are merged (inventory and renewal, TLS
+scanning and alerts, discovery and deployment) and the interface redesign merged in PRs #70–#75. The
+limits stated above are the ones a reader will hit: manual CA only, nginx and Apache over SSH only,
+single host, no RBAC, no OCSP or CRL, LDAP reserved but not implemented.

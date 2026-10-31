@@ -204,6 +204,26 @@ with the pull request that delivered each group of changes.
 - `docs/operations.md` §12.2 clarifies the two-host `grep` spot-check and the mandatory PFX round
   trip of the §10.4 acceptance (PR #66).
 
+**Operator interface (PRs #70–#75)**
+
+- A design system for the operator UI: `docs/ui/design-system.md` and the tokens in
+  `app/static/app.css` (dark root theme with a light-mode override, no web fonts, no build step),
+  applied to the sign-in, account and error surfaces (PR #70), with a per-area stylesheet hook for
+  the page stylesheets that followed (PR #71).
+- Overview, Account, Users and Audit rebuilt around what an operator reads first: expiry buckets,
+  worker and inventory state, TLS health, MFA state and the audit filters (PR #72).
+- Certificate inventory, renewals, import and Scans: status badges with days remaining, chain and key
+  columns, the upload and pull forms, the renewal step list and the scan history (PR #73).
+- Servers, bindings and discovery: discovery evidence, parse warnings, drift and the binding help
+  page (PR #75).
+- Deploy: guardrail state, the plan preview, the confirmation checkbox, rollout progress and per-host
+  outcomes (PR #74).
+- Settings keep unsaved drafts in the browser tab through `app/static/settings.js`, which never
+  persists a secret, a key, a token or a repository URL (PR #74).
+- 69 rendered previews of every screen under `docs/ui/previews/`, regenerated with
+  `python -m scripts.render_previews`; `tests/test_ui_previews.py` fails when they drift from the
+  templates (PRs #70–#75).
+
 ### Changed
 
 - **Operator decisions D1–D3 (2026-10-25) are recorded and the spec is corrected.** D1: certificate
