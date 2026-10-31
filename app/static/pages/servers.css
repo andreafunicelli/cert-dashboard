@@ -1,0 +1,26 @@
+/* Infrastructure layout only; all design values use shared tokens. */
+.servers, .discovery-history { table-layout: fixed; }
+.servers th:first-child { width: 27%; }
+.servers th:nth-child(2) { width: 11%; }
+.servers th:nth-child(3) { width: 9%; }
+.servers th:nth-child(4) { width: 15%; }
+.servers th:nth-child(5) { width: 24%; }
+.servers th:nth-child(6) { width: 14%; }
+.servers td, .servers th, .discovery-history td { overflow-wrap: anywhere; }
+.servers td p { margin: var(--space-2) var(--space-0) var(--space-0); }
+.servers td time { font-size: var(--text-sm); }
+.servers .badge { max-width: 100%; text-align: left; }
+.servers .badge-warn, .servers .badge-danger { white-space: nowrap; }
+.servers td small { color: var(--text-muted); }
+.list-summary { margin-block: var(--space-5); }
+#discovery-actions .inline { display: inline-flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); margin: var(--space-0) var(--space-4) var(--space-3) var(--space-0); }
+#discovery-actions .inline label { margin-top: var(--space-0); }
+#discovery-actions button { margin-top: var(--space-0); }
+#server-panel .server-failure { color: var(--danger); overflow-wrap: anywhere; }
+#dump-files li, #dump-warnings li { overflow-wrap: anywhere; margin-block: var(--space-2); }
+.discovery-history th:last-child { width: 30%; }
+@media (max-width: 719px) {
+  .servers th, .servers td { padding: var(--space-2); }
+  .servers { font-size: var(--text-sm); }
+  .discovery-history { table-layout: auto; }
+}

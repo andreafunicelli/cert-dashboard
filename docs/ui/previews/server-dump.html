@@ -1,0 +1,85 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Raw dump summary · edge-01.ops.example.test · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/servers.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span aria-current="page"><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<p><a href="/servers/1">← edge-01.ops.example.test</a></p>
+<h1>Last raw dump summary</h1>
+
+<section class="panel wide" id="dump-summary" aria-label="Raw dump summary">
+  <p class="help">Last captured dump, not necessarily the latest attempted run. Previous snapshots and a change diff are unavailable in this view.</p>
+  <dl class="fields">
+    <dt>Server</dt><dd>edge-01.ops.example.test</dd>
+    <dt>Collected</dt><dd><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></dd>
+    <dt>Discovery job</dt><dd><code>fixture-discovery</code></dd>
+    <dt>Web server</dt><dd>nginx</dd>
+    <dt>Bindings found</dt><dd><span class="mono">4 bindings</span></dd>
+    <dt>Parse suspected</dt><dd>no</dd>
+    <dt>Dump size</dt><dd class="mono">48213 bytes</dd>
+    <dt>Dump SHA-256</dt><dd><code>fe98dc76fe98dc76fe98dc76fe98dc76fe98dc76fe98dc76fe98dc76fe98dc76</code></dd>
+  </dl>
+  <p class="hint">The dump itself stays on the worker and is never shown here; this page lists only what discovery recorded about it.</p>
+</section>
+
+<section class="panel wide" id="dump-files">
+  <h2>Configuration files read</h2>
+
+  <ul><li><code>/etc/nginx/sites-enabled/gateway.conf</code></li></ul>
+
+</section>
+
+<section class="panel wide" id="dump-warnings">
+  <h2>Warnings</h2>
+  <p>The parser raised no warnings.</p>
+</section>
+
+</main>
+
+</body>
+</html>

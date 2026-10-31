@@ -1,25 +1,31 @@
 {% extends "base.html.j2" %}
 {% block title %}{{ server.hostname }} · Servers · Cert Dashboard{% endblock %}
-{% macro owner_mode(owner, group, mode) %}{% if owner or group or mode %}{{ owner or "?" }}:{{ group or "?" }} {{ mode or "?" }}{% else %}—{% endif %}{% endmacro %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/servers.css"><link rel="stylesheet" href="/static/pages/bindings.css">{% endblock %}
+{% from "bindings/_presentation.html.j2" import discovery_state, binding_cells %}
+{% from "_ui.html.j2" import icon %}
 {% block content %}
 <p><a href="/servers">← All servers</a></p>
 <h1>{{ server.hostname }}{% if not server.is_active %} <small>(inactive)</small>{% endif %}</h1>
 <section class="panel wide" id="server-panel" aria-label="Server">
-  <dl>
+  {{ discovery_state(server.last_discovery_status, server.last_discovery_at) }}
+  {% if server.last_discovery_status in ('failed', 'unreachable', 'error') %}
+  <p class="server-failure"><strong>Latest discovery:</strong> {% if detail.discovery_history and detail.discovery_history[0].error_message %}{{ detail.discovery_history[0].error_message }}{% else %}No failure reason recorded. Check host connectivity and worker logs before retrying.{% endif %}</p>
+  {% endif %}
+  <dl class="fields">
     <dt>Display name</dt><dd>{{ server.display_name or "—" }}</dd>
     <dt>Groups</dt><dd>{{ server.groups | join(", ") or "—" }}</dd>
     <dt>Web server</dt><dd>{{ server.webserver or "—" }}</dd>
-    <dt>Connection address</dt><dd>{{ detail.connection_address or "—" }}</dd>
+    <dt>Connection address</dt><dd class="mono">{{ detail.connection_address or "—" }}</dd>
     <dt>Inventory source</dt><dd>{{ detail.inventory_source }}</dd>
-    <dt>Last discovery</dt><dd>{% if server.last_discovery_at %}{{ time_tag(server.last_discovery_at, tz) }} ({{ server.last_discovery_status or "unknown" }}){% else %}never{% endif %}</dd>
-    <dt>Bindings</dt><dd>{{ server.binding_count }}{% if server.attention_count %} — {{ server.attention_count }} need attention{% endif %}</dd>
-    <dt>Mismatched endpoints</dt><dd>{{ server.mismatch_count }} of {{ detail.endpoint_count }} active endpoint{{ "" if detail.endpoint_count == 1 else "s" }}</dd>
-    <dt>Notes</dt><dd>{{ detail.notes or "—" }}</dd>
+    <dt>Last discovery</dt><dd>{% if server.last_discovery_at %}{{ time_tag(server.last_discovery_at, tz) }}{% elif server.last_discovery_status or detail.discovery_history %}Time not recorded{% else %}Never discovered{% endif %}</dd>
+    <dt>Bindings</dt><dd><span class="mono">{{ server.binding_count }}</span>{% if server.attention_count %} — <span class="mono">{{ server.attention_count }}</span> need attention{% endif %}</dd>
+    <dt>Mismatched endpoints</dt><dd><span class="mono">{{ server.mismatch_count }}</span> of <span class="mono">{{ detail.endpoint_count }}</span> active endpoint{{ "" if detail.endpoint_count == 1 else "s" }}</dd>
+    <dt>Notes</dt><dd class="notes">{{ detail.notes or "—" }}</dd>
   </dl>
 </section>
 
 <section class="panel wide" id="actions" aria-label="Actions">
-  <h2>Actions</h2>
+  <h2>Discovery and endpoint checks</h2>
   {% if discovery_reason %}
   <button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
   <p class="hint">{{ discovery_reason }}</p>
@@ -36,64 +42,61 @@
 </section>
 
 {% if detail.dump_summary and detail.dump_summary.parse_suspected %}
-<section class="panel wide" data-warning="parse-suspected" role="alert" aria-label="Review needed">
-  <h2>Review needed: no bindings found</h2>
+<section class="panel wide warning-note" data-warning="parse-suspected" role="alert" aria-label="Review needed">
+  <h2>{{ icon('warn') }} Review needed: no bindings found</h2>
   <p>This host had bindings before, but its last discovery found none, so its bindings were kept and not deactivated. The web server configuration may have moved or could not be read. Check the host, <a href="/servers/{{ server.id }}/dump">review the raw dump summary</a> and run discovery again.</p>
 </section>
 {% endif %}
 
+<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
+  <h2>Last captured discovery</h2>
+  {% if detail.dump_summary %}
+  <p>Captured {{ time_tag(detail.dump_summary.collected_at, tz) }} · <span class="mono">{{ detail.dump_summary.bindings }}</span> binding{{ '' if detail.dump_summary.bindings == 1 else 's' }} found in this dump.</p>
+  {% if detail.dump_summary.bindings == 0 and not detail.dump_summary.parse_suspected %}<p>No bindings found in the captured configuration. This is a recorded discovery, not a host that never ran.</p>{% endif %}
+  <p class="help">The last captured dump may predate the latest attempt. Compare its timestamp with discovery history below.</p>
+  {% else %}<p>No captured dump is available.{% if not server.last_discovery_at and not server.last_discovery_status and not detail.discovery_history %} This server has not been discovered yet.{% else %} Failed or unreachable attempts may capture nothing.{% endif %}</p>{% endif %}
+  {% if detail.dump_summary or detail.discovery_history %}<p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>{% endif %}
+</section>
+
 <section class="panel wide" id="bindings-panel">
   <h2>Bindings</h2>
+  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
   {% if detail.bindings %}
-  <div class="table-wrap"><table class="bindings">
-    <thead><tr><th scope="col">Virtual host</th><th scope="col">Port</th><th scope="col">Config file</th><th scope="col">Certificate</th><th scope="col">Chain</th><th scope="col">Key</th><th scope="col">On-disk fingerprint</th><th scope="col">Matched certificate</th><th scope="col">Match</th></tr></thead>
+  <div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0"><table class="bindings">
+    <thead><tr><th scope="col">Relationship</th><th scope="col">Observed on disk</th><th scope="col">Inventory / expectation</th><th scope="col">Match / freshness</th></tr></thead>
     <tbody>
     {% for b in detail.bindings %}
-    <tr class="binding-row{% if b.match_state in ('key_mismatch', 'missing_file') %} row-attention{% elif not b.is_active %} row-inactive{% endif %}" data-binding-id="{{ b.id }}">
-      <td>{{ b.vhost_name }}{% if not b.is_active %} <small>(inactive)</small>{% endif %}{% if b.vhost_names | length > 1 %}<br><small>{{ b.vhost_names | join(", ") }}</small>{% endif %}<br><small>{{ b.webserver }}</small></td>
-      <td>{{ b.port }}</td>
-      <td><code>{{ b.config_file }}</code></td>
-      <td><code>{{ b.cert_path }}</code><br><small>{{ owner_mode(b.cert_owner, b.cert_group, b.cert_mode) }}</small></td>
-      <td>{% if b.chain_path %}<code>{{ b.chain_path }}</code>{% else %}—{% endif %}</td>
-      <td><code>{{ b.key_path }}</code><br><small>{{ owner_mode(b.key_owner, b.key_group, b.key_mode) }}</small></td>
-      <td>{% if b.on_disk_fingerprint %}<code>{{ b.on_disk_fingerprint }}</code>{% else %}—{% endif %}</td>
-      <td>{% if b.certificate_id %}<a href="/certificates/{{ b.certificate_id }}">{{ b.certificate_common_name }}</a>{% else %}—{% endif %}</td>
-      <td><span class="badge {{ 'badge-revoked' if b.match_state in ('key_mismatch', 'missing_file') else ('badge-ok' if b.match_state == 'matched' else 'badge-superseded') }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</span>
-        {% if b.match_state == "key_mismatch" %}<br><small>The key at the configured path does not belong to this certificate. <a href="/bindings/help">How to fix it</a></small>
-        {% elif b.match_state == "missing_file" %}<br><small>The certificate file is missing or unreadable. <a href="/bindings/help">How to fix it</a></small>{% endif %}
-        <br><small>seen {{ time_tag(b.last_seen_at, tz) }}</small>
-        {% if b.stale %}<br><span class="chip chip-warning" data-stale="true" title="The last discovery of this server did not succeed">stale since {{ time_tag(b.last_seen_at, tz) }}</span>{% endif %}
-        {% if b.notes %}<br><small class="binding-note">{{ b.notes }}</small>{% endif %}
-        {% if b.match_state == "unknown" and b.is_active %}<br><a href="/certificates/import?from_binding={{ b.id }}">Import as certificate</a>{% endif %}</td>
+    <tr class="binding-row{% if b.match_state == 'key_mismatch' %} binding-drift{% elif b.match_state == 'missing_file' %} row-attention{% elif not b.is_active %} row-inactive{% endif %}" data-binding-id="{{ b.id }}">
+      {{ binding_cells(b, tz, true) }}
     </tr>
     {% endfor %}
     </tbody>
   </table></div>
   {% else %}
-  <p>No bindings recorded for this server.</p>
+  <div class="empty-state"><h3>No bindings recorded for this server</h3><p>Review the last captured discovery above before treating an empty inventory as a clean result.</p></div>
   {% endif %}
 </section>
 
 <section class="panel wide" id="discovery-history">
   <h2>Discovery history</h2>
   {% if detail.discovery_history %}
-  <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Started</th><th scope="col">Status</th><th scope="col">Duration</th><th scope="col">Inventory revision</th><th scope="col">Error</th></tr></thead>
+  <div class="table-wrap"><table class="discovery-history">
+    <thead><tr><th scope="col">Started</th><th scope="col">Status</th><th scope="col" class="numeric">Duration</th><th scope="col">Inventory revision</th><th scope="col">Error</th></tr></thead>
     <tbody>
     {% for run in detail.discovery_history %}
     <tr class="discovery-run" data-job-status="{{ run.status }}">
       <td>{{ time_tag(run.started_at, tz) }}</td>
-      <td><span class="chip chip-{{ 'ok' if run.status == 'succeeded' else ('critical' if run.status == 'failed' else 'soon') }}">{{ run.status }}</span></td>
-      <td>{% if run.duration_seconds is none %}—{% elif run.duration_seconds >= 60 %}{{ run.duration_seconds // 60 }} min {{ run.duration_seconds % 60 }} s{% else %}{{ run.duration_seconds }} s{% endif %}</td>
+      <td><span class="badge badge-{{ 'ok' if run.status == 'succeeded' else ('danger' if run.status in ('failed', 'unreachable') else 'info') }}">{{ icon('ok' if run.status == 'succeeded' else ('danger' if run.status in ('failed', 'unreachable') else 'info')) }}{{ run.status }}</span></td>
+      <td class="numeric">{% if run.duration_seconds is none %}—{% elif run.duration_seconds >= 60 %}{{ run.duration_seconds // 60 }} min {{ run.duration_seconds % 60 }} s{% else %}{{ run.duration_seconds }} s{% endif %}</td>
       <td>{% if run.inventory_rev %}<code>{{ run.inventory_rev[:40] }}</code>{% else %}—{% endif %}</td>
       <td>{{ run.error_message or "—" }}</td>
     </tr>
     {% endfor %}
     </tbody>
   </table></div>
-  <p class="hint">The newest 20 runs.</p>
+  <p class="hint">The newest <span class="mono">20</span> runs.</p>
   {% else %}
-  <p>This server has not been discovered yet.</p>
+  <p>{% if server.last_discovery_status or server.last_discovery_at %}No discovery history is available in this view.{% else %}This server has not been discovered yet.{% endif %}</p>
   {% endif %}
 </section>
 {% endblock %}

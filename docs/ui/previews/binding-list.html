@@ -1,0 +1,302 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Bindings · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/bindings.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<h1>Where is a certificate used?</h1>
+<p>Follow each certificate from its inventory match to the host, configured path, port and SNI names. Discovery describes files on disk; use endpoint scans to check what is served over TLS.</p>
+<p class="help">Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/bindings" class="filters">
+    <label>Certificate id <input type="number" name="certificate_id" min="1" value=""></label>
+    <label>Server id <input type="number" name="server_id" min="1" value=""></label>
+    <label>Group <input name="group" value="" maxlength="200"></label>
+    <label>Virtual host <input type="search" name="vhost" value="" maxlength="200" placeholder="Name contains"></label>
+    <label>Web server
+      <select name="webserver">
+        <option value="">Any</option>
+        <option value="nginx">nginx</option><option value="apache">apache</option>
+      </select></label>
+    <label>Match
+      <select name="match_state">
+        <option value="">Any</option>
+        <option value="matched">matched</option><option value="unknown">unknown</option><option value="key_mismatch">key_mismatch</option><option value="missing_file">missing_file</option>
+      </select></label>
+    <label>Bindings
+      <select name="active">
+        <option value="true" selected>Active</option>
+        <option value="false">Retired</option>
+        <option value="all">All</option>
+      </select></label>
+    <input type="hidden" name="sort" value="server">
+    <input type="hidden" name="page_size" value="50">
+    <button type="submit">Apply filters</button>
+    <a href="/bindings">Reset</a>
+  </form>
+</section>
+
+<div class="list-summary" data-total="4"><span class="mono">4 bindings</span>
+  · <a href="/bindings/export.json" download="bindings.json">Export list as JSON</a>
+  · <a href="/bindings/help">What do the match states mean?</a></div>
+
+
+<div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0">
+<table class="bindings">
+  <thead><tr>
+    <th scope="col">Relationship · <a href="/bindings?sort=server">Server</a> / <a href="/bindings?sort=vhost">Virtual host</a></th>
+    <th scope="col">Observed on disk</th>
+    <th scope="col">Inventory / expectation</th>
+    <th scope="col"><a href="/bindings?sort=match_state">Match</a> / <a href="/bindings?sort=last_seen_at">Last seen</a></th>
+  </tr></thead>
+  <tbody>
+
+  <tr class="binding-row binding-drift" data-binding-id="11" data-vhost="gateway.ops.example.test">
+
+<td class="binding-relationship">
+  <strong>gateway.ops.example.test</strong>
+  <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
+  <p>Port <span class="mono">443</span> · nginx</p>
+  <p class="help">SNI / virtual-host names: gateway.ops.example.test, api.ops.example.test</p>
+  <details><summary>Configuration and permissions</summary>
+    <dl class="fields">
+      <dt>Config file</dt><dd><code>/etc/nginx/sites-enabled/gateway.conf</code></dd>
+      <dt>Certificate owner / mode</dt><dd><code>root:ssl-cert 0644</code></dd>
+      <dt>Key owner / mode</dt><dd><code>root:ssl-cert 0600</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-observed">
+  <p class="help">Certificate path</p><code>/etc/tls/gateway/fullchain.pem</code>
+  <p class="help">On-disk certificate SHA-256</p>
+  <code class="binding-hash">ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34</code>
+  <details><summary>Key and chain paths</summary>
+    <dl class="fields"><dt>Key</dt><dd><code>/etc/tls/gateway/privkey.pem</code></dd>
+      <dt>Chain</dt><dd><code>/etc/tls/gateway/chain.pem</code></dd>
+      <dt>On-disk key public SHA-256</dt><dd><code>ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-inventory">
+  <a href="/certificates/42">gateway.ops.example.test</a><p class="help">Inventory match <span class="mono">#42</span></p>
+
+  <p><strong>Observed:</strong> the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.</p><p><strong>Expected:</strong> a private key belonging to this certificate.</p>
+
+</td>
+<td class="binding-result">
+
+<span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>Drift</span>
+<p><a href="/bindings/help#key_mismatch" data-match-state="key_mismatch">key_mismatch</a> — the key does not belong to this certificate.</p>
+
+  <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
+
+  <p class="binding-note">Configured key differs from certificate.</p>
+
+</td>
+
+  </tr>
+
+  <tr class="binding-row" data-binding-id="12" data-vhost="matched.ops.example.test">
+
+<td class="binding-relationship">
+  <strong>matched.ops.example.test</strong>
+  <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
+  <p>Port <span class="mono">443</span> · nginx</p>
+  <p class="help">SNI / virtual-host names: matched.ops.example.test</p>
+  <details><summary>Configuration and permissions</summary>
+    <dl class="fields">
+      <dt>Config file</dt><dd><code>/etc/nginx/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/tls.conf</code></dd>
+      <dt>Certificate owner / mode</dt><dd><code>root:ssl-cert 0644</code></dd>
+      <dt>Key owner / mode</dt><dd><code>root:ssl-cert 0600</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-observed">
+  <p class="help">Certificate path</p><code>/etc/tls/gateway/fullchain.pem</code>
+  <p class="help">On-disk certificate SHA-256</p>
+  <code class="binding-hash">ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34</code>
+  <details><summary>Key and chain paths</summary>
+    <dl class="fields"><dt>Key</dt><dd><code>/etc/tls/gateway/privkey.pem</code></dd>
+      <dt>Chain</dt><dd><code>/etc/tls/gateway/chain.pem</code></dd>
+      <dt>On-disk key public SHA-256</dt><dd><code>ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-inventory">
+  <a href="/certificates/42">gateway.ops.example.test</a><p class="help">Inventory match <span class="mono">#42</span></p>
+
+  <p><strong>Observed:</strong> the on-disk certificate is in inventory and the configured key belongs to it.</p><p><strong>Expected:</strong> no desired deployment is recorded for this binding.</p>
+
+</td>
+<td class="binding-result">
+
+<span class="badge badge-ok" data-match-state="matched"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Inventory match</span>
+
+  <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
+
+
+
+</td>
+
+  </tr>
+
+  <tr class="binding-row row-attention" data-binding-id="13" data-vhost="missing_file.ops.example.test">
+
+<td class="binding-relationship">
+  <strong>missing_file.ops.example.test</strong>
+  <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
+  <p>Port <span class="mono">443</span> · nginx</p>
+  <p class="help">SNI / virtual-host names: missing_file.ops.example.test</p>
+  <details><summary>Configuration and permissions</summary>
+    <dl class="fields">
+      <dt>Config file</dt><dd><code>/etc/nginx/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/tls.conf</code></dd>
+      <dt>Certificate owner / mode</dt><dd><code>root:ssl-cert 0644</code></dd>
+      <dt>Key owner / mode</dt><dd><code>root:ssl-cert 0600</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-observed">
+  <p class="help">Certificate path</p><code>/etc/tls/gateway/fullchain.pem</code>
+  <p class="help">On-disk certificate SHA-256</p>
+  <code class="binding-hash">ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34</code>
+  <details><summary>Key and chain paths</summary>
+    <dl class="fields"><dt>Key</dt><dd><code>/etc/tls/gateway/privkey.pem</code></dd>
+      <dt>Chain</dt><dd><code>/etc/tls/gateway/chain.pem</code></dd>
+      <dt>On-disk key public SHA-256</dt><dd><code>ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-inventory">
+  <a href="/certificates/42">gateway.ops.example.test</a><p class="help">Inventory match <span class="mono">#42</span></p>
+
+  <p><strong>Observed:</strong> the certificate file is missing or unreadable.</p><p><strong>Expected:</strong> a readable certificate at the configured path.</p>
+
+</td>
+<td class="binding-result">
+
+<span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>File failure</span>
+<p><a href="/bindings/help#missing_file" data-match-state="missing_file">missing_file</a> — the configured certificate cannot be read.</p>
+
+  <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
+
+
+
+</td>
+
+  </tr>
+
+  <tr class="binding-row" data-binding-id="14" data-vhost="unknown.ops.example.test">
+
+<td class="binding-relationship">
+  <strong>unknown.ops.example.test</strong>
+  <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
+  <p>Port <span class="mono">443</span> · nginx</p>
+  <p class="help">SNI / virtual-host names: unknown.ops.example.test</p>
+  <details><summary>Configuration and permissions</summary>
+    <dl class="fields">
+      <dt>Config file</dt><dd><code>/etc/nginx/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/tls.conf</code></dd>
+      <dt>Certificate owner / mode</dt><dd><code>root:ssl-cert 0644</code></dd>
+      <dt>Key owner / mode</dt><dd><code>root:ssl-cert 0600</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-observed">
+  <p class="help">Certificate path</p><code>/etc/tls/gateway/fullchain.pem</code>
+  <p class="help">On-disk certificate SHA-256</p>
+  <code class="binding-hash">ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34</code>
+  <details><summary>Key and chain paths</summary>
+    <dl class="fields"><dt>Key</dt><dd><code>/etc/tls/gateway/privkey.pem</code></dd>
+      <dt>Chain</dt><dd><code>/etc/tls/gateway/chain.pem</code></dd>
+      <dt>On-disk key public SHA-256</dt><dd><code>ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78ef56ab78</code></dd>
+    </dl>
+  </details>
+</td>
+<td class="binding-inventory">
+  <p>No inventory match recorded.</p>
+  <p><strong>Observed:</strong> the on-disk certificate is not in the inventory.</p><p><strong>Expected:</strong> no desired deployment is recorded for this binding.</p>
+</td>
+<td class="binding-result">
+
+<span class="badge" data-match-state="unknown"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>Unknown certificate</span>
+
+  <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
+  <p class="binding-stale" data-stale="true" title="The last discovery of this server did not succeed"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg><span class="binding-stale-text">stale since <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time> — the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.</span></p>
+  <p class="binding-note">&lt;script&gt;fixture escaping check&lt;/script&gt;</p>
+  <p><a href="/certificates/import?from_binding=14">Import as certificate</a></p>
+</td>
+
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span>Page <span class="mono">1</span> of <span class="mono">1</span></span>
+
+</nav>
+</main>
+
+</body>
+</html>
