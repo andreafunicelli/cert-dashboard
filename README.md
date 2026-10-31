@@ -96,7 +96,7 @@ adds endpoints from bindings; you can also add them by hand.
 
 ![Scans page: the add-endpoint form, filters, and the endpoint list with expected and observed certificate, expiry, mismatch status and last check per row](docs/screenshots/scan-list.png)
 
-![Scan detail: a mismatch finding with the expected and observed SHA-256 fingerprints side by side, the TLS version and elapsed time, likely actions, and the endpoint history](docs/screenshots/scan-detail.png)
+![Scan detail: a mismatch finding with the expected and observed SHA-256 fingerprints side by side, the chain length and TLS version, likely actions, and the endpoint history](docs/screenshots/scan-detail.png)
 
 ## Renewal
 
