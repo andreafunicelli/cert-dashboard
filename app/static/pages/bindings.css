@@ -12,15 +12,13 @@
 .bindings .badge { max-width: 100%; }
 .bindings .badge a { color: inherit; }
 .binding-drift { background: var(--warn-surface); }
-.binding-drift .binding-result > .help, .binding-drift .binding-inventory > .help { color: var(--warn); }
+.binding-drift .help, .binding-drift .binding-stale { color: var(--warn); }
+.binding-stale { display: flex; align-items: flex-start; gap: var(--space-1); margin-top: var(--space-3); color: var(--warn); font-size: var(--text-sm); }
+.binding-stale .status-icon { margin-top: var(--space-1); }
 .binding-hash { display: block; user-select: all; }
 .binding-note { font-size: var(--text-sm); }
 .list-summary { margin-block: var(--space-5); }
 @media (max-width: 719px) {
-  .bindings, .bindings tbody, .bindings tr, .bindings td { display: block; width: 100%; }
-  .bindings thead { display: block; }
-  .bindings thead tr { display: flex; flex-wrap: wrap; }
-  .bindings th { width: 50%; }
-  .bindings td { padding: var(--space-4); }
-  .bindings .binding-row { border-bottom: var(--focus-width) solid var(--separator); }
+  /* Narrow screens keep the four-column comparison intact and scroll inside the region. */
+  .bindings { min-width: 48rem; }
 }

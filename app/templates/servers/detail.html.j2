@@ -55,14 +55,14 @@
   {% if detail.dump_summary.bindings == 0 and not detail.dump_summary.parse_suspected %}<p>No bindings found in the captured configuration. This is a recorded discovery, not a host that never ran.</p>{% endif %}
   <p class="help">The last captured dump may predate the latest attempt. Compare its timestamp with discovery history below.</p>
   {% else %}<p>No captured dump is available.{% if not server.last_discovery_at and not server.last_discovery_status and not detail.discovery_history %} This server has not been discovered yet.{% else %} Failed or unreachable attempts may capture nothing.{% endif %}</p>{% endif %}
-  <p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>
+  {% if detail.dump_summary or detail.discovery_history %}<p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>{% endif %}
 </section>
 
 <section class="panel wide" id="bindings-panel">
   <h2>Bindings</h2>
-  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks or desired-deployment comparisons.</p>
+  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
   {% if detail.bindings %}
-  <div class="table-wrap"><table class="bindings">
+  <div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0"><table class="bindings">
     <thead><tr><th scope="col">Relationship</th><th scope="col">Observed on disk</th><th scope="col">Inventory / expectation</th><th scope="col">Match / freshness</th></tr></thead>
     <tbody>
     {% for b in detail.bindings %}

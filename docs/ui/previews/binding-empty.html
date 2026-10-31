@@ -51,6 +51,7 @@
 <main id="main-content" tabindex="-1">
 <h1>Where is a certificate used?</h1>
 <p>Follow each certificate from its inventory match to the host, configured path, port and SNI names. Discovery describes files on disk; use endpoint scans to check what is served over TLS.</p>
+<p class="help">Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
 <section class="panel wide" aria-label="Filters">
   <form method="get" action="/bindings" class="filters">
     <label>Certificate id <input type="number" name="certificate_id" min="1" value=""></label>

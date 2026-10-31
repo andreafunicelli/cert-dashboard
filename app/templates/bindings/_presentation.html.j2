@@ -10,18 +10,24 @@
 {% if owner or group or mode %}{{ owner or '?' }}:{{ group or '?' }} {{ mode or '?' }}{% else %}—{% endif %}
 {%- endmacro %}
 {% macro binding_state(b, on_server=false) -%}
-{% if b.match_state in ('key_mismatch', 'missing_file') %}
-<span class="badge {{ 'badge-warn' if b.match_state == 'key_mismatch' else 'badge-danger' }}">{{ icon('warn' if b.match_state == 'key_mismatch' else 'danger') }}{{ 'Drift: ' if b.match_state == 'key_mismatch' else 'File failure: ' }}<a href="/bindings/help#{{ b.match_state }}" data-match-state="{{ b.match_state }}">{{ b.match_state }}</a></span>
-{% elif b.match_state == 'matched' %}<span class="badge badge-ok" data-match-state="{{ b.match_state }}">{{ icon('ok') }}Inventory match</span>
-{% else %}<span class="badge" data-match-state="{{ b.match_state }}">{{ icon('info') }}Unknown certificate</span>{% endif %}
-{% if on_server and b.match_state in ('key_mismatch', 'missing_file') %}<p class="help"><a href="/bindings/help">How to fix it</a></p>{% endif %}
+{% if b.match_state == 'key_mismatch' %}
+<span class="badge badge-warn">{{ icon('warn') }}Drift</span>
+<p><a href="/bindings/help#key_mismatch" data-match-state="{{ b.match_state }}">key_mismatch</a> — the key does not belong to this certificate.{% if on_server %} <a href="/bindings/help">How to fix it</a>{% endif %}</p>
+{% elif b.match_state == 'missing_file' %}
+<span class="badge badge-danger">{{ icon('danger') }}File failure</span>
+<p><a href="/bindings/help#missing_file" data-match-state="{{ b.match_state }}">missing_file</a> — the configured certificate cannot be read.{% if on_server %} <a href="/bindings/help">How to fix it</a>{% endif %}</p>
+{% elif b.match_state == 'matched' %}
+<span class="badge badge-ok" data-match-state="{{ b.match_state }}">{{ icon('ok') }}Inventory match</span>
+{% else %}
+<span class="badge" data-match-state="{{ b.match_state }}">{{ icon('info') }}Unknown certificate</span>
+{% endif %}
 {%- endmacro %}
 {% macro binding_cells(b, tz, on_server=false) %}
 <td class="binding-relationship">
   <strong>{{ b.vhost_name }}</strong>{% if not b.is_active %} <small>{{ '(inactive)' if on_server else '(retired)' }}</small>{% endif %}
   <p>on <a href="/servers/{{ b.server_id }}">{{ b.server }}</a></p>
   <p>Port <span class="mono">{{ b.port }}</span> · {{ b.webserver }}</p>
-  <p class="help">Configured SNI / virtual-host names: {{ b.vhost_names | join(', ') or 'Not recorded' }}</p>
+  <p class="help">SNI / virtual-host names: {{ b.vhost_names | join(', ') or 'Not recorded' }}</p>
   <details><summary>Configuration and permissions</summary>
     <dl class="fields">
       <dt>Config file</dt><dd><code>{{ b.config_file }}</code></dd>
@@ -44,15 +50,15 @@
 <td class="binding-inventory">
   {% if b.certificate_id %}<a href="/certificates/{{ b.certificate_id }}">{{ b.certificate_common_name or 'Certificate' }}</a><p class="help">Inventory match <span class="mono">#{{ b.certificate_id }}</span></p>
   {% else %}<p>No inventory match recorded.</p>{% endif %}
-  {% if b.match_state == 'key_mismatch' %}<p>The configured key does not belong to the on-disk certificate.</p><p class="help">Expected: a private key belonging to this certificate.</p>
-  {% elif b.match_state == 'missing_file' %}<p>Expected: a readable certificate at the configured path.</p><p>The certificate file is missing or unreadable.</p>
-  {% elif b.match_state == 'matched' %}<p>Certificate is in inventory; configured key belongs to it.</p>{% endif %}
-  <p class="help">Desired deployment and expected fingerprint are not supplied by this view. An inventory match is not a desired-state comparison.</p>
+  {% if b.match_state == 'key_mismatch' %}<p><strong>Observed:</strong> the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.</p><p><strong>Expected:</strong> a private key belonging to this certificate.</p>
+  {% elif b.match_state == 'missing_file' %}<p><strong>Observed:</strong> the certificate file is missing or unreadable.</p><p><strong>Expected:</strong> a readable certificate at the configured path.</p>
+  {% elif b.match_state == 'matched' %}<p><strong>Observed:</strong> the on-disk certificate is in inventory and the configured key belongs to it.</p><p><strong>Expected:</strong> no desired deployment is recorded for this binding.</p>
+  {% else %}<p><strong>Observed:</strong> the on-disk certificate is not in the inventory.</p><p><strong>Expected:</strong> no desired deployment is recorded for this binding.</p>{% endif %}
 </td>
 <td class="binding-result">
   {{ binding_state(b, on_server) }}
   <p class="help">Last seen {{ time_tag(b.last_seen_at, tz) }}</p>
-  {% if b.stale %}<p><span class="badge badge-warn" data-stale="true" title="The last discovery of this server did not succeed">{{ icon('warn') }}stale since {{ time_tag(b.last_seen_at, tz) }}</span></p><p class="help">Stored observation, not a current host verdict.</p>{% endif %}
+  {% if b.stale %}<p class="binding-stale" data-stale="true" title="The last discovery of this server did not succeed">{{ icon('warn') }}stale since {{ time_tag(b.last_seen_at, tz) }} — the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.</p>{% endif %}
   {% if b.notes %}<p class="binding-note">{{ b.notes }}</p>{% endif %}
   {% if b.match_state == 'unknown' and b.is_active %}<p><a href="/certificates/import?from_binding={{ b.id }}">Import as certificate</a></p>{% endif %}
 </td>

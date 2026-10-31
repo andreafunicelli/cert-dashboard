@@ -244,17 +244,22 @@ The presentation macro `bindings/_presentation.html.j2` defines discovery badges
 binding-state badges and relationship cells once for both tables, using `_ui` SVGs.
 
 - Server inventory uses a fixed-layout six-column table with wrapping identities
-  and groups. Identity gets 28%, discovery 26%; numbers align right. The 1280px
-  no-scroll acceptance criterion still needs deployed visual verification.
+  and groups. Identity gets 27%, discovery 24%; numbers align right and short
+  drift/attention badges stay on one line. The 1280px no-scroll criterion was
+  exercised on the committed previews; deployed visual verification is pending.
 - Bindings read as virtual host/SNI names → server → port → configured files.
   Four columns compare the relationship, observed disk evidence, inventory
   evidence/expectation and state/freshness. Native disclosures retain config,
   owner/mode, key and chain detail without JavaScript. Fingerprints are selectable
-  exact text, monospaced and wrapped instead of expanding the page.
+  exact text, monospaced and wrapped instead of expanding the page. Below 720px the
+  four-column comparison keeps a 48rem minimum inside a labelled, focusable
+  `.table-wrap` region, so the page itself never scrolls sideways.
 - Key mismatch is warning-coloured with a triangle and “Drift”; missing/unreadable
   file is critical with a cross-circle and “File failure”. Inventory match has a
-  check; unknown has an information icon. Raw match-state hooks and help anchors
-  remain unchanged. Warning links inherit badge colour for contrast in both themes.
+  check; unknown has an information icon. The short badge word carries the meaning;
+  the raw state name stays a contiguous help link. Raw `data-match-state`/`data-stale`
+  hooks and help anchors remain unchanged. Secondary text inside a drift row is
+  tinted from the warning hue, never grey.
 - **Read-model boundary:** `BindingRow.certificate_id` is an observed inventory
   match, not a desired deployment. It does not supply the expected fingerprint.
   The UI says so; “Inventory match” must not become “In sync” without a real

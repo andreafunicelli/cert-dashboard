@@ -51,6 +51,7 @@
 <main id="main-content" tabindex="-1">
 <h1>Where is a certificate used?</h1>
 <p>Follow each certificate from its inventory match to the host, configured path, port and SNI names. Discovery describes files on disk; use endpoint scans to check what is served over TLS.</p>
+<p class="help">Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
 <section class="panel wide" aria-label="Filters">
   <form method="get" action="/bindings" class="filters">
     <label>Certificate id <input type="number" name="certificate_id" min="1" value=""></label>
@@ -85,7 +86,7 @@
   · <a href="/bindings/help">What do the match states mean?</a></div>
 
 
-<div class="table-wrap">
+<div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0">
 <table class="bindings">
   <thead><tr>
     <th scope="col">Relationship · <a href="/bindings?sort=server">Server</a> / <a href="/bindings?sort=vhost">Virtual host</a></th>
@@ -101,7 +102,7 @@
   <strong>gateway.ops.example.test</strong>
   <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
   <p>Port <span class="mono">443</span> · nginx</p>
-  <p class="help">Configured SNI / virtual-host names: gateway.ops.example.test, api.ops.example.test</p>
+  <p class="help">SNI / virtual-host names: gateway.ops.example.test, api.ops.example.test</p>
   <details><summary>Configuration and permissions</summary>
     <dl class="fields">
       <dt>Config file</dt><dd><code>/etc/nginx/sites-enabled/gateway.conf</code></dd>
@@ -124,17 +125,16 @@
 <td class="binding-inventory">
   <a href="/certificates/42">gateway.ops.example.test</a><p class="help">Inventory match <span class="mono">#42</span></p>
 
-  <p>The configured key does not belong to the on-disk certificate.</p><p class="help">Expected: a private key belonging to this certificate.</p>
+  <p><strong>Observed:</strong> the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.</p><p><strong>Expected:</strong> a private key belonging to this certificate.</p>
 
-  <p class="help">Desired deployment and expected fingerprint are not supplied by this view. An inventory match is not a desired-state comparison.</p>
 </td>
 <td class="binding-result">
 
 <span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
 
-</svg>Drift: <a href="/bindings/help#key_mismatch" data-match-state="key_mismatch">key_mismatch</a></span>
-
+</svg>Drift</span>
+<p><a href="/bindings/help#key_mismatch" data-match-state="key_mismatch">key_mismatch</a> — the key does not belong to this certificate.</p>
 
   <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
 

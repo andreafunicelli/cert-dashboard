@@ -63,14 +63,15 @@ def test_shared_relationship_retains_row_hooks_raw_hashes_and_warning_links():
         rows = re.split(r'(?=<tr class="binding-row)', html)[1:]
         assert len(rows) == 4
         assert 'data-match-state="key_mismatch">key_mismatch</a>' in rows[0]
-        assert "binding-drift" in rows[0] and "badge-warn" in rows[0] and "Drift:" in rows[0]
-        assert "row-attention" in rows[2] and "badge-danger" in rows[2] and "File failure:" in rows[2]
+        assert "binding-drift" in rows[0] and "badge-warn" in rows[0] and ">Drift</span>" in rows[0]
+        assert "row-attention" in rows[2] and "badge-danger" in rows[2] and ">File failure</span>" in rows[2]
+        assert "<strong>Observed:</strong>" in rows[0] and "<strong>Expected:</strong>" in rows[0]
         assert "Inventory match" in rows[1] and "Unknown certificate" in rows[3]
         assert "ab12cd34" * 8 in rows[0]  # exact DOM and HTML text, no inserted grouping
         assert "root:ssl-cert 0644" in rows[0] and "root:ssl-cert 0600" in rows[0]
         assert 'href="/certificates/42"' in rows[0]
         assert "Observed on disk" in html and "Inventory / expectation" in html
-        assert "Configured SNI / virtual-host names" in html and "443" in rows[0]
+        assert "SNI / virtual-host names" in html and "443" in rows[0]
         assert 'href="/bindings/help#key_mismatch"' in rows[0]
         assert 'data-stale="true"' in rows[3] and "stale since" in rows[3]
         assert '<script>fixture escaping check</script>' not in html and "&lt;script&gt;" in rows[3]
@@ -134,6 +135,6 @@ def test_area_styles_reuse_tokens_and_bound_long_server_rows():
         assert "overflow-wrap: anywhere" in css
         assert "table-layout: fixed" in css
     css = (root / "app/static/pages/servers.css").read_text()
-    assert "width: 28%" in css and "width: 26%" in css
+    assert "width: 27%" in css and "width: 24%" in css and "white-space: nowrap" in css
     assert 'data-server-id="2"' in rendered("server-list")
     assert "View host failure reason" in rendered("server-list")

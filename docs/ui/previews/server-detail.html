@@ -97,9 +97,9 @@
 
 <section class="panel wide" id="bindings-panel">
   <h2>Bindings</h2>
-  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks or desired-deployment comparisons.</p>
+  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
 
-  <div class="table-wrap"><table class="bindings">
+  <div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0"><table class="bindings">
     <thead><tr><th scope="col">Relationship</th><th scope="col">Observed on disk</th><th scope="col">Inventory / expectation</th><th scope="col">Match / freshness</th></tr></thead>
     <tbody>
 
@@ -109,7 +109,7 @@
   <strong>gateway.ops.example.test</strong>
   <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
   <p>Port <span class="mono">443</span> · nginx</p>
-  <p class="help">Configured SNI / virtual-host names: gateway.ops.example.test, api.ops.example.test</p>
+  <p class="help">SNI / virtual-host names: gateway.ops.example.test, api.ops.example.test</p>
   <details><summary>Configuration and permissions</summary>
     <dl class="fields">
       <dt>Config file</dt><dd><code>/etc/nginx/sites-enabled/gateway.conf</code></dd>
@@ -132,18 +132,17 @@
 <td class="binding-inventory">
   <a href="/certificates/42">gateway.ops.example.test</a><p class="help">Inventory match <span class="mono">#42</span></p>
 
-  <p>The configured key does not belong to the on-disk certificate.</p><p class="help">Expected: a private key belonging to this certificate.</p>
+  <p><strong>Observed:</strong> the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.</p><p><strong>Expected:</strong> a private key belonging to this certificate.</p>
 
-  <p class="help">Desired deployment and expected fingerprint are not supplied by this view. An inventory match is not a desired-state comparison.</p>
 </td>
 <td class="binding-result">
 
 <span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
 
-</svg>Drift: <a href="/bindings/help#key_mismatch" data-match-state="key_mismatch">key_mismatch</a></span>
+</svg>Drift</span>
+<p><a href="/bindings/help#key_mismatch" data-match-state="key_mismatch">key_mismatch</a> — the key does not belong to this certificate. <a href="/bindings/help">How to fix it</a></p>
 
-<p class="help"><a href="/bindings/help">How to fix it</a></p>
   <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
 
   <p class="binding-note">Configured key differs from certificate.</p>
@@ -158,7 +157,7 @@
   <strong>matched.ops.example.test</strong>
   <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
   <p>Port <span class="mono">443</span> · nginx</p>
-  <p class="help">Configured SNI / virtual-host names: matched.ops.example.test</p>
+  <p class="help">SNI / virtual-host names: matched.ops.example.test</p>
   <details><summary>Configuration and permissions</summary>
     <dl class="fields">
       <dt>Config file</dt><dd><code>/etc/nginx/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/tls.conf</code></dd>
@@ -181,15 +180,15 @@
 <td class="binding-inventory">
   <a href="/certificates/42">gateway.ops.example.test</a><p class="help">Inventory match <span class="mono">#42</span></p>
 
-  <p>Certificate is in inventory; configured key belongs to it.</p>
-  <p class="help">Desired deployment and expected fingerprint are not supplied by this view. An inventory match is not a desired-state comparison.</p>
+  <p><strong>Observed:</strong> the on-disk certificate is in inventory and the configured key belongs to it.</p><p><strong>Expected:</strong> no desired deployment is recorded for this binding.</p>
+
 </td>
 <td class="binding-result">
-  <span class="badge badge-ok" data-match-state="matched"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+
+<span class="badge badge-ok" data-match-state="matched"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m5 12 4 4 10-10"/>
 
 </svg>Inventory match</span>
-
 
   <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
 
@@ -205,7 +204,7 @@
   <strong>missing_file.ops.example.test</strong>
   <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
   <p>Port <span class="mono">443</span> · nginx</p>
-  <p class="help">Configured SNI / virtual-host names: missing_file.ops.example.test</p>
+  <p class="help">SNI / virtual-host names: missing_file.ops.example.test</p>
   <details><summary>Configuration and permissions</summary>
     <dl class="fields">
       <dt>Config file</dt><dd><code>/etc/nginx/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/tls.conf</code></dd>
@@ -228,18 +227,17 @@
 <td class="binding-inventory">
   <a href="/certificates/42">gateway.ops.example.test</a><p class="help">Inventory match <span class="mono">#42</span></p>
 
-  <p>Expected: a readable certificate at the configured path.</p><p>The certificate file is missing or unreadable.</p>
+  <p><strong>Observed:</strong> the certificate file is missing or unreadable.</p><p><strong>Expected:</strong> a readable certificate at the configured path.</p>
 
-  <p class="help">Desired deployment and expected fingerprint are not supplied by this view. An inventory match is not a desired-state comparison.</p>
 </td>
 <td class="binding-result">
 
 <span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
 
-</svg>File failure: <a href="/bindings/help#missing_file" data-match-state="missing_file">missing_file</a></span>
+</svg>File failure</span>
+<p><a href="/bindings/help#missing_file" data-match-state="missing_file">missing_file</a> — the configured certificate cannot be read. <a href="/bindings/help">How to fix it</a></p>
 
-<p class="help"><a href="/bindings/help">How to fix it</a></p>
   <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
 
 
@@ -254,7 +252,7 @@
   <strong>unknown.ops.example.test</strong>
   <p>on <a href="/servers/1">edge-01.ops.example.test</a></p>
   <p>Port <span class="mono">443</span> · nginx</p>
-  <p class="help">Configured SNI / virtual-host names: unknown.ops.example.test</p>
+  <p class="help">SNI / virtual-host names: unknown.ops.example.test</p>
   <details><summary>Configuration and permissions</summary>
     <dl class="fields">
       <dt>Config file</dt><dd><code>/etc/nginx/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/long-path/tls.conf</code></dd>
@@ -276,19 +274,19 @@
 </td>
 <td class="binding-inventory">
   <p>No inventory match recorded.</p>
-
-  <p class="help">Desired deployment and expected fingerprint are not supplied by this view. An inventory match is not a desired-state comparison.</p>
+  <p><strong>Observed:</strong> the on-disk certificate is not in the inventory.</p><p><strong>Expected:</strong> no desired deployment is recorded for this binding.</p>
 </td>
 <td class="binding-result">
-  <span class="badge" data-match-state="unknown"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+
+<span class="badge" data-match-state="unknown"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
 </svg>Unknown certificate</span>
 
   <p class="help">Last seen <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></p>
-  <p><span class="badge badge-warn" data-stale="true" title="The last discovery of this server did not succeed"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <p class="binding-stale" data-stale="true" title="The last discovery of this server did not succeed"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
 
-</svg>stale since <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></span></p><p class="help">Stored observation, not a current host verdict.</p>
+</svg>stale since <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time> — the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.</p>
   <p class="binding-note">&lt;script&gt;fixture escaping check&lt;/script&gt;</p>
   <p><a href="/certificates/import?from_binding=14">Import as certificate</a></p>
 </td>

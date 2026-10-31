@@ -5,6 +5,7 @@
 {% block content %}
 <h1>Where is a certificate used?</h1>
 <p>Follow each certificate from its inventory match to the host, configured path, port and SNI names. Discovery describes files on disk; use endpoint scans to check what is served over TLS.</p>
+<p class="help">Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
 <section class="panel wide" aria-label="Filters">
   <form method="get" action="/bindings" class="filters">
     <label>Certificate id <input type="number" name="certificate_id" min="1" value="{{ values.certificate_id or '' }}"></label>
@@ -39,7 +40,7 @@
   · <a href="/bindings/help">What do the match states mean?</a></div>
 
 {% if page.items %}
-<div class="table-wrap">
+<div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0">
 <table class="bindings">
   <thead><tr>
     <th scope="col">Relationship · <a href="{{ sort_url('server') }}">Server</a> / <a href="{{ sort_url('vhost') }}">Virtual host</a></th>
