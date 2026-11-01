@@ -506,7 +506,6 @@ def _jobs_page(request: Request, status: int = 200) -> HTMLResponse:
         jobs = list_jobs(db, filters, page, size)
         timezone_name = display_timezone(db)
     pages = max(1, math.ceil(jobs.total / jobs.page_size))
-    paging = {key: value for key, value in params.items() if key != "page"}
     return _render(
         request,
         "deploy/jobs.html.j2",
@@ -517,7 +516,7 @@ def _jobs_page(request: Request, status: int = 200) -> HTMLResponse:
         outcomes=OUTCOMES,
         types=[item.value for item in JobType],
         tz=timezone_name,
-        page_url=lambda number: _jobs_url({**paging, "page": str(number)} if number > 1 else paging),
+        page_url=lambda number: _jobs_url({**params, "page": str(number)} if number > 1 else params),
     )
 
 

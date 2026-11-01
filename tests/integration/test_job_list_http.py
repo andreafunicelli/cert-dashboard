@@ -51,10 +51,11 @@ def _host(db, job, server_id, status, *, rolled_back: bool) -> None:
 def _build(factory, now) -> SimpleNamespace:
     certificate = expiring(factory, 90)
     with factory.begin() as db:
-        first, second = (
-            add_server(db, f"joblist-a-{secrets.token_hex(3)}.example.test").id,
-            add_server(db, f"joblist-b-{secrets.token_hex(3)}.example.test").id,
+        first_server, second_server = (
+            add_server(db, f"joblist-a-{secrets.token_hex(3)}.example.test"),
+            add_server(db, f"joblist-b-{secrets.token_hex(3)}.example.test"),
         )
+        first, second = first_server.id, second_server.id
         deploy = {"certificate_id": certificate.id}
 
         succeeded = _job(db, JobType.DEPLOY, JobStatus.SUCCEEDED, deploy, at=now - timedelta(hours=1), done=True)
@@ -78,6 +79,18 @@ def _build(factory, now) -> SimpleNamespace:
         cleanup = _job(
             db, JobType.CLEANUP, JobStatus.QUEUED, {"reason": "scheduled"}, at=now - timedelta(hours=6), done=False
         )
+        # A rollout wide enough to show that the list summarises hosts instead of listing the whole fleet.
+        cancelled = _job(
+            db, JobType.DEPLOY, JobStatus.CANCELLED, deploy, at=now - timedelta(hours=5), done=True
+        )
+        for index in range(9):
+            _host(
+                db,
+                cancelled,
+                add_server(db, f"joblist-wide-{index}-{secrets.token_hex(3)}.example.test").id,
+                JobHostStatus.PENDING,
+                rolled_back=False,
+            )
         ids = {
             name: str(job.id)
             for name, job in {
@@ -89,9 +102,16 @@ def _build(factory, now) -> SimpleNamespace:
                 "scan_running": scan_running,
                 "scan_done": scan_done,
                 "cleanup": cleanup,
+                "cancelled_wide": cancelled,
             }.items()
         }
-    return SimpleNamespace(certificate_id=certificate.id, total=len(ids), **ids)
+    return SimpleNamespace(
+        certificate_id=certificate.id,
+        total=len(ids),
+        first_hostname=first_server.hostname,
+        second_hostname=second_server.hostname,
+        **ids,
+    )
 
 
 @pytest.fixture
@@ -137,6 +157,34 @@ def test_job_list_shows_every_job_and_the_host_outcome_of_a_deploy(signed_in, jo
     assert f"target_id={job_list_world.scan_done}" in scan
 
 
+def test_each_deploy_row_pairs_the_hostname_with_the_outcome_it_reached(signed_in, job_list_world):
+    page = signed_in.get("/deploy/jobs")
+    rolled_back = _row(page.text, job_list_world.rolled_back)
+    assert f'data-host="{job_list_world.second_hostname}" data-status="rolled_back"' in rolled_back
+    assert f'data-host="{job_list_world.first_hostname}" data-status="succeeded"' in rolled_back
+    # The host that succeeded is never reported under the outcome it did not reach.
+    assert f'data-host="{job_list_world.first_hostname}" data-status="rolled_back"' not in rolled_back
+
+    # The filtered page names the host that rolled back, and a host of another rollout is absent.
+    filtered = signed_in.get("/deploy/jobs?outcome=rolled_back&type=deploy")
+    assert _ids(filtered.text) == [job_list_world.rolled_back]
+    assert f'data-host="{job_list_world.second_hostname}" data-status="rolled_back"' in filtered.text
+    assert 'data-host="joblist-wide-' not in filtered.text
+    assert f'data-host="{job_list_world.first_hostname}" data-status="rolled_back"' not in filtered.text
+
+    failed = _row(page.text, job_list_world.failed)
+    assert f'data-host="{job_list_world.second_hostname}" data-status="failed"' in failed
+    assert f'data-host="{job_list_world.first_hostname}" data-status="failed"' not in failed
+
+
+def test_a_wide_rollout_summarises_a_bounded_number_of_hosts(signed_in, job_list_world):
+    wide = _row(signed_in.get("/deploy/jobs").text, job_list_world.cancelled_wide)
+    # Nine hosts, eight named: the list stays one screen and the deployment holds the full record.
+    assert len(re.findall(r'data-host="', wide)) == 8
+    assert 'data-hosts-omitted="1"' in wide
+    assert f'href="/deploy/{job_list_world.cancelled_wide}"' in wide
+
+
 def test_outcome_filters_partition_failed_and_rolled_back(signed_in, job_list_world):
     rolled_back = signed_in.get("/deploy/jobs?outcome=rolled_back")
     assert rolled_back.status_code == 200
@@ -168,8 +216,9 @@ def test_job_list_is_paginated_like_every_other_list(signed_in, job_list_world):
     second = signed_in.get("/deploy/jobs?page_size=3&page=2")
     assert len(_ids(second.text)) == 3
     assert set(_ids(first.text)).isdisjoint(_ids(second.text))
-    last = signed_in.get(f"/deploy/jobs?page_size=3&page={-(-job_list_world.total // 3)}")
-    assert len(_ids(last.text)) == job_list_world.total % 3
+    pages = -(-job_list_world.total // 3)
+    last = signed_in.get(f"/deploy/jobs?page_size=3&page={pages}")
+    assert len(_ids(last.text)) == job_list_world.total - 3 * (pages - 1)
 
 
 @pytest.mark.parametrize(

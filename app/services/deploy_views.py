@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
 
-from sqlalchemy import Integer, and_, exists, func, or_, select
+from sqlalchemy import Integer, and_, case, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import ALLOWED_ERROR_CLASSES, TIMEOUT_MESSAGE
@@ -668,6 +668,22 @@ def deploy_candidates(db: Session, now: datetime, limit: int = CANDIDATE_LIMIT) 
     ]
 
 
+@dataclass(frozen=True)
+class HostOutcome:
+    """One host of a listed rollout: its hostname and the outcome that host reached."""
+
+    hostname: str
+    status: str
+
+
+@dataclass(frozen=True)
+class HostSummary:
+    """The hosts one list row names, and how many hosts the rollout really has."""
+
+    hosts: tuple[HostOutcome, ...]
+    total: int
+
+
 def _host_totals(db: Session, job_ids: Sequence[UUID]) -> dict[UUID, dict[str, int]]:
     """One grouped query for the host totals of every listed job (constant cost, whatever the host count)."""
     totals: dict[UUID, dict[str, int]] = {job_id: {key: 0 for key in TOTAL_KEYS} for job_id in job_ids}
@@ -683,6 +699,53 @@ def _host_totals(db: Session, job_ids: Sequence[UUID]) -> dict[UUID, dict[str, i
         if key in totals[job_id]:
             totals[job_id][key] = int(count)
     return totals
+
+
+# The host states that stop or stall a rollout come first: a list that has to cut a host must never cut the
+# one the operator has to act on. ``succeeded`` is the fallback, so an unknown future state sorts with it.
+_HOST_ATTENTION = case(
+    (JobHost.status == JobHostStatus.ROLLED_BACK, 0),
+    (JobHost.status == JobHostStatus.FAILED, 1),
+    (JobHost.status == JobHostStatus.RUNNING, 2),
+    (JobHost.status == JobHostStatus.PENDING, 3),
+    (JobHost.status == JobHostStatus.SKIPPED, 4),
+    else_=5,
+)
+
+
+def _host_outcomes(db: Session, job_ids: Sequence[UUID]) -> dict[UUID, HostSummary]:
+    """Up to ``HOST_SUMMARY_LIMIT`` hosts per listed job, the ones needing attention first, plus the real total.
+
+    One statement for the whole page, and the window function caps the rows per job, so a deploy to a whole
+    fleet cannot grow the list query into a full ``job_host`` scan of the page's jobs.
+    """
+    if not job_ids:
+        return {}
+    ranked = (
+        select(
+            JobHost.job_id.label("job_id"),
+            Server.hostname.label("hostname"),
+            JobHost.status.label("status"),
+            func.row_number()
+            .over(partition_by=JobHost.job_id, order_by=(_HOST_ATTENTION, Server.hostname))
+            .label("position"),
+            func.count().over(partition_by=JobHost.job_id).label("host_total"),
+        )
+        .join(Server, Server.id == JobHost.server_id)
+        .where(JobHost.job_id.in_(tuple(job_ids)))
+        .subquery()
+    )
+    rows = db.execute(
+        select(ranked.c.job_id, ranked.c.hostname, ranked.c.status, ranked.c.host_total)
+        .where(ranked.c.position <= HOST_SUMMARY_LIMIT)
+        .order_by(ranked.c.job_id, ranked.c.position)
+    ).all()
+    shown: dict[UUID, list[HostOutcome]] = {}
+    totals: dict[UUID, int] = {}
+    for job_id, hostname, status, host_total in rows:
+        shown.setdefault(job_id, []).append(HostOutcome(hostname, getattr(status, "value", status)))
+        totals[job_id] = int(host_total)
+    return {job_id: HostSummary(tuple(items), totals[job_id]) for job_id, items in shown.items()}
 
 
 def _summaries(db: Session, condition, limit: int) -> tuple[DeployJobSummary, ...]:
@@ -805,6 +868,10 @@ def certificate_deploy_panel(db: Session, certificate_id: int, now: datetime) ->
 OUTCOMES = ("failed", "rolled_back", "running", "succeeded", "queued", "paused", "cancelled")
 DEFAULT_PAGE_SIZE = 50
 PAGE_SIZE_LIMIT = 100
+# How many hosts one list row names before it defers to the deployment for the rest: a rollout may target a
+# whole fleet, and the list must stay one screen. The order puts the hosts that need attention first, so a
+# failure is never the host that gets cut off.
+HOST_SUMMARY_LIMIT = 8
 
 
 def _rolled_back_host():
@@ -850,6 +917,8 @@ class JobListRow:
     actor: str
     created_at: datetime
     totals: dict[str, int]
+    hosts: tuple[HostOutcome, ...]
+    hosts_omitted: int
     href: str
 
 
@@ -885,10 +954,10 @@ def count_jobs(db: Session, filters: JobFilters) -> int:
 
 
 def list_jobs(db: Session, filters: JobFilters, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> JobListPage:
-    """One page (1-100 rows) of jobs, newest first, with the per-host outcome of every deploy.
+    """One page (1-100 rows) of jobs, newest first, with the outcome of every deploy host.
 
-    Three statements whatever the page holds: the rows with their certificate and requester, one grouped
-    ``job_host`` count for the deploys on it, and the total.
+    Four statements whatever the page holds: the rows with their certificate and requester, one grouped
+    ``job_host`` count and one capped host summary for the deploys on it, and the total.
     """
     if type(page) is not int or page < 1:
         raise ValueError("page must be at least 1")
@@ -905,11 +974,13 @@ def list_jobs(db: Session, filters: JobFilters, page: int = 1, page_size: int = 
     ).all()
     deploy_ids = [job.id for job, _certificate, _actor in rows if JobType(job.type) is JobType.DEPLOY]
     totals = _host_totals(db, deploy_ids)
+    summaries = _host_outcomes(db, deploy_ids)
     items = []
     for job, certificate, actor in rows:
         kind = JobType(job.type)
         payload = job.payload if isinstance(job.payload, dict) else {}
         host_totals = totals.get(job.id, {})
+        summary = summaries.get(job.id)
         status = JobStatus(job.status).value
         items.append(
             JobListRow(
@@ -922,6 +993,8 @@ def list_jobs(db: Session, filters: JobFilters, page: int = 1, page_size: int = 
                 actor=actor or "system",
                 created_at=job.created_at,
                 totals=host_totals if kind is JobType.DEPLOY else {},
+                hosts=summary.hosts if summary is not None else (),
+                hosts_omitted=summary.total - len(summary.hosts) if summary is not None else 0,
                 href=job_href(kind, payload, str(job.id)),
             )
         )

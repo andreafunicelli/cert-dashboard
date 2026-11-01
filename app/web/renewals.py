@@ -620,7 +620,6 @@ def _list_page(request: Request, status: int = 200) -> HTMLResponse:
         renewals = list_renewals(db, filters, page, size, now=request.app.state.clock())
         timezone_name = display_timezone(db)
     pages = max(1, math.ceil(renewals.total / renewals.page_size))
-    paging = {key: value for key, value in params.items() if key != "page"}
     return _render(
         request,
         "renewals/list.html.j2",
@@ -631,7 +630,7 @@ def _list_page(request: Request, status: int = 200) -> HTMLResponse:
         states=list(STATE_FILTERS),
         state_labels=_STATE_LABELS,
         tz=timezone_name,
-        page_url=lambda number: _list_url({**paging, "page": str(number)} if number > 1 else paging),
+        page_url=lambda number: _list_url({**params, "page": str(number)} if number > 1 else params),
     )
 
 
