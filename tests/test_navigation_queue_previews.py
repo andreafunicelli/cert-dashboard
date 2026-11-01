@@ -41,12 +41,33 @@ def test_area_and_exact_page_are_marked_without_rewriting_anchors(path, area, le
     assert '/servers#discovery-actions' in html
 
 
-def test_disabled_capability_keeps_reason_and_cannot_be_activated():
+@pytest.mark.parametrize("url, area, leaf", [
+    ("/certificates", "Certificates", "Certificates"),
+    ("/servers", "Infrastructure", "Servers"),
+    ("/scans", "Operations", "Scans"),
+    ("/settings", "Administration", "Settings"),
+])
+@pytest.mark.parametrize("active", [False, True])
+def test_disabled_capability_keeps_reason_and_cannot_be_activated(url, area, leaf, active):
     context = fixtures()["overview"][1]
-    navigation = [item | {"enabled": False, "reason": "Scan handler unavailable"}
-                  if item["url"] == "/scans" else item for item in context["navigation"]]
-    html = overview(navigation=navigation)
-    assert '<span aria-disabled="true" title="Scan handler unavailable">Scans</span>' in html
+    reason = "Handler unavailable"
+    navigation = [item | {"enabled": False, "reason": reason}
+                  if item["url"] == url else item for item in context["navigation"]]
+    request = SimpleNamespace(url=SimpleNamespace(path=url if active else "/"),
+                              state=SimpleNamespace(worker_stale=False))
+    html = overview(navigation=navigation, request=request)
+    main = re.search(r'<nav aria-label="Main">(.*?)</nav>', html, re.DOTALL)[1]
+    assert f'href="{url}"' not in main
+    mobile = re.search(r'<nav aria-label="All pages">(.*?)</nav>', html, re.DOTALL)[1]
+    assert f'href="{url}"' not in mobile
+    if active:
+        subnav = re.search(r'<nav class="area-navigation".*?</nav>', html, re.DOTALL)[0]
+        assert f'href="{url}"' not in subnav
+    assert f'aria-disabled="true" title="{reason}">{area}</span>' in main
+    assert f'<span aria-disabled="true" title="{reason}">{leaf}</span>' in html
+    # A disabled area landing page does not hide its other supported subpages.
+    assert 'href="/deploy"' in html
+    assert 'href="/certificates/import"' in html
 
 
 def test_attention_is_at_most_four_rows_with_exact_count_destinations():

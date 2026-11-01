@@ -17,7 +17,7 @@
 <div class="desktop-navigation">
   <nav aria-label="Main">
     {{ page_link('Overview', '/') }}
-    {% for label, url, pages in groups %}<span{% if area == label %} class="active-area" aria-current="location"{% endif %}><a href="{{ url }}">{{ label }}</a></span>{% endfor %}
+    {% for label, url, pages in groups %}{% set entry = navigation | selectattr('url', 'equalto', url) | first %}<span{% if area == label %} class="active-area" aria-current="location"{% endif %}{% if entry is defined and not entry.enabled %} aria-disabled="true" title="{{ entry.reason }}">{{ label }}{% else %}><a href="{{ url }}">{{ label }}</a>{% endif %}</span>{% endfor %}
   </nav>
 </div>
 <details class="mobile-navigation">
