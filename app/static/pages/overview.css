@@ -1,4 +1,17 @@
 /* Overview composition; shared components remain in app.css. */
+.work-section { margin-bottom: var(--space-5); }
+.work-section h2 { margin-block: var(--space-0) var(--space-3); }
+.work-queue td { vertical-align: middle; padding-block: var(--space-2); height: var(--row-height); }
+.work-queue td:first-child { width: 50%; }
+.flight-summary { display: flex; flex-wrap: wrap; gap: var(--space-3) var(--space-6); }
+.flight-summary a { display: inline-block; padding-block: var(--space-2); min-height: var(--control-height); }
+.system-heading { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-3); }
+.system-heading h2 { margin: var(--space-0); }
+.system-heading a { padding-block: var(--space-2); }
+.status-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--filter-width)), 1fr)); gap: var(--space-3); padding: var(--space-3); background: var(--surface-raised); font-size: var(--text-sm); }
+.status-strip strong { display: block; margin-bottom: var(--space-1); }
+.overview-details { margin-top: var(--space-5); border-block: var(--line) solid var(--separator); }
+.overview-details > summary { white-space: normal; }
 .counters { align-items: stretch; }
 .counters .counter { flex: 1 1 var(--filter-width); min-width: 0; }
 .counter > span { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); }
@@ -8,12 +21,13 @@
 .tls-counter { flex-direction: row; align-items: center; gap: var(--space-3); }
 .tls-counter strong { font-size: var(--text-lg); }
 .tls-counter > span { margin: var(--space-0); }
-.status-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--filter-width)), 1fr)); gap: var(--space-5); }
-.status-strip h2 { margin-top: var(--space-0); font-size: var(--text-base); }
-.status-strip p { margin-bottom: var(--space-0); }
 .overview-failures { margin-inline: var(--space-0); }
 .overview-failures .help { color: inherit; }
 .actions { margin-block: var(--space-5) var(--space-6); }
-.empty-state ol { max-width: var(--panel-width); margin-inline: auto; text-align: left; }
 .recent-jobs td, .unknown-bindings td { overflow-wrap: break-word; }
 .renewals-in-flight li { padding: var(--space-4); border-bottom: var(--line) solid var(--separator); overflow-wrap: break-word; }
+@media (max-width: 719px) {
+  .work-queue th, .work-queue td { padding: var(--space-2); }
+  .work-queue td:first-child { width: auto; }
+  .work-queue .badge { align-items: flex-start; }
+}

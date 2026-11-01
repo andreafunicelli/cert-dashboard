@@ -3,7 +3,65 @@
 {% block title %}Overview · Cert Dashboard{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/overview.css">{% endblock %}
 {% block content %}
-<h1>Overview</h1>
+<header class="page-header"><div><h1>Overview</h1><p class="page-subtitle">Track TLS certificates, reconcile endpoints and follow renewals and deployments.</p></div></header>
+<section aria-labelledby="attention-heading" class="work-section">
+<h2 id="attention-heading">Needs attention</h2>
+{% set deployment_attention = queue.deploy_jobs_failed + queue.deploy_jobs_rolled_back %}
+{% if queue.certificates_expired or queue.certificates_expiring_7d or queue.endpoints_mismatch or deployment_attention %}
+<div class="table-wrap"><table class="work-queue"><thead><tr><th scope="col">Work to review</th><th scope="col" class="numeric">Count</th><th scope="col">Next step</th></tr></thead><tbody>
+{% for count, label, href, action, kind in [
+  (queue.certificates_expired, 'Expired certificates', '/certificates?expiry=expired&status=active', 'Review expired certificates', 'danger'),
+  (queue.certificates_expiring_7d, 'Certificates expiring in < 7 days', '/certificates?expiry=lt7&status=active', 'Prepare renewals', 'warn'),
+  (queue.endpoints_mismatch, 'Observed certificate differs from stored certificate', '/scans?status=mismatch', 'Review mismatched endpoints', 'warn')
+] %}{% if count %}<tr><td><span class="badge badge-{{ kind }}">{{ icon(kind) }} {{ label }}</span></td><td class="numeric">{{ count }}</td><td><a href="{{ href }}">{{ action }}</a></td></tr>{% endif %}{% endfor %}
+{% if deployment_attention %}
+<tr>
+  <td><span class="badge badge-danger">{{ icon('danger') }} Deployments failed or rolled back</span></td>
+  <td class="numeric">{{ deployment_attention }}</td>
+  <td>
+    {% if queue.deploy_jobs_failed %}<a href="/deploy/jobs?type=deploy&amp;outcome=failed">Review failed (<span class="mono">{{ queue.deploy_jobs_failed }}</span>)</a>{% endif %}
+    {% if queue.deploy_jobs_failed and queue.deploy_jobs_rolled_back %}<br>{% endif %}
+    {% if queue.deploy_jobs_rolled_back %}<a href="/deploy/jobs?type=deploy&amp;outcome=rolled_back">Review rolled back (<span class="mono">{{ queue.deploy_jobs_rolled_back }}</span>)</a>{% endif %}
+  </td>
+</tr>
+{% endif %}
+</tbody></table></div>
+{% else %}<p>Nothing needs attention in the work queue.</p>{% endif %}
+<p class="help">Recorded results, not live probes. Other TLS findings are in Inventory and history below.</p>
+</section>
+<section aria-labelledby="flight-heading" class="work-section" id="in-flight">
+<h2 id="flight-heading">In flight</h2>
+<ul class="flight-summary plain">
+<li><a href="/renewals?state=awaiting_certificate"><span class="mono">{{ queue.renewals_awaiting_certificate }}</span> renewal{{ '' if queue.renewals_awaiting_certificate == 1 else 's' }} awaiting an issued certificate</a></li>
+<li><a href="/deploy/jobs?type=scan&amp;outcome=running"><span class="mono">{{ queue.scans_running }}</span> running scan{{ '' if queue.scans_running == 1 else 's' }}</a></li>
+<li><a href="/deploy/jobs?type=deploy&amp;outcome=running"><span class="mono">{{ queue.deploys_running }}</span> deployment{{ '' if queue.deploys_running == 1 else 's' }} in progress</a></li>
+</ul>
+<p class="help">Awaiting includes draft, CSR generated and submitted. <a href="/renewals">Review all renewal stages</a>.</p>
+</section>
+<div class="system-heading"><h2>System</h2><a href="/settings?tab=status">Status details</a></div>
+{% block status_strip %}
+{% set status = snapshot.status %}
+<section class="status-strip" data-status-strip="true" aria-label="Status">
+  <div><strong>Worker</strong> <span class="badge {{ 'badge-ok' if status.worker == 'ok' else 'badge-warn' }}">{{ icon('ok' if status.worker == 'ok' else 'warn') }} {{ status.worker }}</span></div>
+  <div><strong>Last discovery</strong> <span data-last-discovery>{% if status.last_discovery_at %}{{ time_tag(status.last_discovery_at, tz) }}{% else %}never{% endif %}</span></div>
+  <div><strong>Last digest</strong> {% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</div>
+  <div><strong>Inventory revision</strong> {% if status.inventory_rev %}<code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %}no inventory revision recorded yet{% endif %}</div>
+</section>
+{% endblock %}
+{% if empty %}
+<section class="setup-checklist" data-empty-state="setup">
+  <h2>Get started</h2>
+  <p>No certificates are in the inventory yet. Work through this checklist:</p>
+  <ol>
+    <li><a href="/certificates/import">Import a certificate</a> from a file, a paste or a live server.</li>
+    <li><a href="/settings?tab=smtp">Configure SMTP</a> for expiry alerts and the daily digest.</li>
+    <li><a href="/servers">Review servers and discovery</a> to find deployed certificates.</li>
+  </ol>
+</section>
+{% endif %}
+<details class="filter-disclosure overview-details">
+<summary>Inventory and history · all counters and recent work</summary>
+<p class="help">Worker: {% if snapshot.status.last_heartbeat_at %}Last heartbeat {{ time_tag(snapshot.status.last_heartbeat_at, tz) }}{% else %}No heartbeat recorded{% endif %}. <a href="/settings?tab=status">Worker details</a></p>
 <h2>Certificate expiry</h2>
 <section class="counters" aria-label="Certificate expiry">
   {% for counter in counters %}
@@ -11,16 +69,6 @@
   <a class="counter counter-{{ counter.key }}" data-counter="{{ counter.key }}" href="{{ counter.href }}"><strong>{{ counter.count }}</strong><span class="badge badge-{{ kind }}">{{ icon(kind) }} {{ counter.label }}</span></a>
   {% endfor %}
 </section>
-{% block status_strip %}
-{% set status = snapshot.status %}
-<section class="panel wide status-strip" data-status-strip="true" aria-label="Status">
-  <div><h2>Worker</h2><span class="badge {{ 'badge-ok' if status.worker == 'ok' else 'badge-warn' }}">{{ icon('ok' if status.worker == 'ok' else 'warn') }} {{ status.worker }}</span>
-  <p class="help">{% if status.last_heartbeat_at %}Last heartbeat {{ time_tag(status.last_heartbeat_at, tz) }}{% else %}No heartbeat recorded{% endif %}. <a href="/settings?tab=status">Worker details</a></p></div>
-  <div><h2>Last discovery</h2><p data-last-discovery>{% if status.last_discovery_at %}{{ time_tag(status.last_discovery_at, tz) }}{% else %}never{% endif %}</p></div>
-  <div><h2>Inventory revision</h2><p>{% if status.inventory_rev %}<code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %}no inventory revision recorded yet{% endif %}</p></div>
-  <div><h2>Last digest</h2><p>{% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</p></div>
-</section>
-{% endblock %}
 {% block tls_health %}
 {% set failures = snapshot.recent_jobs | selectattr('status', 'equalto', 'failed') | list %}
 {% if failures %}
@@ -40,17 +88,6 @@
 <p class="help">Latest recorded results, not a live probe. Scan freshness is not summarized here; <a href="/scans">check last-scan times in Scans</a>. Never scanned opens the full endpoint list.</p>
 {% endblock %}
 <nav class="actions" aria-label="Overview actions"><a class="button button-secondary" href="/certificates">Review certificates</a><a class="button button-secondary" href="/scans">Review scans</a><a href="/audit?target_type=job">Job history</a></nav>
-{% if empty %}
-<section class="empty-state" data-empty-state="setup">
-  <h2>Get started</h2>
-  <p>No certificates are in the inventory yet. Work through this checklist:</p>
-  <ol>
-    <li><a href="/certificates/import">Import a certificate</a> from a file, a paste or a live server.</li>
-    <li><a href="/settings?tab=smtp">Configure SMTP</a> for expiry alerts and the daily digest.</li>
-    <li><a href="/servers">Review servers and discovery</a> to find deployed certificates.</li>
-  </ol>
-</section>
-{% endif %}
 {% block recent_jobs %}
 <h2>Recent jobs</h2>
 {% if snapshot.recent_jobs %}
@@ -105,4 +142,5 @@
 <section class="empty-state"><h3>No renewals in flight</h3><p>Open renewal requests appear here, oldest state first.</p><a href="/certificates">Review certificates for renewal</a></section>
 {% endif %}
 {% endblock %}
+</details>
 {% endblock %}

@@ -11,30 +11,103 @@
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+
+
+
+
+
+<div class="desktop-navigation">
   <nav aria-label="Main">
 
-    <span><a href="/">Overview</a></span>
 
 
-    <span aria-current="page"><a href="/certificates">Certificates</a></span>
+  <span><a href="/">Overview</a></span>
+    <span class="active-area" aria-current="location"><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span><a href="/settings">Administration</a></span>
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu · Certificates</summary>
+  <nav aria-label="All pages">
 
 
-    <span><a href="/servers">Servers</a></span>
+
+  <span><a href="/">Overview</a></span>
+
+    <section class="active-area">
+      <h2>Certificates</h2>
+      <div class="navigation-pages">
 
 
-    <span><a href="/deploy">Deploy</a></span>
+  <span aria-current="page"><a href="/certificates">Certificates</a></span>
 
 
-    <span><a href="/scans">Scans</a></span>
+  <span><a href="/certificates/import">Import</a></span>
 
 
-    <span><a href="/audit">Audit</a></span>
+  <span><a href="/renewals">Renewals</a></span></div>
+    </section>
+
+    <section>
+      <h2>Infrastructure</h2>
+      <div class="navigation-pages">
 
 
-    <span><a href="/settings">Settings</a></span>
+  <span><a href="/servers">Servers</a></span>
 
+
+  <span><a href="/bindings">Bindings</a></span>
+
+
+  <span><a href="/servers#discovery-actions">Discovery</a></span></div>
+    </section>
+
+    <section>
+      <h2>Operations</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span><a href="/deploy/jobs">Jobs</a></span></div>
+    </section>
+
+    <section>
+      <h2>Administration</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/account">Account</a></span></div>
+    </section>
 
   </nav>
+</details>
+
+<nav class="area-navigation" aria-label="Certificates pages">
+
+
+
+  <span aria-current="page"><a href="/certificates">Certificates</a></span>
+
+
+  <span><a href="/certificates/import">Import</a></span>
+
+
+  <span><a href="/renewals">Renewals</a></span>
+</nav>
+
   <details class="user-menu"><summary>Fixture operator</summary>
     <div class="user-menu-links">
       <a href="/account">Account</a>

@@ -61,7 +61,10 @@ def operator_fixtures():
                  "href": "/audit?target_type=job&target_id=fixture-job-1"},
             {"id": "fixture-job-2", "type": "deploy", "summary": "certificate 42 (dry_run)", "status": "succeeded",
                  "duration_seconds": 18, "actor": "operator", "finished_at": stamp, "href": "/deploy/fixture-job-2"}]
-    overview = {"counters": counters, "tls_counters": tls, "empty": False, "tz": "UTC",
+    queue = {"certificates_expired": 2, "certificates_expiring_7d": 3, "endpoints_mismatch": 2,
+             "deploy_jobs_failed": 2, "deploy_jobs_rolled_back": 1, "renewals_awaiting_certificate": 1,
+             "scans_running": 2, "deploys_running": 1}
+    overview = {"queue": queue, "counters": counters, "tls_counters": tls, "empty": False, "tz": "UTC",
                     "snapshot": {"status": status, "recent_jobs": jobs,
                                   "renewals": [{"id": "fixture-renewal", "common_name": "api.example.test", "state": "submitted", "age_days": 10}]},
                     "unknown": [{"id": 1, "server_id": 1, "server": "edge.example.test", "vhost_name": "api.example.test",
@@ -82,7 +85,9 @@ def operator_fixtures():
                                                     "note": "<script>fixture escaping check</script>"}, indent=2)})
     return {
         "overview": ("overview.html.j2", overview),
+        "overview-clear": ("overview.html.j2", overview | {"queue": {key: 0 for key in queue}}),
         "overview-empty": ("overview.html.j2", overview | {"empty": True, "unknown": [],
+            "queue": {key: 0 for key in queue},
             "counters": [item | {"count": 0} for item in counters], "tls_counters": [item | {"count": 0} for item in tls],
             "snapshot": {"recent_jobs": [], "renewals": [], "status": {"worker": "stale", "last_heartbeat_at": None,
                 "last_discovery_at": None,
