@@ -8,6 +8,8 @@
 .servers th:nth-child(6) { width: 14%; }
 .servers td, .servers th, .discovery-history td { overflow-wrap: break-word; }
 .servers td p { margin: var(--space-2) var(--space-0) var(--space-0); }
+/* Discovery mixes state/help with a date: only the time itself is monospaced. */
+.servers td:nth-child(5) { font-family: var(--font-sans); }
 .servers td time { font-size: var(--text-sm); }
 .servers .badge { max-width: 100%; text-align: left; }
 .servers .badge-warn, .servers .badge-danger { white-space: nowrap; }

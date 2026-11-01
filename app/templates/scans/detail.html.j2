@@ -100,11 +100,11 @@
   <p class="hint">The last {{ detail.history | length }} result{{ "" if detail.history | length == 1 else "s" }} (newest first) for {{ hostport(detail.row.host, detail.row.port) }}.</p>
   {% if detail.history %}
   <div class="table-wrap"><table>
-    <thead><tr><th scope="col">Checked</th><th scope="col">Status</th><th scope="col">Observed fingerprint</th><th scope="col">Common name</th><th scope="col">Source</th><th scope="col">Error</th></tr></thead>
+    <thead><tr><th scope="col" class="numeric">Checked</th><th scope="col">Status</th><th scope="col">Observed fingerprint</th><th scope="col">Common name</th><th scope="col">Source</th><th scope="col">Error</th></tr></thead>
     <tbody>
     {% for item in detail.history %}
     <tr class="scan-history-row">
-      <td>{{ time_tag(item.checked_at, tz) }}</td>
+      <td class="numeric">{{ time_tag(item.checked_at, tz) }}</td>
       <td>{{ scan_state(item.status.value) }}</td>
       <td>{% if item.observed_fingerprint %}{{ identifier(item.observed_fingerprint) }}{% else %}—{% endif %}</td>
       <td>{{ item.observed_common_name or "—" }}</td>

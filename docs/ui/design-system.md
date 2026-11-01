@@ -52,7 +52,10 @@ These palette checks are not a complete accessibility audit.
   otherwise local system fallbacks apply. No font files are fetched or bundled.
   Embedding Inter requires a separate operator decision and committed font files.
   Numbers, dates, serials and fingerprints use tabular numerals and monospace,
-  not monospaced prose. Add `.numeric` for right alignment and `.mono` for identifiers.
+  not monospaced prose. Add `.numeric` to both a dedicated date/number column's
+  heading and cells (including missing-value cells), and `.mono` for identifiers.
+  Do not rely on `td:has(> time)`: nested timestamps such as server discovery
+  live inside a paragraph. Explicit column classes align their headings too.
 - Exactly five type sizes (14/16/18/24/32px at the default root). H1 is largest;
   H2 is 24px, H3/brand 18px, all tables 14px. Counter figures are subordinate to H1.
 - One radius: `radius .25rem` (4px); `radius-panel` and `radius-pill` alias it.
@@ -219,9 +222,25 @@ themes. This supersedes the earlier 48px/12-row evidence. Palette tests check
 dark and light contrast. These checks are not a complete WCAG audit or a
 database-backed application test.
 
-The existing generator regenerated all 72 HTML previews byte-for-byte unchanged:
-only shared external styles changed, not template structure or fixture content.
+The existing generator regenerates all 72 HTML previews. The initial token pass
+left their bytes unchanged; the review correction adds `.numeric` classes to the
+date headers/cells in audit, server inventory/discovery history and endpoint
+inventory/scan history. No template structure or fixture content changed.
 Screenshots inspected here are **static fixtures**, never the deployed app.
+
+`tests/test_stitch_styles.py` is a repository-only, Docker-independent CSS/DOM
+regression suite. It renders real certificate, server, binding and endpoint lists,
+matches the shared component's deliberately bounded selector grammar against
+their DOM, and checks the cascaded bar for both palettes. It exercises every
+severity/fallback, competing observations, reordered cells/badges and unbadged
+audit rows. Date-column assertions cover matching headings/cells, missing values
+and server timestamps nested inside `p`. The evaluator is not a browser engine;
+unsupported component selector syntax fails rather than being silently ignored.
+The suite runs in normal repository CI, not the runtime-image unit suite (which
+does not ship the preview generator). No dependency or browser install is needed.
+Separate static Chromium checks of seven fixtures in both themes at 1024×900
+confirmed 30 date/header pairs aligned right with monospaced timestamps, 42
+painted status rows and no page overflow. This is not deployed-flow evidence.
 
 Structural checks passed; visual verification pending on the deployed instance.
 
