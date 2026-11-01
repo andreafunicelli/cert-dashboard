@@ -97,6 +97,9 @@
   const changed = event => { if (sections.some(section => section.controls.includes(event.target))) update(); };
   document.addEventListener('input', changed);
   document.addEventListener('change', changed);
+  // Pass-through only: the form's own native submission is an intentional exit, so release the
+  // unload guard. Nothing is prevented, delayed, rewritten or submitted from here.
+  document.addEventListener('submit', () => { leavingForTab = true; });
   document.addEventListener('htmx:afterSwap', initialize);
   window.addEventListener('pageshow', () => { leavingForTab = false; initialize(); });
   document.addEventListener('click', event => {

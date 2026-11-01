@@ -3,7 +3,7 @@
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/audit.css">{% endblock %}
 {% block content %}
 {% from "_operations_ui.html.j2" import page_header, filters %}
-{% call page_header('Audit log', 'Read append-only history, newest first; recorded events cannot be edited or removed.') %}
+{% call page_header('Audit log', 'Read append-only history, newest first; this view only reads recorded events.') %}
   <a class="button" href="{{ export_url }}" download="audit.json">Export list as JSON</a>
 {% endcall %}
 {% call filters('/audit', values, {'actor': 'Actor', 'action_prefix': 'Action prefix', 'target_type': 'Target type', 'target_id': 'Target ID', 'start': 'From', 'end': 'Until', 'ip': 'IP or CIDR'}) %}

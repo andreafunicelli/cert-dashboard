@@ -617,9 +617,11 @@ save clears only that section; native navigation or an HTMX 422 restores the
 other section's draft and retains refused values. Every edited field has visible
 text plus a boundary; either section's draft marks the canonical tab. The same
 leave confirmation and secret/repository-URL exclusions apply. No new script,
-submit interception, persistence mechanism or dependency is introduced. The
-always-visible fallback additionally explains that without JavaScript saving
-one section reloads the tab and discards edits in other sections.
+persistence mechanism or dependency is introduced, and submission itself is not
+intercepted. A pass-through submit listener only releases the unload guard for the
+form's own native navigation; it never prevents, rewrites, delays or triggers a
+submission. The always-visible fallback additionally explains that without
+JavaScript saving one section reloads the tab and discards edits in other sections.
 
 ### Verification and remaining scope
 

@@ -97,4 +97,6 @@ def test_styles_only_use_shared_tokens_and_the_script_is_settings_only():
             assert '/static/settings.js' not in path.read_text()
     js = (ROOT / 'app/static/settings.js').read_text()
     assert 'innerHTML' not in js and 'eval(' not in js and 'localStorage' not in js
-    assert "addEventListener('submit'" not in js
+    # One pass-through submit listener releases the unload guard; it never handles the event.
+    assert "document.addEventListener('submit', () => { leavingForTab = true; });" in js
+    assert "addEventListener('submit', event" not in js

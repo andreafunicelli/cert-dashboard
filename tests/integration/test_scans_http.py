@@ -160,7 +160,9 @@ def test_scans_navigation_is_enabled_when_the_handler_is_registered(signed_in, w
 def test_unreachable_and_error_rows_show_the_sanitized_error(signed_in, scan_world, web_factory):
     hosts = scan_world.hosts
     page = signed_in.get(f"/scans?search={scan_world.token}").text
-    assert f"{hosts['down']}:443 unreachable: refused" in page
+    down_row = re.search(rf'<tr data-host="{re.escape(hosts["down"])}".*?</tr>', page, re.DOTALL)
+    assert down_row is not None
+    assert f"{hosts['down']}:443" in down_row.group(0) and "unreachable: refused" in down_row.group(0)
     with web_factory.begin() as db:
         newest = db.scalars(select(ScanResult).where(ScanResult.endpoint_id == scan_world.ids["broken"])).one()
         newest.error = f"{HOSTILE} handshake failed"

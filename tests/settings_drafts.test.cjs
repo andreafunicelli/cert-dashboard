@@ -152,7 +152,7 @@ test('excluded secrets, hidden CSRF, files and credential-bearing URLs never ent
   for (const control of fields.slice(0, 6)) assert.equal(control.marker.hidden, true);
   assert.equal(JSON.parse(h.stored.get(key('inventory'))).values.ref, 'next');
   assert.equal(JSON.parse(h.stored.get(key('inventory'))).initial.repo_url, undefined);
-  assert.equal(h.events.submit, undefined);
+  assert.equal(typeof h.events.submit, 'function');
 });
 
 test('tab changes confirm; cancelled navigation keeps edits; other exits warn before unloading', () => {
@@ -175,6 +175,23 @@ test('tab changes confirm; cancelled navigation keeps edits; other exits warn be
   h.windowEvents.pageshow();
   h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
   assert.ok(prevented);
+});
+
+test('a form submit is a pass-through intentional exit and is never prevented', () => {
+  const host = field('host', 'old');
+  const h = harness(panel('smtp', [host]));
+  h.edit(host, 'new');
+  let prevented = false;
+  h.events.submit({preventDefault: () => { prevented = true; }});
+  assert.equal(prevented, false);
+  h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
+  assert.equal(prevented, false);
+  const refused = field('host', 'new');
+  h.swap(panel('smtp', [refused], false, true));
+  h.edit(refused, 'later');
+  prevented = false;
+  h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
+  assert.equal(prevented, true);
 });
 
 test('unavailable storage is visible, does not crash, and does not drop dirty indicators', () => {

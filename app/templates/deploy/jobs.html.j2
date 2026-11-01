@@ -24,8 +24,7 @@ deployment for the full record; other jobs open their audit entries.</p>
     {% if values.page_size %}<input type="hidden" name="page_size" value="{{ values.page_size }}">{% endif %}
 {% endcall %}
 
-<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> job{{ "" if page.total == 1 else "s" }}
-  · <a href="/deploy">Plan a deployment</a></div>
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> job{{ "" if page.total == 1 else "s" }} · Finished jobs keep their per-host record.</div>
 
 {% if page.items %}
 <div class="table-wrap">

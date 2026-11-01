@@ -30,7 +30,7 @@
       {% set remaining = namespace(pairs=[]) %}
       {% for name, value in values.items() %}{% if name not in (key, 'page') and value %}{% set remaining.pairs = remaining.pairs + [(name, value)] %}{% endif %}{% endfor %}
       {% set display = ({'true': 'Active', 'false': 'Retired' if path == '/bindings' else 'Inactive', 'all': 'All'}.get(values[key], values[key])) if key == 'active' else values[key] %}
-      <a class="chip filter-chip" href="{{ path }}{% if remaining.pairs %}?{{ remaining.pairs | urlencode }}{% endif %}" aria-label="Remove {{ label }} filter: {{ display }}">{{ label }}: {{ display }} {{ icon('danger') }}</a>
+      <a class="chip filter-chip" href="{{ path }}{% if remaining.pairs %}?{{ remaining.pairs | urlencode }}{% endif %}" aria-label="Clear {{ label }} filter: {{ display }}">{{ label }}: {{ display }} {{ icon('danger') }}</a>
     {% endif %}{% endfor %}
   </div>{% endif %}
 </section>
