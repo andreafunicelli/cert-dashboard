@@ -1,0 +1,39 @@
+{# Presentation-only grouping. Original navigation entries remain capability authority. #}
+{% set path = request.url.path if request is defined else '' %}
+{% set area = 'Certificates' if path.startswith(('/certificates', '/imports', '/renewals')) else 'Infrastructure' if path.startswith(('/servers', '/bindings')) else 'Operations' if path.startswith(('/scans', '/deploy')) else 'Administration' if path.startswith(('/users', '/audit', '/settings', '/account')) else '' %}
+{% set groups = [
+  ('Certificates', '/certificates', [('Certificates', '/certificates'), ('Import', '/certificates/import'), ('Renewals', '/renewals')]),
+  ('Infrastructure', '/servers', [('Servers', '/servers'), ('Bindings', '/bindings'), ('Discovery', '/servers#discovery-actions')]),
+  ('Operations', '/scans', [('Scans', '/scans'), ('Deploy', '/deploy'), ('Jobs', '/deploy/jobs')]),
+  ('Administration', '/settings', [('Users', '/users'), ('Audit', '/audit'), ('Settings', '/settings'), ('Account', '/account')])
+] %}
+{% macro page_link(label, url) -%}
+  {% set base = url.split('#')[0] %}
+  {% set current = '#' not in url and ((base == '/certificates/import' and path.startswith('/imports/')) or path == base or (base != '/' and path.startswith(base + '/') and not (base == '/certificates' and path.startswith('/certificates/import')) and not (base == '/deploy' and path.startswith('/deploy/jobs')))) %}
+  {% set entry = navigation | selectattr('url', 'equalto', base) | first %}
+  {% if entry is defined and not entry.enabled %}<span aria-disabled="true" title="{{ entry.reason }}">{{ label }}</span>
+  {% else %}<span{% if current %} aria-current="page"{% endif %}><a href="{{ url }}">{{ label }}</a></span>{% endif %}
+{%- endmacro %}
+<div class="desktop-navigation">
+  <nav aria-label="Main">
+    {{ page_link('Overview', '/') }}
+    {% for label, url, pages in groups %}{% set entry = navigation | selectattr('url', 'equalto', url) | first %}<span{% if area == label %} class="active-area" aria-current="location"{% endif %}{% if entry is defined and not entry.enabled %} aria-disabled="true" title="{{ entry.reason }}">{{ label }}{% else %}><a href="{{ url }}">{{ label }}</a>{% endif %}</span>{% endfor %}
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu{% if area %} · {{ area }}{% elif path == '/' %} · Overview{% endif %}</summary>
+  <nav aria-label="All pages">
+    {{ page_link('Overview', '/') }}
+    {% for label, url, pages in groups %}
+    <section{% if area == label %} class="active-area"{% endif %}>
+      <h2>{{ label }}</h2>
+      <div class="navigation-pages">{% for label, url in pages %}{{ page_link(label, url) }}{% endfor %}</div>
+    </section>
+    {% endfor %}
+  </nav>
+</details>
+{% if area %}
+<nav class="area-navigation" aria-label="{{ area }} pages">
+  {% for label, url, pages in groups if label == area %}{% for label, url in pages %}{{ page_link(label, url) }}{% endfor %}{% endfor %}
+</nav>
+{% endif %}

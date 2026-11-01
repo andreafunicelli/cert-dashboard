@@ -68,8 +68,10 @@ These palette checks are not a complete accessibility audit.
 - Motion: button background transition `duration 120ms`,
   `ease cubic-bezier(.2, 0, 0, 1)`; reduced motion replaces duration with
   `duration-reduced 0s`. No animated page entrances or scrolling.
-- Shell stacks below 720px (media query `max-width: 719px`). Navigation wraps;
-  the open user menu stays in flow on small screens. Tables scroll inside `.table-wrap`.
+- Shell stacks below 720px (media query `max-width: 719px`). Navigation becomes
+  a native Menu disclosure containing grouped page links; desktop shows the four
+  areas and only the current area's second-level bar. The open user menu stays
+  in flow on small screens. Tables scroll inside `.table-wrap`.
   Shared table regions cap at `table-height 36rem` so the stronger sticky header
   stays visible during region scrolling. The desktop certificate list keeps its
   existing overflow-visible action menus and page scrolling; its header sticks
@@ -244,6 +246,60 @@ painted status rows and no page overflow. This is not deployed-flow evidence.
 
 Structural checks passed; visual verification pending on the deployed instance.
 
+## Task-first shell and overview
+
+`_navigation.html.j2` owns presentation-only grouping; existing `navigation`
+entries remain the capability source for the existing page links. URLs are not
+rewritten. Desktop has Overview plus Certificates, Infrastructure, Operations and
+Administration; only the active area exposes a second row. Its outlined,
+heavy-bottom tab and the selected page's inset background/underline are shape
+cues as well as colour. Current page wrappers retain `aria-current="page"` and
+exact anchor markup for compatibility; the area uses `aria-current="location"`.
+The same page-link macro renders mobile groups inside native `details` with a
+Menu summary. CSS displays only one navigation variant at a time; hidden links
+are not keyboard stops. No scripts or ARIA menu widget are involved.
+
+Discovery is the existing `/servers#discovery-actions` section, not a new route
+or an automatic discovery trigger. The server page remains the current page
+because URL fragments are not available to the server. Import-progress URLs
+belong to Import, renewal screens to Renewals, and deployment job lists to Jobs.
+Account/Users remain in the existing utility disclosure as well as Administration.
+
+The overview reuses `.page-header`, the shared table/status-row/icon/badge
+components and native `.filter-disclosure` instead of a second card system.
+It displays at most four nonzero attention rows, sourced only from `QueueCounts`.
+The fourth row totals the disjoint failed/rolled-back deployment counts and
+provides **two exact filtered links**, rather than inventing an unsupported
+union filter. Historical failures are retained in the diagnostic disclosure,
+not used as a proxy for queue counts. Empty attention is one calm sentence;
+it does not imply every endpoint passed every TLS check.
+
+In-flight counts link to the real awaiting-certificate, running-scan and
+running-deployment lists. Awaiting includes draft/CSR-generated/submitted, not
+issued/deployed. All renewal states and their older per-request age details
+remain reachable. System is one shared-surface strip with four compact fields,
+wrapping on small screens, and a direct Settings → Status link. Last discovery
+means last **successful** discovery; heartbeat remains in the diagnostic
+disclosure. Existing inventory and TLS counters retain their hooks and ranges.
+
+`overview-clear.html` adds an inventory-present, empty-queue fixture alongside
+the populated and first-run previews. All shell-using previews are regenerated
+because the base template changed. Repository tests cover exact active leaves,
+capability fallback, count/list URLs, four-row bounds, independent large queue
+counts, calm zero state, all old counters and deterministic preview bytes.
+Shared-file hotspot: `app.css` changes only navigation; palette, buttons, badges
+and status-row implementation are reused unchanged.
+
+Structural checks passed; visual verification pending on the deployed instance.
+Static Chromium fixture checks with JavaScript disabled covered seven pages
+(overview populated/clear/first-run, certificates, servers, scans, settings status),
+both themes and widths 375/719/720/1024/1280/1440px: 84 combinations, no document
+horizontal overflow. Native Menu opened without JavaScript; the diagnostic
+summary toggled by keyboard and revealed existing expiry/TLS counters. Inspected
+dark overview, light certificate navigation and open mobile Menu captures.
+Static fixtures are not database-backed or deployed-flow evidence. Verify full
+keyboard order/focus, zoom and all filtered queue destinations on deployment.
+
 ## Preview and verification
 
 ### Deploy, settings and outbound email
@@ -413,8 +469,10 @@ The renderer also produces `overview.html`, `overview-empty.html`, `account.html
 directory-managed accounts, disabled actions, one-time **fake** enrollment material,
 and long audit actor/path/user-agent values with an escaping canary.
 
-- Overview order is expiry → worker/inventory/digest → recent failures → TLS health
-  → review actions → detail tables. Counter links and `data-*` hooks are unchanged.
+- Overview order is Needs attention → In flight → System → the native Inventory
+  and history disclosure. Counter links and `data-*` hooks are unchanged; all old
+  counters, unknown bindings, recent jobs/failures and renewal details are inside
+  that one-click disclosure. First-run setup remains visible outside it.
   TLS counts are last recorded results, not live probes. The read model does not
   expose scan freshness: inspect timestamps via the Scans link. The never-scanned
   count continues to open all endpoints (no matching list filter exists).

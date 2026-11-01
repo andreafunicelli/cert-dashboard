@@ -159,7 +159,8 @@ def test_user_totp_reset_explains_optional_reenrollment_before_submit():
 
 def test_overview_state_precedes_actions_and_details_and_all_counters_link():
     html = preview("overview")
-    assert html.index('aria-label="Certificate expiry"') < html.index('data-status-strip="true"')
+    assert html.index('id="attention-heading"') < html.index('id="flight-heading"') < html.index('data-status-strip="true"')
+    assert html.index('data-status-strip="true"') < html.index('<details class="filter-disclosure overview-details">') < html.index('aria-label="Certificate expiry"')
     assert html.index("Recent failures") < html.index('aria-label="Overview actions"') < html.index('<table class="recent-jobs">')
     elements = Elements(html).elements
     counters = [attrs for tag, attrs in elements if "data-counter" in attrs or "data-tls" in attrs]

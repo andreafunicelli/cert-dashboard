@@ -11,12 +11,7 @@
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
-  <nav aria-label="Main">
-  {% for item in navigation %}
-    {% if item.enabled %}<span{% if request is defined and (request.url.path == item.url or (item.url != '/' and request.url.path.startswith(item.url + '/'))) %} aria-current="page"{% endif %}><a href="{{ item.url }}">{{ item.label }}</a></span>
-    {% else %}<span aria-disabled="true" title="{{ item.reason }}">{{ item.label }}</span>{% endif %}
-  {% endfor %}
-  </nav>
+  {% include "_navigation.html.j2" %}
   {% if user %}<details class="user-menu"><summary>{{ user.display_name }}</summary>
     <div class="user-menu-links">
       <a href="/account">Account</a>
