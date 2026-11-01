@@ -167,9 +167,12 @@ def test_failures_list_is_newest_first_bounded_and_excludes_delivered_rows(web_f
 
 
 def test_digest_failures_have_no_certificate_link(signed_in, web_factory, now):
-    seed_notifications(web_factory, now, ["failed"], kind="digest")
+    notification_id = seed_notifications(web_factory, now, ["failed"], kind="digest")[0]
     raw = signed_in.get("/settings?tab=alerts").text
-    assert "digest" in raw and "/certificates/" not in raw
+    # Global navigation may link to certificate import; only this digest row
+    # must have no certificate link, since a digest has no certificate target.
+    row = raw.split(f'<tr data-notification="{notification_id}">', 1)[1].split("</tr>", 1)[0]
+    assert "digest" in row and "/certificates/" not in row
 
 
 def test_alerts_tab_without_failures_says_so(signed_in):
