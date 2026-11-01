@@ -747,7 +747,9 @@ def _handle_trust_recheck(request: Request, form: FormData):
 
 
 def _handle_prune(request: Request, form: FormData):
-    if not _only(form, "confirm") or form.get("confirm") != _PRUNE_CONFIRMATION:
+    if not _only(form, "confirm"):
+        return _refused(request, "maintenance", _UNRECOGNISED)
+    if form.get("confirm") != _PRUNE_CONFIRMATION:
         return _refused(request, "maintenance", f"Type {_PRUNE_CONFIRMATION} exactly to confirm.")
 
     def work(db, now, actor):

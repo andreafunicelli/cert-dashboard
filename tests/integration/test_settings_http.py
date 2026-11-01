@@ -1289,8 +1289,8 @@ def test_maintenance_shows_cli_rotation_instructions_and_keyring_state_only(sign
     assert 'install -d -m 0700 -o 10001 -g 10001 "$tmp"' in flat
     assert "docs/operations.md" in flat and "as root" in flat
     assert "from the repository checkout" not in flat
-    # no keyring edit or rotation control: the only form is the typed-confirmed prune
-    assert re.findall(r'<form[^>]*\saction="([^"]+)"', text) == [PRUNE]
+    # no keyring edit or rotation control: the grouped General settings form plus typed-confirmed prune
+    assert re.findall(r'<form[^>]*\saction="([^"]+)"', text) == ["/settings/general", PRUNE]
     assert "<textarea" not in text and 'type="file"' not in text
 
 
