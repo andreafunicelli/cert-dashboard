@@ -11,7 +11,7 @@
 #renewal-panel .algorithm-notes li { margin-block: var(--space-2); }
 #renewal-panel .confirmation { margin-top: var(--space-6); }
 #renewal-panel .fields dd { min-width: 0; }
-#renewal-panel p, #renewal-panel .notes { overflow-wrap: anywhere; }
+#renewal-panel p, #renewal-panel .notes { overflow-wrap: break-word; }
 #renewal-panel .notes { max-height: var(--material-height); overflow: auto; }
 #renewal-panel code:not(.identifier) { display: inline-block; max-width: 100%; overflow: auto; white-space: nowrap; overflow-wrap: normal; vertical-align: middle; user-select: all; }
 #renewal-panel fieldset { border: var(--line) solid var(--border); margin: var(--space-4) var(--space-0); }

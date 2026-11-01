@@ -459,14 +459,20 @@ def test_list_requires_a_session(client):
     assert client.get("/certificates/export.json", follow_redirects=False).status_code == 303
 
 
-def test_list_shows_all_columns_and_chips(signed_in, inventory):
+def test_list_shows_scannable_columns_and_one_state_signal(signed_in, inventory):
     page = signed_in.get("/certificates?sort=common_name&page_size=100")
     assert page.status_code == 200 and _total(page.text) == 7
-    for text in ("Common name", "SANs", "Issuer", "Expires", "Owner", "Status", "Source", "Key", "Bindings"):
+    for text in ("Common name", "Issuer", "Expires", "Status", "Bindings", "Actions"):
         assert f">{text}<" in page.text, text
+    for text in ("SANs", "Owner", "Source", "Key"):
+        assert f">{text}</th>" not in page.text
     row = re.search(r'<tr data-cn="www.infra.example.test".*?</tr>', page.text, re.DOTALL).group(0)
-    assert "Fixture CA One" in row and "Alice Admin" in row and "infra" in row
-    assert "20 days" in row and "yes" in row.lower()
+    assert "Fixture CA One" in row
+    assert "20 days" in row and row.count('class="badge ') == 1
+    assert row.count("<time ") == 1
+    assert f'action="/certificates/{inventory.www}/scan"' in row
+    assert f'href="/certificates/{inventory.www}/leaf.pem"' in row
+    assert 'name="csrf_token"' in row
     assert f'href="/certificates/{inventory.www}"' in row
     expired = re.search(r'<tr data-cn="shop.sales.example.test".*?</tr>', page.text, re.DOTALL).group(0)
     assert "expired" in expired.lower() and "chip-expired" in expired

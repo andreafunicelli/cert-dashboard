@@ -1,7 +1,7 @@
 /* User inventory retains the shared table and security disclosures. */
 .user-create { padding: var(--space-4) var(--space-5); }
 .user-create > summary { font-weight: var(--weight-medium); }
-.users td { overflow-wrap: anywhere; }
+.users td { overflow-wrap: break-word; }
 .users .badge { white-space: nowrap; }
 .users .confirmation { margin-block: var(--space-4); }
 .users details input { max-width: 100%; }

@@ -1,0 +1,176 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Certificates · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/certificates.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span aria-current="page"><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+
+
+
+
+<header class="page-header">
+  <div><h1>Certificates</h1><p class="page-subtitle" data-total="1">1 certificate</p></div>
+  <div class="page-actions">
+    <a class="button" href="/certificates/import">Import certificate</a>
+    <details class="action-menu"><summary>More actions</summary><div class="action-menu-items">
+      <a href="/certificates/export.json?status=active&amp;expiry=lt7&amp;sort=-common_name" download="certificates.json">Export list as JSON</a>
+    </div></details>
+  </div>
+</header>
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/certificates">
+    <div class="filter-toolbar">
+      <label class="filter-search">Search <input type="search" name="search" value="" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>
+    <details class="filter-disclosure">
+      <summary>Filters · 2</summary>
+      <div class="filters">
+        <label>Status
+          <select name="status"><option value="">Any</option>
+            <option value="active" selected>active</option><option value="superseded">superseded</option><option value="revoked">revoked</option>
+          </select></label>
+        <label>Expires
+          <select name="expiry"><option value="">Any</option>
+            <option value="expired">Already expired</option><option value="lt7" selected>In less than 7 days</option><option value="lt30">In 7 to 30 days</option><option value="lt60">In 30 to 60 days</option>
+          </select></label>
+        <label>Issuer <input name="issuer" value="" maxlength="200"></label>
+        <label>Team <input name="team" value="" maxlength="200"></label>
+        <label>Owner <input name="owner" value="" maxlength="200"></label>
+        <label>Private key
+          <select name="has_key"><option value="">Any</option>
+            <option value="true">Present</option>
+            <option value="false">Absent</option></select></label>
+        <label>Bindings
+          <select name="has_bindings"><option value="">Any</option>
+            <option value="true">Has bindings</option>
+            <option value="false">No bindings</option></select></label>
+        <label>Renewal
+          <select name="renewal_state"><option value="">Any</option>
+
+          </select></label>
+        <button class="button-secondary" type="submit">Apply filters</button>
+      </div>
+    </details>
+    <input type="hidden" name="sort" value="-common_name">
+    <input type="hidden" name="page_size" value="50">
+  </form>
+
+  <div class="applied-filters" aria-label="Applied filters">
+    <a href="/certificates">Reset</a>
+
+
+
+
+      <a class="chip filter-chip" href="/certificates?expiry=lt7&amp;sort=-common_name&amp;page_size=50" aria-label="Remove Status filter: active">Status: active <svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg></a>
+
+
+
+
+      <a class="chip filter-chip" href="/certificates?status=active&amp;sort=-common_name&amp;page_size=50" aria-label="Remove Expires filter: In less than 7 days">Expires: In less than 7 days <svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg></a>
+
+  </div>
+
+</section>
+
+
+<div class="table-wrap certificate-table-wrap" tabindex="0" role="region" aria-label="Certificate results">
+<table class="certificates">
+  <thead><tr>
+    <th scope="col"><a href="/certificates?sort=common_name">Common name</a></th>
+    <th scope="col"><a href="/certificates?sort=issuer_cn">Issuer</a></th>
+    <th scope="col" class="numeric"><a href="/certificates?sort=not_after">Expires</a></th>
+    <th scope="col"><a href="/certificates?sort=status">Status</a></th>
+    <th scope="col" class="numeric">Bindings</th>
+    <th scope="col">Actions</th>
+  </tr></thead>
+  <tbody>
+
+  <tr data-cn="*.apps.example.test">
+    <td class="certificate-name"><a href="/certificates/100" title="*.apps.example.test">*.apps.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-03T12:00:00Z">2026-11-03 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg><span class="mono">4 days</span></span>
+</td>
+    <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for *.apps.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/100">Details</a>
+        <form method="post" action="/certificates/100/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/100/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/100#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span aria-current="page">Page <span class="mono">1</span> of <span class="mono">1</span></span>
+
+</nav>
+</main>
+
+</body>
+</html>

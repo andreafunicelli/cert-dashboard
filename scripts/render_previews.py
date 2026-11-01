@@ -179,6 +179,7 @@ def fixtures():
             "user": SimpleNamespace(display_name="Fixture operator"),
         })
     pages.update(inventory_fixtures())
+    pages.update(certificate_density_fixtures())
     pages.update(operations_fixtures())
     pages.update(infrastructure_fixtures())
     return {name: (template, common | context) for name, (template, context) in pages.items()}
@@ -470,6 +471,34 @@ def inventory_fixtures():
             path = "/certificates/import"
         context["request"] = ns(url=ns(path=path), state=ns(worker_stale=False))
     return pages
+
+
+def certificate_density_fixtures():
+    """Twenty synthetic rows and applied/empty variants for viewport checks."""
+    template, base = inventory_fixtures()["certificate-list"]
+    rows = list(base["page"].items)
+    seed = rows[0]
+    for index in range(15):
+        rows.append(SimpleNamespace(**(vars(seed) | {
+            "id": 100 + index,
+            "common_name": "*.apps.example.test" if index == 0 else f"edge-{index:02}.example.test",
+            "not_after": base["now"] + timedelta(days=4 if index == 0 else 90),
+            "binding_count": index,
+        })))
+    base = base | {"page": SimpleNamespace(items=rows, total=len(rows), page=1, page_size=50)}
+    values = {"status": "active", "expiry": "lt7", "sort": "-common_name", "page_size": "50"}
+    return {
+        "certificate-list-dense": (template, base),
+        "certificate-list-filtered": (template, base | {
+            "values": values, "sort_state": "-common_name",
+            "page": SimpleNamespace(items=[rows[5]], total=1, page=1, page_size=50),
+            "export_url": "/certificates/export.json?status=active&expiry=lt7&sort=-common_name",
+        }),
+        "certificate-list-empty": (template, base | {
+            "values": {"search": "no-match"},
+            "page": SimpleNamespace(items=[], total=0, page=1, page_size=50),
+        }),
+    }
 
 
 def operations_fixtures():

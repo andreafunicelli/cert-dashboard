@@ -3,5 +3,5 @@
 .panel h2 { margin-top: var(--space-0); }
 .confirmation { margin-block: var(--space-5); }
 .confirmation .actions button { margin-top: var(--space-0); }
-.codes { columns: auto; overflow-wrap: anywhere; }
-.secret-once code { white-space: normal; overflow-wrap: anywhere; }
+.codes { columns: auto; overflow-wrap: break-word; }
+.secret-once code { white-space: normal; overflow-wrap: break-word; }
