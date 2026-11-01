@@ -1,0 +1,56 @@
+{% extends "base.html.j2" %}
+{% from "_ui.html.j2" import icon %}
+{% block title %}Renewals · Cert Dashboard{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/renewals.css">{% endblock %}
+{% block content %}
+<h1>Renewals</h1>
+<p class="hint">Every renewal, oldest state change first, so a stalled order stays at the top until it moves.
+The next action is the one step that moves the renewal on; open it to see the CSR, the order or the issued
+certificate.</p>
+
+<section class="panel wide" aria-label="Filters">
+  <form method="get" action="/renewals" class="filters">
+    <label>State
+      <select name="state"><option value="">Any</option>
+        {% for item in states %}<option value="{{ item }}"{% if values.state == item %} selected{% endif %}>{{ state_labels.get(item, item) }}</option>{% endfor %}
+      </select></label>
+    {% if values.page_size %}<input type="hidden" name="page_size" value="{{ values.page_size }}">{% endif %}
+    <button type="submit">Apply filters</button>
+    <a href="/renewals">Reset</a>
+  </form>
+</section>
+
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> renewal{{ "" if page.total == 1 else "s" }}
+  · <a href="/renewals/new">Start a renewal</a></div>
+
+{% if page.items %}
+<div class="table-wrap">
+<table class="renewals">
+  <thead><tr>
+    <th scope="col">Certificate</th>
+    <th scope="col">State</th>
+    <th scope="col">Age in state</th>
+    <th scope="col">Next action</th>
+  </tr></thead>
+  <tbody>
+  {% for row in page.items %}
+  <tr data-renewal-id="{{ row.id }}">
+    <td><a href="/renewals/{{ row.id }}">{{ row.common_name }}</a></td>
+    <td><span class="badge {{ 'badge-ok' if row.state in ('done', 'deployed') else 'badge-info' if row.state in ('issued', 'submitted') else 'badge-warn' if row.state == 'cancelled' else '' }}" data-state="{{ row.state }}">{{ icon('ok' if row.state in ('done', 'deployed') else 'info') }} {{ row.state }}</span></td>
+    <td><span class="mono" data-age-days="{{ row.age_days }}">{{ row.age_days }}</span> day{{ "" if row.age_days == 1 else "s" }}</td>
+    <td>{% if row.next_action %}<a data-next-action="{{ row.next_action_step }}" href="{{ row.next_action_url }}">{{ row.next_action }}</a>{% else %}—{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<section class="empty-state"><h2>No renewals match these filters</h2><p>A renewal starts from a certificate or from <a href="/renewals/new">the renewal form</a>.</p><a href="/renewals">Clear the filters</a></section>
+{% endif %}
+
+<nav class="pager" aria-label="Pages">
+  {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
+  <span class="mono" aria-current="page">Page {{ page.page }} of {{ pages }}</span>
+  {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
+</nav>
+{% endblock %}

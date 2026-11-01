@@ -175,13 +175,18 @@ def _ordered(filters: EndpointFilters, sort: str):
     return _query(filters).order_by(*SORTS[sort], Endpoint.id)
 
 
+def count_endpoints(db: Session, filters: EndpointFilters) -> int:
+    """How many endpoints the same filters list; one COUNT over the list's own query, no rows."""
+    return db.scalar(select(func.count()).select_from(_query(filters).subquery())) or 0
+
+
 def list_endpoints(
     db: Session, filters: EndpointFilters, page: int = 1, page_size: int = 50, sort: str = "status"
 ) -> EndpointPage:
     """One page of endpoints with their latest result; two statements whatever the page holds."""
     if page < 1 or page_size < 1:
         raise ValueError("page and page_size must be positive")
-    total = db.scalar(select(func.count()).select_from(_query(filters).subquery())) or 0
+    total = count_endpoints(db, filters)
     rows = db.execute(_ordered(filters, sort).limit(page_size).offset((page - 1) * page_size)).mappings()
     return EndpointPage([_row(row) for row in rows], total, page, page_size)
 

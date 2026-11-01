@@ -13,7 +13,7 @@ together) and ``RenewalError`` (``not_found``, ``previous_not_active``).
 import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from types import MappingProxyType
 from typing import Literal
 from uuid import UUID
@@ -22,7 +22,7 @@ from cryptography import x509
 from cryptography.exceptions import UnsupportedAlgorithm
 from cryptography.hazmat.primitives import serialization
 from cryptography.x509.oid import NameOID
-from sqlalchemy import and_, exists, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.crypto.chain import ChainError, ChainResult, order_chain
@@ -718,3 +718,111 @@ def cancel(db: Session, renewal_id: UUID, reason: str, actor: Actor, now: dateti
         {"from_state": from_state.value, "reason": cleaned},
     )
     return row
+
+
+# --------------------------------------------------------------------------
+# Read model: the renewal list (/renewals)
+# --------------------------------------------------------------------------
+
+# The states that still wait for the CA: a draft, a generated CSR and a submitted order all need an issued
+# certificate before the renewal can move on, so the overview queue counts them as one number.
+AWAITING_CERTIFICATE = (RenewalState.DRAFT, RenewalState.CSR_GENERATED, RenewalState.SUBMITTED)
+# The ``state`` filter values: one real state, or the group above (the overview queue's destination).
+STATE_FILTERS = ("awaiting_certificate", *(state.value for state in RenewalState))
+# The one action that moves a renewal on, and the wizard step that performs it (§8.5).
+_NEXT_ACTIONS: dict[RenewalState, tuple[str, str]] = {
+    RenewalState.DRAFT: ("Generate the CSR", "csr"),
+    RenewalState.CSR_GENERATED: ("Record the CA order", "csr"),
+    RenewalState.SUBMITTED: ("Upload the issued certificate", "upload"),
+    RenewalState.ISSUED: ("Deploy the certificate", "ready"),
+    RenewalState.DEPLOYED: ("Finish the renewal", "done"),
+}
+DEFAULT_PAGE_SIZE = 50
+PAGE_SIZE_LIMIT = 100
+
+
+@dataclass(frozen=True)
+class RenewalFilters:
+    """Validated list filters; an unknown state raises ``ValueError`` (the route answers 422)."""
+
+    state: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.state is not None and self.state not in STATE_FILTERS:
+            raise ValueError("unknown renewal state")
+
+
+def state_clause(state: str):
+    """The rows one state filter selects; the overview queue count reuses it so the two cannot drift."""
+    if state == "awaiting_certificate":
+        return Renewal.state.in_(AWAITING_CERTIFICATE)
+    return Renewal.state == RenewalState(state)
+
+
+@dataclass(frozen=True)
+class RenewalListRow:
+    """One renewal as the list shows it: its name, where it stands, how long and what happens next."""
+
+    id: str
+    common_name: str
+    state: str
+    state_changed_at: datetime
+    age_days: int
+    next_action: str | None
+    next_action_step: str | None
+    next_action_url: str | None
+
+
+@dataclass(frozen=True)
+class RenewalListPage:
+    items: list[RenewalListRow]
+    total: int
+    page: int
+    page_size: int
+
+
+def count_renewals(db: Session, filters: RenewalFilters) -> int:
+    """How many renewals the same filters list; one COUNT, no rows."""
+    conditions = [] if filters.state is None else [state_clause(filters.state)]
+    return db.scalar(select(func.count()).select_from(Renewal).where(*conditions)) or 0
+
+
+def list_renewals(
+    db: Session, filters: RenewalFilters, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE,
+    now: datetime | None = None,
+) -> RenewalListPage:
+    """One page (1-100 rows) of renewals, oldest state change first so a stalled one stays visible.
+
+    Two statements whatever the page holds: the rows, and the total.
+    """
+    if type(page) is not int or page < 1:
+        raise ValueError("page must be at least 1")
+    if type(page_size) is not int or not 1 <= page_size <= PAGE_SIZE_LIMIT:
+        raise ValueError(f"page_size must be between 1 and {PAGE_SIZE_LIMIT}")
+    moments = now or datetime.now(UTC)
+    conditions = [] if filters.state is None else [state_clause(filters.state)]
+    rows = db.execute(
+        select(Renewal.id, Renewal.common_name, Renewal.state, Renewal.state_changed_at)
+        .where(*conditions)
+        .order_by(Renewal.state_changed_at, Renewal.created_at, Renewal.id)
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all()
+    items = []
+    for row in rows:
+        state = RenewalState(row.state)
+        action = _NEXT_ACTIONS.get(state)
+        renewal_id = str(row.id)
+        items.append(
+            RenewalListRow(
+                id=renewal_id,
+                common_name=row.common_name,
+                state=state.value,
+                state_changed_at=row.state_changed_at,
+                age_days=max((moments - row.state_changed_at).days, 0),
+                next_action=action[0] if action else None,
+                next_action_step=action[1] if action else None,
+                next_action_url=f"/renewals/{renewal_id}?step={action[1]}" if action else None,
+            )
+        )
+    return RenewalListPage(items, count_renewals(db, filters), page, page_size)

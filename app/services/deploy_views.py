@@ -1,4 +1,4 @@
-"""Read models for the deploy job screen (spec §8.7; Plan 3 Task 18).
+"""Read models for the deploy job screen (spec §8.7; Plan 3 Task 18) and the job list (``/deploy/jobs``).
 
 The screen shows what the worker already persisted: this module only reads rows — no Ansible, no git, no SSH.
 Its cost is constant however many hosts a rollout has: one query for the job, its certificate and its requester,
@@ -7,17 +7,18 @@ job is paused.
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlencode
 from uuid import UUID
 
-from sqlalchemy import Integer, and_, func, or_, select
+from sqlalchemy import Integer, and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import ALLOWED_ERROR_CLASSES, TIMEOUT_MESSAGE
-from app.models import Binding, Certificate, Job, JobHost, PrivateKey, Renewal, Server, User
+from app.models import Binding, Certificate, Job, JobHost, JSONValue, PrivateKey, Renewal, Server, User
 from app.models.enums import CertificateStatus, JobHostStatus, JobStatus, JobType, RenewalState
 from app.services.deploy import _EXCLUDED_MATCH_STATES, pause_deadline
 from app.services.settings import get_setting
@@ -792,3 +793,136 @@ def certificate_deploy_panel(db: Session, certificate_id: int, now: datetime) ->
         active=active,
         blocked=_panel_blocked(db, certificate, now, active),
     )
+
+
+# --------------------------------------------------------------------------
+# The job list (/deploy/jobs)
+# --------------------------------------------------------------------------
+
+# The outcome filter values. ``rolled_back`` is a ``job_host`` state, not a ``JobStatus``: a rollout that rolled
+# a host back is a *failed* job whose hosts carry the evidence (§8.7), so ``failed`` excludes it and the two
+# filters partition the failures instead of double-counting one rollout.
+OUTCOMES = ("failed", "rolled_back", "running", "succeeded", "queued", "paused", "cancelled")
+DEFAULT_PAGE_SIZE = 50
+PAGE_SIZE_LIMIT = 100
+
+
+def _rolled_back_host():
+    """A job with at least one host row in the ``rolled_back`` state (``job_host.status``, §4.6)."""
+    return exists().where(JobHost.job_id == Job.id, JobHost.status == JobHostStatus.ROLLED_BACK)
+
+
+def outcome_clause(outcome: str):
+    """The predicate one outcome filter selects; the overview queue counts reuse it so they cannot drift."""
+    if outcome == "failed":
+        return and_(Job.status == JobStatus.FAILED, ~_rolled_back_host())
+    if outcome == "rolled_back":
+        return _rolled_back_host()
+    if outcome not in OUTCOMES:
+        raise ValueError("unknown job outcome")
+    return Job.status == JobStatus(outcome)
+
+
+@dataclass(frozen=True)
+class JobFilters:
+    """Validated job-list filters; an unknown value raises ``ValueError`` (the route answers 422)."""
+
+    outcome: str | None = None
+    type: JobType | None = None
+
+    def __post_init__(self) -> None:
+        if self.outcome is not None and (not isinstance(self.outcome, str) or self.outcome not in OUTCOMES):
+            raise ValueError("unknown job outcome")
+        if self.type is not None:
+            object.__setattr__(self, "type", JobType(self.type))
+
+
+@dataclass(frozen=True)
+class JobListRow:
+    """One job as the list shows it: where it stands, its hosts' outcomes and its detail destination."""
+
+    job_id: UUID
+    type: str
+    status: str
+    outcome: str
+    certificate_id: int | None
+    certificate_cn: str | None
+    actor: str
+    created_at: datetime
+    totals: dict[str, int]
+    href: str
+
+
+@dataclass(frozen=True)
+class JobListPage:
+    items: list[JobListRow]
+    total: int
+    page: int
+    page_size: int
+
+
+def job_href(job_type: JobType, payload: Mapping[str, JSONValue], job_id: str) -> str:
+    """Where one job's detail lives: the deploy screen, the pull import, or its audit entries."""
+    if job_type is JobType.DEPLOY:
+        return f"/deploy/{job_id}"
+    if job_type is JobType.SCAN and payload.get("action") == "import_pull":
+        return f"/imports/{job_id}"
+    return "/audit?" + urlencode({"target_type": "job", "target_id": job_id})
+
+
+def _job_conditions(filters: JobFilters) -> list:
+    conditions: list = []
+    if filters.outcome is not None:
+        conditions.append(outcome_clause(filters.outcome))
+    if filters.type is not None:
+        conditions.append(Job.type == filters.type)
+    return conditions
+
+
+def count_jobs(db: Session, filters: JobFilters) -> int:
+    """How many jobs the same filters list; one COUNT, no rows."""
+    return db.scalar(select(func.count()).select_from(Job).where(*_job_conditions(filters))) or 0
+
+
+def list_jobs(db: Session, filters: JobFilters, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> JobListPage:
+    """One page (1-100 rows) of jobs, newest first, with the per-host outcome of every deploy.
+
+    Three statements whatever the page holds: the rows with their certificate and requester, one grouped
+    ``job_host`` count for the deploys on it, and the total.
+    """
+    if type(page) is not int or page < 1:
+        raise ValueError("page must be at least 1")
+    if type(page_size) is not int or not 1 <= page_size <= PAGE_SIZE_LIMIT:
+        raise ValueError(f"page_size must be between 1 and {PAGE_SIZE_LIMIT}")
+    rows = db.execute(
+        select(Job, Certificate, User.username)
+        .outerjoin(Certificate, Certificate.id == _payload_certificate_id())
+        .outerjoin(User, User.id == Job.requested_by)
+        .where(*_job_conditions(filters))
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all()
+    deploy_ids = [job.id for job, _certificate, _actor in rows if JobType(job.type) is JobType.DEPLOY]
+    totals = _host_totals(db, deploy_ids)
+    items = []
+    for job, certificate, actor in rows:
+        kind = JobType(job.type)
+        payload = job.payload if isinstance(job.payload, dict) else {}
+        host_totals = totals.get(job.id, {})
+        status = JobStatus(job.status).value
+        items.append(
+            JobListRow(
+                job_id=job.id,
+                type=kind.value,
+                status=status,
+                outcome="rolled_back" if host_totals.get("rolled_back") else status,
+                certificate_id=certificate.id if certificate is not None else None,
+                certificate_cn=certificate.common_name if certificate is not None else None,
+                actor=actor or "system",
+                created_at=job.created_at,
+                totals=host_totals if kind is JobType.DEPLOY else {},
+                href=job_href(kind, payload, str(job.id)),
+            )
+        )
+    return JobListPage(items, count_jobs(db, filters), page, page_size)

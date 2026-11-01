@@ -181,6 +181,7 @@
 <section class="panel wide" id="history-panel">
   <h2>History</h2>
   <h3>Renewals</h3>
+  <p class="help"><a href="/renewals?state=awaiting_certificate">Every renewal awaiting an issued certificate</a> · <a href="/renewals">All renewals</a></p>
   {% if detail.renewals %}
   <ul>{% for r in detail.renewals %}
     <li>Renewal {{ r.state }} · {{ r.common_name }}
