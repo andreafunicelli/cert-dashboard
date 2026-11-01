@@ -17,7 +17,7 @@
 {% elif cert.not_after < now %}
 <span class="badge badge-danger{% if compact %} chip-expired{% endif %}">{{ icon('danger') }}Expired</span>
 {% elif (cert.not_after - now).days < 60 %}
-<span class="badge badge-warn">{{ icon('warn') }}{% if compact %}{{ (cert.not_after - now).days }} days{% else %}Expiring{% endif %}</span>
+<span class="badge badge-warn">{{ icon('warn') }}{% if compact %}<span class="mono">{{ (cert.not_after - now).days }} days</span>{% else %}Expiring{% endif %}</span>
 {% else %}
 <span class="badge badge-ok">{{ icon('ok') }}Valid</span>
 {% endif %}
