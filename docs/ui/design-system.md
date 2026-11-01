@@ -633,7 +633,7 @@ Regenerate with `uv run python scripts/render_previews.py`. New fixtures include
 Repository regressions verify common headers, exact filter chips, server ordering,
 five-column endpoint verdicts, age boundaries/clock skew, eight settings tabs,
 legacy destinations, independent POST/CSRF forms, header form targets and grouped
-422 fragments. Ten dependency-free Node tests exercise the draft lifecycle,
+422 fragments. Eleven dependency-free Node tests exercise the draft lifecycle,
 including sibling restoration after success/422 and excluding maintenance secrets.
 Static Chromium fixture checks covered 43 area previews at 375/1024/1280 × 900px
 in both themes (258 combinations), with no document overflow or missing state bars.
@@ -652,6 +652,7 @@ The repeated in-scope list-summary rule was consolidated rather than hidden.
 Structural checks passed; visual verification pending on the deployed instance.
 Run native/HTMX saves and validation against the real database, verify keyboard
 focus/zoom, tab-leave prompts, both themes and live failed-host progress there.
-The sandbox has no usable Docker daemon: the full local unit run records the
-known topology-test failures separately; required exact-head CI must pass the
-complete suite without weakening or skipping its gates.
+The sandbox has no usable Docker daemon, so its full local unit run records the
+known topology-test failures separately. The required exact-head CI then passed
+the complete suite, coverage gates and runtime-image unit suite without
+weakening or skipping any gate.
