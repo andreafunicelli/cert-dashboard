@@ -123,7 +123,14 @@
 
 <main id="main-content" tabindex="-1">
 <p><a href="/bindings">← All bindings</a></p>
-<h1>Binding match states</h1>
+
+<header class="page-header">
+  <div><h1>Binding match states</h1><p class="page-subtitle">Understand disk evidence, inventory matches and the actions a finding needs.</p></div>
+  <div class="page-actions">
+  <a class="button" href="/bindings">Review bindings</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/servers#discovery-actions">Discovery controls</a><a href="/scans">Endpoint scans</a></div></details>
+</div>
+</header>
 <section class="panel wide" aria-label="Match states">
   <p>A binding is one certificate/key pair that a virtual host is configured to use on a server. Discovery compares what is on disk with the certificate inventory and records a match state. The dashboard only reports these states: it does not fix them, because correcting a server's files is your decision.</p>
   <p class="help">These are stored observations, not desired-deployment or live TLS verdicts. A matched certificate need not be the certificate you intend to deploy. Stale means the latest discovery did not succeed, not that this certificate changed.</p>

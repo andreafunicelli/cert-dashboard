@@ -4,7 +4,11 @@
 {% from "_ui.html.j2" import icon %}
 {% block content %}
 <p><a href="/servers/{{ server.id }}">← {{ server.hostname }}</a></p>
-<h1>Last raw dump summary</h1>
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% call page_header('Last raw dump summary', 'Inspect captured discovery evidence without exposing the raw configuration dump.') %}
+  <a class="button" href="/servers/{{ server.id }}">Review server</a>
+  {% call more_actions() %}<a href="/servers/{{ server.id }}#actions">Discovery controls</a><a href="/scans?server_id={{ server.id }}">Endpoint scans</a>{% endcall %}
+{% endcall %}
 {% if summary %}
 <section class="panel wide" id="dump-summary" aria-label="Raw dump summary">
   <p class="help">Last captured dump, not necessarily the latest attempted run. Previous snapshots and a change diff are unavailable in this view.</p>

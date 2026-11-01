@@ -11,6 +11,7 @@
 .settings-form > button { justify-self: start; grid-column: 1 / -1; }
 .settings-field .is-dirty { border-color: var(--warn); outline: var(--line) solid var(--warn); }
 .field-change { color: var(--warn); font-size: var(--text-sm); font-weight: var(--weight-medium); }
+.settings-subsection + .settings-subsection { margin-top: var(--space-6); padding-top: var(--space-5); border-top: var(--line) solid var(--separator); }
 @media (max-width: 719px) {
   .settings-form { grid-template-columns: minmax(0, 1fr); }
 }

@@ -118,7 +118,14 @@
 
 <main id="main-content" tabindex="-1">
 <p><a href="/overview">← Overview</a> · <a href="/deploy/jobs">All jobs</a></p>
-<h1>Deploy <a href="/certificates/42">gateway.ops.example.test</a></h1>
+
+<header class="page-header">
+  <div><h1>Deploy gateway.ops.example.test</h1><p class="page-subtitle">Follow each host outcome; automatic restoration and failures remain in the report.</p></div>
+  <div class="page-actions">
+  <a class="button" href="/deploy/fixture-deploy-job">Refresh progress</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/certificates/42">Certificate details</a><a href="/deploy/fixture-deploy-job/report.json" download="deploy-fixture-deploy-job.json">Download report as JSON</a></div></details>
+</div>
+</header>
 
 
 <div id="deploy-job-live" data-status="running" hx-get="/jobs/fixture-deploy-job/progress" hx-trigger="every 2s" hx-swap="outerHTML">

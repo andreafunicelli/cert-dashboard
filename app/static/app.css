@@ -209,6 +209,7 @@ tbody > tr:has(> td .badge, > td .chip) > td:first-child { box-shadow: inset var
 .confirmation .actions { margin-top: var(--space-4); }
 /* Page composition: one primary action, native secondary disclosures. */
 .page-header { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: var(--space-4); margin-bottom: var(--space-4); }
+.page-header > div { min-width: 0; max-width: 100%; }
 .page-header h1 { margin: var(--space-0); }
 .page-subtitle { margin: var(--space-1) var(--space-0) var(--space-0); color: var(--text-muted); font-size: var(--text-sm); }
 .page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
@@ -220,6 +221,7 @@ tbody > tr:has(> td .badge, > td .chip) > td:first-child { box-shadow: inset var
 .action-menu-items p { margin: var(--space-2) var(--space-3); }
 .action-menu-items .action-destructive { color: var(--danger); }
 .filter-bar { margin-bottom: var(--space-4); }
+.list-summary { max-width: none; margin-block: var(--space-5); }
 .filter-bar > form { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); }
 .filter-toolbar { display: flex; align-items: end; gap: var(--space-2); }
 .filter-search { display: block; font-size: var(--text-sm); }
@@ -230,6 +232,15 @@ tbody > tr:has(> td .badge, > td .chip) > td:first-child { box-shadow: inset var
 .filter-disclosure .filters { padding: var(--space-4); background: var(--surface-raised); border-block: var(--line) solid var(--separator); }
 .applied-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-3); }
 .filter-chip { max-width: 100%; border: var(--line) solid var(--border); color: var(--accent); overflow-wrap: break-word; }
+/* Compact verdict rows reuse the inventory row height and status-bar component.
+   Expanded native actions stay in flow inside a scrolling region, never clip. */
+.verdict-list td { height: var(--row-height); padding-block: var(--space-0); vertical-align: middle; }
+.row-identity, .row-secondary { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row-secondary { font-size: var(--text-sm); color: var(--text-muted); }
+a.row-secondary { color: var(--accent); }
+.verdict-list .badge, .verdict-list time { white-space: nowrap; }
+.verdict-list .badge { padding-block: var(--space-0); }
+.verdict-list .action-menu-items { position: static; width: var(--menu-width); max-width: 100%; box-shadow: none; }
 /* Compatibility hooks for pages migrated in subsequent cards. */
 .filters, .actions, .lineage, .counters { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
 .filters { align-items: flex-end; }

@@ -2,8 +2,12 @@
 {% block title %}Deploy · Cert Dashboard{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/deploy.css">{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
-<h1>Deploy</h1>
-<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host. <a href="/deploy/jobs">Every job, filtered by outcome</a>.</p>
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% call page_header('Deploy', 'Review guardrails and the exact replacement plan before starting a rollout.') %}
+  {% if candidates %}<a class="button" href="#deploy-preview">Review plan</a>{% endif %}
+  {% call more_actions() %}<a href="/deploy/jobs">Every job, filtered by outcome</a><a href="/settings?tab=deployment">Deployment defaults</a>{% endcall %}
+{% endcall %}
+<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.</p>
 
 {% if not candidates %}
 <section class="panel wide" data-empty-state="deploy">
@@ -69,7 +73,7 @@
   <input id="not_before" name="not_before" type="datetime-local" value="{{ form.not_before }}">
   <p class="hint">The deploy window is a not-before time only, at most seven days ahead; times are shown in {{ tz }} and stored in UTC.</p>
 
-  <button type="submit">Preview</button>
+  <button class="button-secondary" type="submit">Preview</button>
 </form>
 </details>
 

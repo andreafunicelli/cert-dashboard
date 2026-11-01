@@ -557,3 +557,106 @@ Structural checks passed; visual verification pending on the deployed instance.
 Check 1280px inventory overflow, narrow binding layout, dark/light contrast,
 keyboard disclosures, long hashes/paths, no-HTMX discovery POST and failure
 messaging there. Static checks are not a complete WCAG 2.2 AA audit.
+
+## Consistent operations pages and grouped settings
+
+Servers (including dump summary), bindings/help, endpoint scans/detail, deployment
+planning/jobs/progress, audit, users and settings reuse the certificate area's
+`.page-header`, `.page-actions`, `.action-menu` and `.filter-disclosure` components.
+`_operations_ui.html.j2` owns composition macros, not another visual system. Titles
+have a short purpose statement and one primary header action; secondary links
+live in a native disclosure. Read-only audit exports metadata instead of inventing
+a mutation. Header title groups have `min-width: 0` / `max-width: 100%` so a long
+host name wraps inside the narrow layout rather than widening the document.
+
+The filter macro keeps one native GET form, including closed disclosure controls,
+and uses the same removable chips as certificates. Removing a chip drops only
+that filter and pagination, preserving other filters, sort and page size. The
+list summary's spacing/measure is now one shared rule, replacing four area rules.
+
+`.verdict-list` reuses `row-height` and the existing status-row/icon/word badges.
+Its compact density removes vertical cell/badge padding, not their palette or
+state semantics. Default server/endpoint rows measure 56px at 1280px. Two-line
+identities and exact date/age stay scannable; long identities have full titles
+and a detail destination. Groups allow up to two lines, with full text on detail.
+Server column allocation is now 25% identity / 11% groups / 18% discovery state /
+11% bindings / 24% discovery time / 11% TLS drift, superseding the earlier layout.
+Binding count means **bindings**, not a fabricated distinct-certificate count.
+Discovery state and last discovery time remain separate from current TLS drift;
+there is no aggregate live host-health claim or invented last-seen heartbeat.
+Server detail is state → bindings → history → captured evidence → discovery actions →
+configuration; configuration is last. Discovery actions remain native POST/CSRF
+forms before it.
+
+The endpoint list is five columns: endpoint/SNI, server, latest verdict, observation
+age/exact time, actions. Observation age is rendered against the request's server
+clock, never a browser timer; a future observation explicitly reports clock skew.
+Expected/served certificate evidence and history stay on detail. History links
+navigate to detail even with HTMX enabled; the list no longer carries a drawer
+region, while the existing detail fragment route remains available.
+Per-endpoint scan POSTs remain in native row actions; expanded menus stay in flow
+inside the scrolling table so they cannot clip. No scroll or toast behavior is added.
+Deploy guardrail verdict → scope/batches → file detail, failed-host-first progress,
+expanded failed batches, preserved cancellation and automatic-restoration states
+remain intact. No rollback control is invented.
+
+### Eight settings tabs, independent saves
+
+Schedule and scans groups Schedule's six fields with Scanning's three. System and
+maintenance groups General's two fields with read-only rotation/cleanup operations.
+Both legacy GET tabs and every original POST field/allowlist/redirect remain valid;
+there is no combined save endpoint or cross-section mutation. Additive route context
+(`section_tabs`, `section_tab`, `section_label`, `related_sections`) supplies the
+sibling's stored values, never a secret or a fabricated response. The canonical
+navigation has eight links; legacy Scanning/General links remain in More actions.
+`settings/_form.html.j2` renders configuration controls once; the maintenance
+partial is reused for both legacy destinations. Primary header Save buttons use
+native `form=` associations and remain functional without JavaScript/HTMX.
+
+The existing approved `settings.js` now tracks each grouped section separately,
+retaining its original per-section sessionStorage key and baseline. A successful
+save clears only that section; native navigation or an HTMX 422 restores the
+other section's draft and retains refused values. Every edited field has visible
+text plus a boundary; either section's draft marks the canonical tab. The same
+leave confirmation and secret/repository-URL exclusions apply. No new script,
+persistence mechanism or dependency is introduced, and submission itself is not
+intercepted. A pass-through submit listener only releases the unload guard for the
+form's own native navigation, after a microtask checks the completed event dispatch.
+An HTMX-prevented or otherwise cancelled submit keeps the guard active, including
+network/5xx failures with no panel swap. The listener never prevents, rewrites,
+delays or triggers a submission. The always-visible fallback additionally explains that without
+JavaScript saving one section reloads the tab and discards edits in other sections.
+
+### Verification and remaining scope
+
+Regenerate with `uv run python scripts/render_previews.py`. New fixtures include
+`scan-list-verdicts.html`, `scan-list-empty.html`, `deploy-jobs.html` and
+`deploy-jobs-empty.html`; all touched existing previews are regenerated.
+Repository regressions verify common headers, exact filter chips, server ordering,
+five-column endpoint verdicts, age boundaries/clock skew, eight settings tabs,
+legacy destinations, independent POST/CSRF forms, header form targets and grouped
+422 fragments. Twelve dependency-free Node tests exercise the draft lifecycle,
+including sibling restoration after success/422, excluding maintenance secrets,
+and unload protection for non-persistable repository URLs after an HTMX save
+fails or is cancelled without a swap (including prevention later in dispatch).
+Static Chromium fixture checks covered 43 area previews at 375/1024/1280 × 900px
+in both themes (258 combinations), with no document overflow or missing state bars.
+The first narrow pass caught intrinsic-width header overflow, fixed in the shared
+header component. The grouped Scanning field and tab marker were also exercised
+in the browser. These are **synthetic static fixtures**, not deployed-flow tests.
+
+Product-wide audit: authentication/setup/error screens intentionally retain narrow
+forms; account, import, certificate detail/edit/export, and renewal screens still
+use their earlier composition rather than this list header. They are outside this
+card's scope. Legacy `.chip`/`.badge` aliases and old `.counter` compatibility CSS
+remain in the shared stylesheet; this card adds neither a second implementation
+nor a new one-off colour. No literal palette colours were found in area CSS.
+The repeated in-scope list-summary rule was consolidated rather than hidden.
+
+Structural checks passed; visual verification pending on the deployed instance.
+Run native/HTMX saves and validation against the real database, verify keyboard
+focus/zoom, tab-leave prompts, both themes and live failed-host progress there.
+The sandbox has no usable Docker daemon, so its full local unit run records the
+known topology-test failures separately. The required exact-head CI then passed
+the complete suite, coverage gates and runtime-image unit suite without
+weakening or skipping any gate.

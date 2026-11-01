@@ -2,12 +2,17 @@
 {% block title %}Settings · Cert Dashboard{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/settings.css">{% if tab == 'smtp' or tab == 'alerts' %}<link rel="stylesheet" href="/static/pages/email.css">{% endif %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
-<h1>Settings</h1>
-<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% call page_header('Settings', 'Configure discovery, scans and delivery; save each configuration section explicitly.') %}
+  {% if tab == 'status' %}<a class="button" href="/settings?tab=status">Refresh status</a>
+  {% else %}{% set save_tab = 'general' if tab == 'maintenance' else tab %}<button type="submit" form="settings-form-{{ save_tab }}">{{ 'Save and recheck' if tab == 'trust' else 'Save ' ~ ('General' if tab == 'maintenance' else tab_label) ~ ' settings' }}</button>{% endif %}
+  {% call more_actions() %}<a href="/settings?tab=status">System status</a><a href="/audit?target_type=settings">Settings audit history</a><a href="/settings?tab=scanning">Scanning section</a><a href="/settings?tab=general">General section</a>{% endcall %}
+{% endcall %}
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
 <nav class="tabs" aria-label="Settings sections">
   <ul>
-  {% for item in tabs %}
-    <li><a href="/settings?tab={{ item.name }}"{% if item.name == tab %} aria-current="page"{% endif %}>{{ item.label }}<span class="field-change" data-settings-tab-draft="{{ item.name }}" hidden> (unsaved draft)</span></a></li>
+  {% for item in section_tabs | default(tabs) %}
+    <li><a href="/settings?tab={{ item.name }}"{% if item.name == (section_tab | default(tab)) %} aria-current="page"{% endif %}>{{ item.label }}{% set draft_tabs = [item.name] + (['scanning'] if item.name == 'schedule' else ['general'] if item.name == 'maintenance' else []) %}{% for draft_tab in draft_tabs %}<span class="field-change" data-settings-tab-draft="{{ draft_tab }}" hidden> ({{ draft_tab }} unsaved draft)</span>{% endfor %}</a></li>
   {% endfor %}
   </ul>
 </nav>
@@ -16,14 +21,26 @@
 {% macro disabled_action(label, reason) %}<p class="action-disabled"><button type="button" disabled aria-disabled="true">{{ label }}</button> <span class="hint">{{ reason }}</span></p>{% endmacro %}
 {% set draft_saved = saved or (tab == 'trust' and ('Public CA bundle included.' in (flash | default([])) or 'Public CA bundle excluded.' in (flash | default([])))) %}
 <section class="panel wide" id="settings-panel" data-tab="{{ tab }}" data-settings-saved="{{ 'true' if draft_saved else 'false' }}" data-settings-errors="{{ 'true' if errors else 'false' }}" aria-labelledby="tab-heading">
-  <h2 id="tab-heading">{{ tab_label }}</h2>
+  {% from "settings/_form.html.j2" import configuration_form %}
+  <h2 id="tab-heading">{{ section_label | default(tab_label) }}</h2>
   <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
   {% if saved %}<p class="notice" role="status">Settings saved.</p>{% endif %}
   {% if errors.get("form") %}<div class="form-error" data-field="form" role="alert">{% for message in errors["form"] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}
-  {% if tab == "trust" %}
+  {% if related_sections | default([]) %}
+  <p class="help">Related settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.</p>
+  {% set sections = [{'tab': tab, 'label': tab_label, 'fields': fields, 'values': values, 'errors': errors, 'saved': saved}] + related_sections %}
+  {% for name in (['schedule', 'scanning'] if tab in ['schedule', 'scanning'] else ['general', 'maintenance']) %}
+  {% set s = sections | selectattr('tab', 'equalto', name) | first %}
+  <section class="settings-subsection" data-settings-section="{{ s.tab }}" data-tab="{{ s.tab }}" data-settings-saved="{{ 'true' if s.saved else 'false' }}" data-settings-errors="{{ 'true' if s.errors else 'false' }}" aria-labelledby="section-{{ s.tab }}">
+    <h3 id="section-{{ s.tab }}">{{ s.label }}</h3>
+    {% if s.tab == 'maintenance' %}{% include "settings/_maintenance.html.j2" %}
+    {% else %}{{ configuration_form(s.tab, s.label, s.fields, s['values'], s.errors, csrf_token) }}{% endif %}
+  </section>
+  {% endfor %}
+  {% elif tab == "trust" %}
   <p data-public-bundle>Public bundle: certifi {{ bundle.version }}, {{ bundle.roots }} roots, include-public-bundle = {{ "true" if bundle.enabled else "false" }}</p>
   <p class="hint">The public roots are read-only, in-memory entries of the pinned certifi bundle; they are never listed or stored as rows.</p>
-  <form data-settings-draft method="post" action="/settings/trust">
+  <form id="settings-form-trust" data-settings-draft method="post" action="/settings/trust">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="settings-field">
     <input type="hidden" name="include_public_bundle" value="false">
@@ -32,7 +49,7 @@
     </div>
     <p class="help">Disabling this removes public CA roots from chain verification. Certificates relying on those roots may become untrusted.</p>
     <p class="hint">Saving rechecks the stored chain statuses immediately.</p>
-    <button type="submit">Save and recheck</button>
+    <button class="button-secondary" type="submit">Save and recheck</button>
   </form>
 
   <h3>Uploaded trust anchors</h3>
@@ -145,74 +162,10 @@
   </table></div>
   {% else %}<p>No job has finished yet.</p>{% endif %}
   {% elif tab == "maintenance" %}
-  {% set k = snapshot.keyring %}
-  <h3>Master key rotation</h3>
-  <p>Rotation is a command-line operation; this page never edits the keyring or rotates keys. Current state:</p>
-  <ul>
-    <li>Active version {{ k.active_version }}; loaded versions: {{ k.loaded_versions | join(", ") }}</li>
-    <li>Rows not yet on the active version: {{ k.stale_rows }}</li>
-    <li>Versions referenced by stored keys but missing from the keyring: {{ k.missing_versions | join(", ") or "none" }}</li>
-  </ul>
-  <p>Run these on the dashboard host as root (full procedure: <code>docs/operations.md</code>, section 6). Take a database backup first.</p>
-  <ol>
-    <li>Generate the next version into a <strong>new</strong> file in a temporary <code>0700</code> directory owned by the container user, merging the current keyring (live limit: two versions). The current <code>master_key</code> is mounted read-only at <code>/secrets</code> and the new file is written to <code>/out</code>; both paths exist only inside this one <code>docker run</code>:
-      <pre><code>set -eu
-tmp="$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)"
-install -d -m 0700 -o 10001 -g 10001 "$tmp"
-docker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v "$tmp":/out cert-dashboard:local \
-  python -m app.cli generate-master-key --version {{ next_version }} --merge /secrets/master_key --output /out/master_key.v{{ next_version }}.new
-sha256sum "$tmp/master_key.v{{ next_version }}.new"</code></pre>
-      The command prints only <code>sha256=&lt;digest&gt; path=&lt;file&gt;</code>; the digest must equal the <code>sha256sum</code> output.</li>
-    <li>Keep a copy of the old file in the backup location, install the verified file as the <code>master_key</code> secret and restart so new writes use it:
-      <pre><code>install -m 0400 -o 10001 -g 10001 "$tmp/master_key.v{{ next_version }}.new" /etc/cert-dashboard/secrets/master_key
-shred -u -- "$tmp/master_key.v{{ next_version }}.new" &amp;&amp; rmdir -- "$tmp"
-docker compose up -d --force-recreate web worker</code></pre></li>
-    <li>Re-encrypt every key and TOTP seed (batched, idempotent, resumable):
-      <pre><code>docker compose run --rm web python -m app.cli rotate-master-key</code></pre></li>
-    <li>Verify a keyed certificate (metadata only is printed):
-      <pre><code>docker compose run --rm web python -m app.cli verify-key --certificate-id ID</code></pre></li>
-  </ol>
-  <p class="hint">Secret files are read once at startup: replace the file, rerun <code>scripts/install-secrets.sh</code> and restart the service.</p>
-
-  <h3>Prune old jobs</h3>
-  <p>Queues the retention cleanup now: finished jobs older than the retention period, old scan results, expired sessions and old artifacts are removed. Audit rows are never removed.</p>
-  <form method="post" action="/settings/maintenance/prune">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label for="f-prune-confirm">Type {{ prune_confirmation }} to confirm</label>
-    <input id="f-prune-confirm" name="confirm" autocomplete="off" required>
-    <button type="submit" class="button-destructive">Queue retention cleanup</button>
-  </form>
+  {% include "settings/_maintenance.html.j2" %}
   {% else %}
   {% if tab == 'smtp' %}<p><a href="#smtp-test-result">Delivery outcome: {{ smtp_test.status if smtp_test else 'not tested' }}</a>. Test send uses saved SMTP settings, not unsaved edits.</p>{% endif %}
-  <form class="settings-form" data-settings-draft method="post" action="/settings/{{ tab }}" hx-post="/settings/{{ tab }}" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    {% for f in fields %}
-    <div class="settings-field">
-      {% if f.widget == "checkbox" %}
-    <input type="hidden" name="{{ f.name }}" value="false">
-    <label for="f-{{ f.name }}" class="checkbox"><input type="checkbox" id="f-{{ f.name }}" name="{{ f.name }}" value="true"{% if values[f.name] %} checked{% endif %}> {{ f.label }}</label>
-      {% elif f.widget == "select" %}
-    <label for="f-{{ f.name }}">{{ f.label }}</label>
-    <select id="f-{{ f.name }}" name="{{ f.name }}">
-      {% for option, text in f.choices %}<option value="{{ option }}"{% if values[f.name] == option %} selected{% endif %}>{{ text }}</option>{% endfor %}
-    </select>
-      {% elif f.widget == "textarea" %}
-    <label for="f-{{ f.name }}">{{ f.label }}</label>
-    <textarea id="f-{{ f.name }}" name="{{ f.name }}" rows="6" maxlength="20000">{{ values[f.name] }}</textarea>
-      {% else %}
-    <label for="f-{{ f.name }}">{{ f.label }}</label>
-    <input id="f-{{ f.name }}" name="{{ f.name }}" value="{{ values[f.name] }}" maxlength="600" autocomplete="off"{% if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}>
-      {% endif %}
-      <span class="field-change" hidden>Unsaved change</span>
-      {% if f.hint %}<p class="hint">{{ f.hint }}</p>{% endif %}
-      {% if f.name == 'tls_verify' %}<p class="warning-note">Disabling verification lets an impersonated SMTP server intercept mail credentials and content.</p>{% endif %}
-      {% if f.name == 'pause_after_canary' %}<p class="help">If disabled, a successful canary proceeds without waiting for operator approval.</p>{% endif %}
-      {% if f.name == 'cleanup_enabled' %}<p class="help">If disabled, old jobs, sessions and artifacts are not pruned by the scheduled cleanup.</p>{% endif %}
-      {% if errors.get(f.name) %}<div class="form-error" data-field="{{ f.name }}" role="alert">{% for message in errors[f.name] %}<p>{{ f.label }} {{ message }}</p>{% endfor %}</div>{% endif %}
-    </div>
-    {% endfor %}
-    <button type="submit">Save {{ tab_label }} settings</button>
-  </form>
+  {{ configuration_form(tab, tab_label, fields, values, errors, csrf_token) }}
   {% if tab == "smtp" %}
   {% if tls_unsafe %}<p class="form-error" role="alert" data-warning="tls-verify">unsafe: TLS certificate verification disabled — mail credentials and content can be intercepted.</p>{% endif %}
   <p class="hint">SMTP password: provided only via the worker secret file <code>smtp_password</code>; not settable or visible here.</p>

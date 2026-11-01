@@ -3,15 +3,17 @@
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/bindings.css">{% endblock %}
 {% from "bindings/_presentation.html.j2" import binding_cells %}
 {% block content %}
-<h1>Where is a certificate used?</h1>
-<p>Follow each certificate from its inventory match to the host, configured path, port and SNI names. Discovery describes files on disk; use endpoint scans to check what is served over TLS.</p>
+{% from "_operations_ui.html.j2" import page_header, more_actions, filters %}
+{% call page_header('Bindings', 'Follow each certificate to its host, configured files, port and SNI names.') %}
+  <a class="button" href="/servers#discovery-actions">Run discovery</a>
+  {% call more_actions() %}<a href="{{ export_url }}" download="bindings.json">Export list as JSON</a><a href="/bindings/help">What do the match states mean?</a>{% endcall %}
+{% endcall %}
 <p class="help">Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
-<section class="panel wide" aria-label="Filters">
-  <form method="get" action="/bindings" class="filters">
+{% call filters('/bindings', values, {'vhost': 'Virtual host', 'certificate_id': 'Certificate id', 'server_id': 'Server id', 'group': 'Group', 'webserver': 'Web server', 'match_state': 'Match', 'active': 'Bindings'}, 'vhost', 'Name contains') %}
     <label>Certificate id <input type="number" name="certificate_id" min="1" value="{{ values.certificate_id or '' }}"></label>
     <label>Server id <input type="number" name="server_id" min="1" value="{{ values.server_id or '' }}"></label>
     <label>Group <input name="group" value="{{ values.group or '' }}" maxlength="200"></label>
-    <label>Virtual host <input type="search" name="vhost" value="{{ values.vhost or '' }}" maxlength="200" placeholder="Name contains"></label>
+
     <label>Web server
       <select name="webserver">
         <option value="">Any</option>
@@ -30,14 +32,9 @@
       </select></label>
     <input type="hidden" name="sort" value="{{ sort_state }}">
     <input type="hidden" name="page_size" value="{{ page.page_size }}">
-    <button type="submit">Apply filters</button>
-    <a href="/bindings">Reset</a>
-  </form>
-</section>
+{% endcall %}
 
-<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }} binding{{ "" if page.total == 1 else "s" }}</span>
-  · <a href="{{ export_url }}" download="bindings.json">Export list as JSON</a>
-  · <a href="/bindings/help">What do the match states mean?</a></div>
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }} binding{{ "" if page.total == 1 else "s" }}</span> · Stored discovery evidence, not live TLS checks.</div>
 
 {% if page.items %}
 <div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0">

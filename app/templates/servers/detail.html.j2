@@ -5,41 +5,25 @@
 {% from "_ui.html.j2" import icon %}
 {% block content %}
 <p><a href="/servers">← All servers</a></p>
-<h1>{{ server.hostname }}{% if not server.is_active %} <small>(inactive)</small>{% endif %}</h1>
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% call page_header(server.hostname, 'Review discovery state, certificate bindings and run history before changing configuration.') %}
+  <a class="button" href="#actions">Discovery controls</a>
+  {% call more_actions() %}<a href="/scans?server_id={{ server.id }}">Open endpoint scan</a><a href="/servers/{{ server.id }}/dump">Last raw dump summary</a>{% endcall %}
+{% endcall %}
 <section class="panel wide" id="server-panel" aria-label="Server">
   {{ discovery_state(server.last_discovery_status, server.last_discovery_at) }}
   {% if server.last_discovery_status in ('failed', 'unreachable', 'error') %}
   <p class="server-failure"><strong>Latest discovery:</strong> {% if detail.discovery_history and detail.discovery_history[0].error_message %}{{ detail.discovery_history[0].error_message }}{% else %}No failure reason recorded. Check host connectivity and worker logs before retrying.{% endif %}</p>
   {% endif %}
   <dl class="fields">
-    <dt>Display name</dt><dd>{{ server.display_name or "—" }}</dd>
-    <dt>Groups</dt><dd>{{ server.groups | join(", ") or "—" }}</dd>
-    <dt>Web server</dt><dd>{{ server.webserver or "—" }}</dd>
-    <dt>Connection address</dt><dd class="mono">{{ detail.connection_address or "—" }}</dd>
-    <dt>Inventory source</dt><dd>{{ detail.inventory_source }}</dd>
+    <dt>Inventory state</dt><dd>{{ 'Active' if server.is_active else 'Inactive' }}</dd>
     <dt>Last discovery</dt><dd>{% if server.last_discovery_at %}{{ time_tag(server.last_discovery_at, tz) }}{% elif server.last_discovery_status or detail.discovery_history %}Time not recorded{% else %}Never discovered{% endif %}</dd>
     <dt>Bindings</dt><dd><span class="mono">{{ server.binding_count }}</span>{% if server.attention_count %} — <span class="mono">{{ server.attention_count }}</span> need attention{% endif %}</dd>
     <dt>Mismatched endpoints</dt><dd><span class="mono">{{ server.mismatch_count }}</span> of <span class="mono">{{ detail.endpoint_count }}</span> active endpoint{{ "" if detail.endpoint_count == 1 else "s" }}</dd>
-    <dt>Notes</dt><dd class="notes">{{ detail.notes or "—" }}</dd>
+
   </dl>
 </section>
 
-<section class="panel wide" id="actions" aria-label="Actions">
-  <h2>Discovery and endpoint checks</h2>
-  {% if discovery_reason %}
-  <button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
-  <p class="hint">{{ discovery_reason }}</p>
-  {% elif server.is_active %}
-  <form class="inline" method="post" action="/servers/{{ server.id }}/discover">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit">Run discovery</button>
-  </form>
-  {% else %}
-  <button type="button" disabled title="Inactive servers are not discovered">Run discovery</button>
-  {% endif %}
-  <p><a href="/servers/{{ server.id }}/dump">Last raw dump summary</a></p>
-  <p><a href="/scans?server_id={{ server.id }}">Open endpoint scan</a></p>
-</section>
 
 {% if detail.dump_summary and detail.dump_summary.parse_suspected %}
 <section class="panel wide warning-note" data-warning="parse-suspected" role="alert" aria-label="Review needed">
@@ -48,15 +32,6 @@
 </section>
 {% endif %}
 
-<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
-  <h2>Last captured discovery</h2>
-  {% if detail.dump_summary %}
-  <p>Captured {{ time_tag(detail.dump_summary.collected_at, tz) }} · <span class="mono">{{ detail.dump_summary.bindings }}</span> binding{{ '' if detail.dump_summary.bindings == 1 else 's' }} found in this dump.</p>
-  {% if detail.dump_summary.bindings == 0 and not detail.dump_summary.parse_suspected %}<p>No bindings found in the captured configuration. This is a recorded discovery, not a host that never ran.</p>{% endif %}
-  <p class="help">The last captured dump may predate the latest attempt. Compare its timestamp with discovery history below.</p>
-  {% else %}<p>No captured dump is available.{% if not server.last_discovery_at and not server.last_discovery_status and not detail.discovery_history %} This server has not been discovered yet.{% else %} Failed or unreachable attempts may capture nothing.{% endif %}</p>{% endif %}
-  {% if detail.dump_summary or detail.discovery_history %}<p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>{% endif %}
-</section>
 
 <section class="panel wide" id="bindings-panel">
   <h2>Bindings</h2>
@@ -73,7 +48,7 @@
     </tbody>
   </table></div>
   {% else %}
-  <div class="empty-state"><h3>No bindings recorded for this server</h3><p>Review the last captured discovery above before treating an empty inventory as a clean result.</p></div>
+  <div class="empty-state"><h3>No bindings recorded for this server</h3><p>Review the last captured discovery below before treating an empty inventory as a clean result.</p></div>
   {% endif %}
 </section>
 
@@ -98,5 +73,41 @@
   {% else %}
   <p>{% if server.last_discovery_status or server.last_discovery_at %}No discovery history is available in this view.{% else %}This server has not been discovered yet.{% endif %}</p>
   {% endif %}
+</section>
+<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
+  <h2>Last captured discovery</h2>
+  {% if detail.dump_summary %}
+  <p>Captured {{ time_tag(detail.dump_summary.collected_at, tz) }} · <span class="mono">{{ detail.dump_summary.bindings }}</span> binding{{ '' if detail.dump_summary.bindings == 1 else 's' }} found in this dump.</p>
+  {% if detail.dump_summary.bindings == 0 and not detail.dump_summary.parse_suspected %}<p>No bindings found in the captured configuration. This is a recorded discovery, not a host that never ran.</p>{% endif %}
+  <p class="help">The last captured dump may predate the latest attempt. Compare its timestamp with discovery history above.</p>
+  {% else %}<p>No captured dump is available.{% if not server.last_discovery_at and not server.last_discovery_status and not detail.discovery_history %} This server has not been discovered yet.{% else %} Failed or unreachable attempts may capture nothing.{% endif %}</p>{% endif %}
+  {% if detail.dump_summary or detail.discovery_history %}<p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>{% endif %}
+</section>
+<section class="panel wide" id="actions" aria-label="Actions">
+  <h2>Discovery and endpoint checks</h2>
+  {% if discovery_reason %}
+  <button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
+  <p class="hint">{{ discovery_reason }}</p>
+  {% elif server.is_active %}
+  <form class="inline" method="post" action="/servers/{{ server.id }}/discover">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Run discovery</button>
+  </form>
+  {% else %}
+  <button type="button" disabled title="Inactive servers are not discovered">Run discovery</button>
+  {% endif %}
+  <p><a href="/servers/{{ server.id }}/dump">Last raw dump summary</a></p>
+  <p><a href="/scans?server_id={{ server.id }}">Open endpoint scan</a></p>
+</section>
+<section class="panel wide" id="server-configuration" aria-label="Configuration">
+  <h2>Configuration</h2>
+  <dl class="fields">
+    <dt>Display name</dt><dd>{{ server.display_name or "—" }}</dd>
+    <dt>Groups</dt><dd>{{ server.groups | join(", ") or "—" }}</dd>
+    <dt>Web server</dt><dd>{{ server.webserver or "—" }}</dd>
+    <dt>Connection address</dt><dd class="mono">{{ detail.connection_address or "—" }}</dd>
+    <dt>Inventory source</dt><dd>{{ detail.inventory_source }}</dd>
+    <dt>Notes</dt><dd class="notes">{{ detail.notes or "—" }}</dd>
+  </dl>
 </section>
 {% endblock %}

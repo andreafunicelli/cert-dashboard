@@ -122,15 +122,30 @@
 
 
 <main id="main-content" tabindex="-1">
-<h1>Where is a certificate used?</h1>
-<p>Follow each certificate from its inventory match to the host, configured path, port and SNI names. Discovery describes files on disk; use endpoint scans to check what is served over TLS.</p>
+
+<header class="page-header">
+  <div><h1>Bindings</h1><p class="page-subtitle">Follow each certificate to its host, configured files, port and SNI names.</p></div>
+  <div class="page-actions">
+  <a class="button" href="/servers#discovery-actions">Run discovery</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/bindings/export.json" download="bindings.json">Export list as JSON</a><a href="/bindings/help">What do the match states mean?</a></div></details>
+</div>
+</header>
 <p class="help">Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
-<section class="panel wide" aria-label="Filters">
-  <form method="get" action="/bindings" class="filters">
+
+
+
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/bindings">
+    <div class="filter-toolbar">
+      <label class="filter-search">Virtual host <input type="search" name="vhost" value="" maxlength="200" placeholder="Name contains"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>
+    <details class="filter-disclosure"><summary>Filters</summary>
+      <div class="filters">
     <label>Certificate id <input type="number" name="certificate_id" min="1" value=""></label>
     <label>Server id <input type="number" name="server_id" min="1" value=""></label>
     <label>Group <input name="group" value="" maxlength="200"></label>
-    <label>Virtual host <input type="search" name="vhost" value="" maxlength="200" placeholder="Name contains"></label>
+
     <label>Web server
       <select name="webserver">
         <option value="">Any</option>
@@ -149,14 +164,16 @@
       </select></label>
     <input type="hidden" name="sort" value="server">
     <input type="hidden" name="page_size" value="50">
-    <button type="submit">Apply filters</button>
-    <a href="/bindings">Reset</a>
+<button class="button-secondary" type="submit">Apply filters</button></div>
+    </details>
   </form>
+
+
+
 </section>
 
-<div class="list-summary" data-total="1"><span class="mono">1 binding</span>
-  · <a href="/bindings/export.json" download="bindings.json">Export list as JSON</a>
-  · <a href="/bindings/help">What do the match states mean?</a></div>
+
+<div class="list-summary" data-total="1"><span class="mono">1 binding</span> · Stored discovery evidence, not live TLS checks.</div>
 
 
 <div class="table-wrap" role="region" aria-label="Bindings table, scrolls horizontally on narrow screens" tabindex="0">

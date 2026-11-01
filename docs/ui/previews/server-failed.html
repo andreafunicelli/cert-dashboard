@@ -123,7 +123,14 @@
 
 <main id="main-content" tabindex="-1">
 <p><a href="/servers">← All servers</a></p>
-<h1>unreachable.ops.example.test</h1>
+
+<header class="page-header">
+  <div><h1>unreachable.ops.example.test</h1><p class="page-subtitle">Review discovery state, certificate bindings and run history before changing configuration.</p></div>
+  <div class="page-actions">
+  <a class="button" href="#actions">Discovery controls</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/scans?server_id=2">Open endpoint scan</a><a href="/servers/2/dump">Last raw dump summary</a></div></details>
+</div>
+</header>
 <section class="panel wide" id="server-panel" aria-label="Server">
   <span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
@@ -134,41 +141,17 @@
   <p class="server-failure"><strong>Latest discovery:</strong> ssh: connect to host failed: connection timed out</p>
 
   <dl class="fields">
-    <dt>Display name</dt><dd>Last inventory retained</dd>
-    <dt>Groups</dt><dd>production, edge</dd>
-    <dt>Web server</dt><dd>nginx</dd>
-    <dt>Connection address</dt><dd class="mono">192.0.2.10</dd>
-    <dt>Inventory source</dt><dd>inventory/production.yml</dd>
+    <dt>Inventory state</dt><dd>Active</dd>
     <dt>Last discovery</dt><dd><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></dd>
     <dt>Bindings</dt><dd><span class="mono">4</span> — <span class="mono">2</span> need attention</dd>
     <dt>Mismatched endpoints</dt><dd><span class="mono">1</span> of <span class="mono">4</span> active endpoints</dd>
-    <dt>Notes</dt><dd class="notes">Fixture only; inspect endpoint scans separately.</dd>
+
   </dl>
 </section>
 
-<section class="panel wide" id="actions" aria-label="Actions">
-  <h2>Discovery and endpoint checks</h2>
-
-  <form class="inline" method="post" action="/servers/2/discover">
-    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
-    <button type="submit">Run discovery</button>
-  </form>
-
-  <p><a href="/servers/2/dump">Last raw dump summary</a></p>
-  <p><a href="/scans?server_id=2">Open endpoint scan</a></p>
-</section>
 
 
 
-<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
-  <h2>Last captured discovery</h2>
-
-  <p>Captured <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time> · <span class="mono">4</span> bindings found in this dump.</p>
-
-  <p class="help">The last captured dump may predate the latest attempt. Compare its timestamp with discovery history below.</p>
-
-  <p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>
-</section>
 
 <section class="panel wide" id="bindings-panel">
   <h2>Bindings</h2>
@@ -395,6 +378,37 @@
   </table></div>
   <p class="hint">The newest <span class="mono">20</span> runs.</p>
 
+</section>
+<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
+  <h2>Last captured discovery</h2>
+
+  <p>Captured <time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time> · <span class="mono">4</span> bindings found in this dump.</p>
+
+  <p class="help">The last captured dump may predate the latest attempt. Compare its timestamp with discovery history above.</p>
+
+  <p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>
+</section>
+<section class="panel wide" id="actions" aria-label="Actions">
+  <h2>Discovery and endpoint checks</h2>
+
+  <form class="inline" method="post" action="/servers/2/discover">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <button type="submit">Run discovery</button>
+  </form>
+
+  <p><a href="/servers/2/dump">Last raw dump summary</a></p>
+  <p><a href="/scans?server_id=2">Open endpoint scan</a></p>
+</section>
+<section class="panel wide" id="server-configuration" aria-label="Configuration">
+  <h2>Configuration</h2>
+  <dl class="fields">
+    <dt>Display name</dt><dd>Last inventory retained</dd>
+    <dt>Groups</dt><dd>production, edge</dd>
+    <dt>Web server</dt><dd>nginx</dd>
+    <dt>Connection address</dt><dd class="mono">192.0.2.10</dd>
+    <dt>Inventory source</dt><dd>inventory/production.yml</dd>
+    <dt>Notes</dt><dd class="notes">Fixture only; inspect endpoint scans separately.</dd>
+  </dl>
 </section>
 </main>
 

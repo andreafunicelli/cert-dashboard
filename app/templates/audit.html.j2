@@ -2,10 +2,11 @@
 {% block title %}Audit log · Cert Dashboard{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/audit.css">{% endblock %}
 {% block content %}
-<h1>Audit log</h1>
-<p>Append-only history, newest first. This view is read-only.</p>
-<section class="panel wide audit-filters" aria-label="Filters">
-  <form method="get" action="/audit" class="filters">
+{% from "_operations_ui.html.j2" import page_header, filters %}
+{% call page_header('Audit log', 'Read append-only history, newest first; this view only reads recorded events.') %}
+  <a class="button" href="{{ export_url }}" download="audit.json">Export list as JSON</a>
+{% endcall %}
+{% call filters('/audit', values, {'actor': 'Actor', 'action_prefix': 'Action prefix', 'target_type': 'Target type', 'target_id': 'Target ID', 'start': 'From', 'end': 'Until', 'ip': 'IP or CIDR'}) %}
     <label>Actor <input name="actor" value="{{ values.actor or '' }}" maxlength="200"></label>
     <label>Action prefix <input name="action_prefix" value="{{ values.action_prefix or '' }}" maxlength="100" placeholder="certificate."></label>
     <label>Target type <input name="target_type" value="{{ values.target_type or '' }}" maxlength="200"></label>
@@ -14,13 +15,10 @@
     <label>Until (exclusive, UTC) <input name="end" value="{{ values.end or '' }}" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
     <label>IP or CIDR <input name="ip" value="{{ values.ip or '' }}" maxlength="45" placeholder="192.0.2.10 or 192.0.2.0/24"></label>
     {% if page_size != default_page_size %}<input type="hidden" name="page_size" value="{{ page_size }}">{% endif %}
-    <button type="submit">Apply filters</button>
-    <a href="/audit">Reset</a>
-  </form>
-</section>
+{% endcall %}
 
 <p class="list-summary" data-total="{{ total }}"><span class="mono">{{ total }}</span> event{{ "" if total == 1 else "s" }}
-  · <a href="{{ export_url }}" download="audit.json">Export list as JSON</a> (metadata only, newest 5,000)</p>
+  · Export includes metadata only, newest 5,000.</p>
 
 {% if items %}
 <div class="table-wrap">

@@ -123,25 +123,51 @@
 
 <main id="main-content" tabindex="-1">
 <p><a href="/servers">← All servers</a></p>
-<h1>new-host.ops.example.test</h1>
+
+<header class="page-header">
+  <div><h1>new-host.ops.example.test</h1><p class="page-subtitle">Review discovery state, certificate bindings and run history before changing configuration.</p></div>
+  <div class="page-actions">
+  <a class="button" href="#actions">Discovery controls</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/scans?server_id=3">Open endpoint scan</a><a href="/servers/3/dump">Last raw dump summary</a></div></details>
+</div>
+</header>
 <section class="panel wide" id="server-panel" aria-label="Server">
   <span class="badge"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
 </svg>Never discovered</span>
 
   <dl class="fields">
-    <dt>Display name</dt><dd>—</dd>
-    <dt>Groups</dt><dd>production, edge</dd>
-    <dt>Web server</dt><dd>nginx</dd>
-    <dt>Connection address</dt><dd class="mono">192.0.2.10</dd>
-    <dt>Inventory source</dt><dd>inventory/production.yml</dd>
+    <dt>Inventory state</dt><dd>Active</dd>
     <dt>Last discovery</dt><dd>Never discovered</dd>
     <dt>Bindings</dt><dd><span class="mono">0</span></dd>
     <dt>Mismatched endpoints</dt><dd><span class="mono">0</span> of <span class="mono">4</span> active endpoints</dd>
-    <dt>Notes</dt><dd class="notes">Fixture only; inspect endpoint scans separately.</dd>
+
   </dl>
 </section>
 
+
+
+
+
+<section class="panel wide" id="bindings-panel">
+  <h2>Bindings</h2>
+  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
+
+  <div class="empty-state"><h3>No bindings recorded for this server</h3><p>Review the last captured discovery below before treating an empty inventory as a clean result.</p></div>
+
+</section>
+
+<section class="panel wide" id="discovery-history">
+  <h2>Discovery history</h2>
+
+  <p>This server has not been discovered yet.</p>
+
+</section>
+<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
+  <h2>Last captured discovery</h2>
+  <p>No captured dump is available. This server has not been discovered yet.</p>
+
+</section>
 <section class="panel wide" id="actions" aria-label="Actions">
   <h2>Discovery and endpoint checks</h2>
 
@@ -153,28 +179,16 @@
   <p><a href="/servers/3/dump">Last raw dump summary</a></p>
   <p><a href="/scans?server_id=3">Open endpoint scan</a></p>
 </section>
-
-
-
-<section class="panel wide" id="discovery-evidence" aria-label="Discovery evidence">
-  <h2>Last captured discovery</h2>
-  <p>No captured dump is available. This server has not been discovered yet.</p>
-
-</section>
-
-<section class="panel wide" id="bindings-panel">
-  <h2>Bindings</h2>
-  <p class="help">Observed files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.</p>
-
-  <div class="empty-state"><h3>No bindings recorded for this server</h3><p>Review the last captured discovery above before treating an empty inventory as a clean result.</p></div>
-
-</section>
-
-<section class="panel wide" id="discovery-history">
-  <h2>Discovery history</h2>
-
-  <p>This server has not been discovered yet.</p>
-
+<section class="panel wide" id="server-configuration" aria-label="Configuration">
+  <h2>Configuration</h2>
+  <dl class="fields">
+    <dt>Display name</dt><dd>—</dd>
+    <dt>Groups</dt><dd>production, edge</dd>
+    <dt>Web server</dt><dd>nginx</dd>
+    <dt>Connection address</dt><dd class="mono">192.0.2.10</dd>
+    <dt>Inventory source</dt><dd>inventory/production.yml</dd>
+    <dt>Notes</dt><dd class="notes">Fixture only; inspect endpoint scans separately.</dd>
+  </dl>
 </section>
 </main>
 

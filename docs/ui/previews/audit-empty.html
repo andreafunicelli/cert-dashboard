@@ -125,10 +125,21 @@
 
 
 <main id="main-content" tabindex="-1">
-<h1>Audit log</h1>
-<p>Append-only history, newest first. This view is read-only.</p>
-<section class="panel wide audit-filters" aria-label="Filters">
-  <form method="get" action="/audit" class="filters">
+
+<header class="page-header">
+  <div><h1>Audit log</h1><p class="page-subtitle">Read append-only history, newest first; this view only reads recorded events.</p></div>
+  <div class="page-actions">
+  <a class="button" href="/audit/export.json" download="audit.json">Export list as JSON</a>
+</div>
+</header>
+
+
+
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/audit">
+
+    <details class="filter-disclosure"><summary>Filters</summary>
+      <div class="filters">
     <label>Actor <input name="actor" value="" maxlength="200"></label>
     <label>Action prefix <input name="action_prefix" value="" maxlength="100" placeholder="certificate."></label>
     <label>Target type <input name="target_type" value="" maxlength="200"></label>
@@ -137,13 +148,17 @@
     <label>Until (exclusive, UTC) <input name="end" value="" maxlength="64" placeholder="YYYY-MM-DD or ISO-8601"></label>
     <label>IP or CIDR <input name="ip" value="" maxlength="45" placeholder="192.0.2.10 or 192.0.2.0/24"></label>
 
-    <button type="submit">Apply filters</button>
-    <a href="/audit">Reset</a>
+<button class="button-secondary" type="submit">Apply filters</button></div>
+    </details>
   </form>
+
+
+
 </section>
 
+
 <p class="list-summary" data-total="0"><span class="mono">0</span> events
-  · <a href="/audit/export.json" download="audit.json">Export list as JSON</a> (metadata only, newest 5,000)</p>
+  · Export includes metadata only, newest 5,000.</p>
 
 
 <section class="empty-state"><h2>No audit events match these filters</h2><p>Try a wider date range or a different actor. Events appear here as operations are recorded.</p><a href="/audit">Clear the filters</a></section>

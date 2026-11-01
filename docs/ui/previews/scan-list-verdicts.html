@@ -1,0 +1,301 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Scans · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config"><link rel="stylesheet" href="../../../app/static/pages/scans.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+
+
+
+
+
+<div class="desktop-navigation">
+  <nav aria-label="Main">
+
+
+
+  <span><a href="/">Overview</a></span>
+    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span class="active-area" aria-current="location"><a href="/scans">Operations</a></span><span><a href="/settings">Administration</a></span>
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu · Operations</summary>
+  <nav aria-label="All pages">
+
+
+
+  <span><a href="/">Overview</a></span>
+
+    <section>
+      <h2>Certificates</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/certificates">Certificates</a></span>
+
+
+  <span><a href="/certificates/import">Import</a></span>
+
+
+  <span><a href="/renewals">Renewals</a></span></div>
+    </section>
+
+    <section>
+      <h2>Infrastructure</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/servers">Servers</a></span>
+
+
+  <span><a href="/bindings">Bindings</a></span>
+
+
+  <span><a href="/servers#discovery-actions">Discovery</a></span></div>
+    </section>
+
+    <section class="active-area">
+      <h2>Operations</h2>
+      <div class="navigation-pages">
+
+
+  <span aria-current="page"><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span><a href="/deploy/jobs">Jobs</a></span></div>
+    </section>
+
+    <section>
+      <h2>Administration</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/account">Account</a></span></div>
+    </section>
+
+  </nav>
+</details>
+
+<nav class="area-navigation" aria-label="Operations pages">
+
+
+
+  <span aria-current="page"><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span><a href="/deploy/jobs">Jobs</a></span>
+</nav>
+
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+
+
+<header class="page-header">
+  <div><h1>Scans</h1><p class="page-subtitle">Read the latest endpoint verdict and observation age; open an endpoint for evidence and history.</p></div>
+  <div class="page-actions">
+  <form class="inline" method="post" action="/scans/run"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><input type="hidden" name="scope" value="all"><button type="submit">Scan all</button></form>
+
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="#add-endpoint">Add endpoint</a><a href="/scans/export.json" download="scans.json">Export list as JSON</a><a href="/scans?sort=expected">Sort by expected certificate</a></div></details>
+</div>
+</header>
+
+
+
+
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/scans">
+    <div class="filter-toolbar">
+      <label class="filter-search">Search <input type="search" name="search" value="" maxlength="200" placeholder="Host or SNI"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>
+    <details class="filter-disclosure"><summary>Filters</summary>
+      <div class="filters">
+  <label>Status <select name="status"><option value="">Any</option><option value="ok">ok</option><option value="expired">expired</option><option value="mismatch">mismatch</option><option value="unreachable">unreachable</option><option value="error">error</option></select></label>
+  <label>Server <select name="server_id"><option value="">Any</option><option value="1">edge-01</option></select></label>
+  <label>Group <input name="group" value="" maxlength="200"></label>
+  <label>Endpoints <select name="active">
+    <option value="true" selected>Active</option>
+    <option value="false">Inactive</option>
+    <option value="all">All</option>
+  </select></label>
+
+  <input type="hidden" name="sort" value="status">
+  <input type="hidden" name="page_size" value="50">
+<button class="button-secondary" type="submit">Apply filters</button></div>
+    </details>
+  </form>
+
+
+
+</section>
+
+<div class="list-summary" data-total="5"><span class="mono">5</span> endpoints · Stored results, not live probes.</div>
+
+
+<div class="table-wrap" role="region" tabindex="0" aria-label="Endpoint verdicts">
+<table class="scans verdict-list">
+  <thead><tr>
+    <th scope="col"><a href="/scans?sort=host">Endpoint / SNI</a></th>
+    <th scope="col"><a href="/scans?sort=server">Server</a></th>
+    <th scope="col"><a href="/scans?sort=status">Status</a></th>
+    <th scope="col" class="numeric"><a href="/scans?sort=checked_at">Last observation</a></th>
+    <th scope="col">Actions</th>
+  </tr></thead>
+  <tbody>
+
+  <tr data-host="mismatch.ops.example.test">
+    <td><a class="row-identity" href="/scans/20" title="mismatch.ops.example.test:443">mismatch.ops.example.test:443</a><small class="row-secondary" title="gateway.ops.example.test">gateway.ops.example.test</small></td>
+    <td><span class="row-identity" title="edge-01">edge-01</span></td>
+    <td>
+<span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>Findings: mismatch</span></td>
+    <td class="numeric"><span class="mono">1 h ago</span><small class="row-secondary"><time datetime="2026-10-30T11:00:00Z">2026-10-30 11:00 UTC</time></small></td>
+    <td><details class="action-menu"><summary aria-label="Actions for mismatch.ops.example.test:443">Actions</summary><div class="action-menu-items">
+      <a href="/scans/20">Details</a><a href="/scans/20#history">History</a>
+      <form class="inline" method="post" action="/scans/run">
+        <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><input type="hidden" name="scope" value="endpoint"><input type="hidden" name="endpoint_id" value="20"><button class="button-secondary" type="submit">Scan now</button>
+      </form>
+    </div></details></td>
+  </tr>
+
+  <tr data-host="unreachable.ops.example.test">
+    <td><a class="row-identity" href="/scans/21" title="unreachable.ops.example.test:443">unreachable.ops.example.test:443</a><small class="row-secondary" title="gateway.ops.example.test">gateway.ops.example.test</small></td>
+    <td><span class="row-identity" title="edge-01">edge-01</span></td>
+    <td>
+<span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>Scan failed: unreachable</span><small class="row-secondary scan-error" title="TLS connection refused. Review endpoint details.">TLS connection refused. Review endpoint details.</small></td>
+    <td class="numeric"><span class="mono">2 h ago</span><small class="row-secondary"><time datetime="2026-10-30T10:00:00Z">2026-10-30 10:00 UTC</time></small></td>
+    <td><details class="action-menu"><summary aria-label="Actions for unreachable.ops.example.test:443">Actions</summary><div class="action-menu-items">
+      <a href="/scans/21">Details</a><a href="/scans/21#history">History</a>
+      <form class="inline" method="post" action="/scans/run">
+        <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><input type="hidden" name="scope" value="endpoint"><input type="hidden" name="endpoint_id" value="21"><button class="button-secondary" type="submit">Scan now</button>
+      </form>
+    </div></details></td>
+  </tr>
+
+  <tr data-host="expired.ops.example.test">
+    <td><a class="row-identity" href="/scans/22" title="expired.ops.example.test:443">expired.ops.example.test:443</a><small class="row-secondary" title="gateway.ops.example.test">gateway.ops.example.test</small></td>
+    <td><span class="row-identity" title="edge-01">edge-01</span></td>
+    <td>
+<span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>Findings: expired</span></td>
+    <td class="numeric"><span class="mono">3 h ago</span><small class="row-secondary"><time datetime="2026-10-30T09:00:00Z">2026-10-30 09:00 UTC</time></small></td>
+    <td><details class="action-menu"><summary aria-label="Actions for expired.ops.example.test:443">Actions</summary><div class="action-menu-items">
+      <a href="/scans/22">Details</a><a href="/scans/22#history">History</a>
+      <form class="inline" method="post" action="/scans/run">
+        <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><input type="hidden" name="scope" value="endpoint"><input type="hidden" name="endpoint_id" value="22"><button class="button-secondary" type="submit">Scan now</button>
+      </form>
+    </div></details></td>
+  </tr>
+
+  <tr data-host="new.ops.example.test">
+    <td><a class="row-identity" href="/scans/23" title="new.ops.example.test:443">new.ops.example.test:443</a><small class="row-secondary" title="gateway.ops.example.test">gateway.ops.example.test</small></td>
+    <td><span class="row-identity" title="edge-01">edge-01</span></td>
+    <td>
+<span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>Not scanned</span></td>
+    <td class="numeric">Not observed<small class="row-secondary">—</small></td>
+    <td><details class="action-menu"><summary aria-label="Actions for new.ops.example.test:443">Actions</summary><div class="action-menu-items">
+      <a href="/scans/23">Details</a><a href="/scans/23#history">History</a>
+      <form class="inline" method="post" action="/scans/run">
+        <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><input type="hidden" name="scope" value="endpoint"><input type="hidden" name="endpoint_id" value="23"><button class="button-secondary" type="submit">Scan now</button>
+      </form>
+    </div></details></td>
+  </tr>
+
+  <tr data-host="ok.ops.example.test">
+    <td><a class="row-identity" href="/scans/24" title="ok.ops.example.test:443">ok.ops.example.test:443</a><small class="row-secondary" title="gateway.ops.example.test">gateway.ops.example.test</small></td>
+    <td><span class="row-identity" title="edge-01">edge-01</span></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>No findings</span></td>
+    <td class="numeric"><span class="mono">5 h ago</span><small class="row-secondary"><time datetime="2026-10-30T07:00:00Z">2026-10-30 07:00 UTC</time></small></td>
+    <td><details class="action-menu"><summary aria-label="Actions for ok.ops.example.test:443">Actions</summary><div class="action-menu-items">
+      <a href="/scans/24">Details</a><a href="/scans/24#history">History</a>
+      <form class="inline" method="post" action="/scans/run">
+        <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><input type="hidden" name="scope" value="endpoint"><input type="hidden" name="endpoint_id" value="24"><button class="button-secondary" type="submit">Scan now</button>
+      </form>
+    </div></details></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+<nav class="pager" aria-label="Pages">
+
+  <span>Page 1 of 1</span>
+
+</nav>
+
+<section class="panel wide" id="add-endpoint" aria-label="Add endpoint">
+  <h2>Add endpoint</h2>
+  <p class="hint">Endpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.</p>
+  <form method="post" action="/scans/endpoints" hx-post="/scans/endpoints" hx-target="#add-endpoint" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="add_host">Host name or IP address</label>
+    <input id="add_host" name="host" value="" maxlength="300" required autocomplete="off" spellcheck="false">
+
+    <label for="add_port">Port</label>
+    <input id="add_port" name="port" value="443" inputmode="numeric" maxlength="5" autocomplete="off">
+
+    <label for="add_sni">SNI server name (optional)</label>
+    <input id="add_sni" name="sni" value="" maxlength="300" autocomplete="off" spellcheck="false">
+
+    <label for="add_expected">Expected certificate (optional)</label>
+    <select id="add_expected" name="expected_certificate_id"><option value="">None</option>
+      <option value="42">gateway.ops.example.test (#42, expires 2026-11-19)</option>
+    </select>
+
+    <button class="button-secondary" type="submit">Add endpoint</button>
+  </form>
+</section>
+
+</main>
+
+</body>
+</html>

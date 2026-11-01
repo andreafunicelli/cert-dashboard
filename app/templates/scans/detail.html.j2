@@ -4,7 +4,11 @@
 {% block content %}
 {% from "_inventory_ui.html.j2" import scan_state, identifier %}
 <p><a href="/scans">← All scans</a></p>
-<h1>{{ hostport(row.host, row.port) }}</h1>
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% call page_header(hostport(row.host, row.port), 'Compare the last observed certificate with the inventory expectation, then review scan history.') %}
+  <a class="button" href="#manage-panel">Manage endpoint</a>
+  {% call more_actions() %}<a href="#history">History</a><a href="/scans">All endpoints</a>{% endcall %}
+{% endcall %}
 <section class="panel wide" id="endpoint-panel" aria-label="Endpoint">
   <p>{{ scan_state(row.status) }}
     {% if not row.is_active %}<small>Inactive: scheduled scans skip this endpoint.</small>{% endif %}</p>

@@ -72,7 +72,11 @@ def admin(web_user):
 def _audits(factory):
     with factory() as session:
         return list(
-            session.scalars(select(AuditLog).where(AuditLog.action == "settings.update").order_by(AuditLog.id))
+            session.scalars(
+                select(AuditLog)
+                .where(AuditLog.action == "settings.update")
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
         )
 
 
@@ -736,6 +740,107 @@ def test_valid_repo_url_is_kept_in_form_when_another_field_is_invalid(signed_in,
     assert "https://git.example.test/team/inv.git" in response.text
 
 
+# --- UX 3/3: consolidated settings read context (backend contracts) --------------------------------
+
+
+@pytest.mark.parametrize("tab", ["scanning", "schedule", "general", "maintenance"])
+def test_consolidated_get_aliases_still_render_their_own_panel(signed_in, tab):
+    """The canonical nav hides scanning/general, but every legacy URL and data-tab hook stays live."""
+    page = signed_in.get(f"/settings?tab={tab}")
+    assert page.status_code == 200
+    assert f'data-tab="{tab}"' in page.text
+    if tab == "maintenance":
+        assert f'action="{PRUNE}"' in page.text
+    else:
+        assert f'action="/settings/{tab}"' in page.text
+
+
+def test_grouped_posts_keep_separate_forms_redirects_and_writes(signed_in, csrf, web_factory):
+    original = {
+        key: _stored(web_factory, key)
+        for key in ("scan.timeout_seconds", "scan.daily_at", "discovery.nightly_at", "ui.timezone", "retention.days")
+    }
+    response = _post(signed_in, csrf, "scanning", timeout_seconds="42")
+    assert response.status_code == 303 and response.headers["location"] == "/settings?tab=scanning&saved=1"
+    assert _stored(web_factory, "scan.timeout_seconds") == 42
+    assert _stored(web_factory, "discovery.nightly_at") == original["discovery.nightly_at"]
+    [scanning_audit] = _audits(web_factory)
+    assert set(scanning_audit.details["changes"]) == {"scan.timeout_seconds"}
+
+    response = _post(signed_in, csrf, "schedule", digest_daily_at="09:45")
+    assert response.status_code == 303 and response.headers["location"] == "/settings?tab=schedule&saved=1"
+    assert _stored(web_factory, "digest.daily_at") == "09:45"
+    assert _stored(web_factory, "scan.daily_at") == original["scan.daily_at"]
+    assert _stored(web_factory, "scan.timeout_seconds") == 42
+
+    response = _post(signed_in, csrf, "general", retention_days="120")
+    assert response.status_code == 303 and response.headers["location"] == "/settings?tab=general&saved=1"
+    assert _stored(web_factory, "retention.days") == 120
+    assert _stored(web_factory, "ui.timezone") == original["ui.timezone"]
+    assert {frozenset(audit.details["changes"]) for audit in _audits(web_factory)} == {
+        frozenset({"scan.timeout_seconds"}),
+        frozenset({"digest.daily_at"}),
+        frozenset({"retention.days"}),
+    }
+
+
+@pytest.mark.parametrize(
+    ("tab", "field", "value"),
+    [
+        ("scanning", "discovery_nightly_at", "value-that-must-not-persist-77"),
+        ("schedule", "timeout_seconds", "value-that-must-not-persist-77"),
+        ("general", "confirm", "PRUNE OLD JOBS"),  # the prune form field is not part of the settings form
+        ("maintenance/prune", "timezone", "Europe/Rome"),  # and the prune form refuses settings fields
+    ],
+)
+def test_grouped_posts_refuse_the_sibling_sections_fields(signed_in, csrf, web_factory, tab, field, value):
+    before = {
+        key: _stored(web_factory, key)
+        for key in ("scan.timeout_seconds", "discovery.nightly_at", "ui.timezone", "retention.days")
+    }
+    response = _post(signed_in, csrf, tab, **{field: value})
+    assert response.status_code == 422
+    assert "Unrecognised fields were submitted; nothing was saved." in response.text
+    assert _audits(web_factory) == []
+    assert _actions(web_factory, "job.enqueue") == []
+    assert _actions(web_factory, "maintenance.prune_requested") == []
+    assert {key: _stored(web_factory, key) for key in before} == before
+    assert "value-that-must-not-persist-77" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("tab", "data", "message"),
+    [
+        ("scanning", {"daily_at": "25:00"}, "HH:MM"),
+        ("schedule", {"digest_daily_at": "7:30"}, "HH:MM"),
+        ("general", {"timezone": "Mars/Olympus"}, "time zone"),
+    ],
+)
+def test_grouped_invalid_saves_are_native_and_htmx_422_and_write_nothing(
+    signed_in, csrf, web_factory, tab, data, message
+):
+    before = {
+        key: _stored(web_factory, key)
+        for key in ("scan.daily_at", "digest.daily_at", "ui.timezone")
+    }
+    for htmx in (False, True):
+        response = signed_in.post(
+            f"/settings/{tab}",
+            data={**data, "csrf_token": csrf},
+            headers={"HX-Request": "true"} if htmx else {},
+            follow_redirects=False,
+        )
+        assert response.status_code == 422
+        assert message in response.text
+        if htmx:
+            assert "<html" not in response.text and "<nav" not in response.text
+            assert 'id="settings-panel"' in response.text and f'data-tab="{tab}"' in response.text
+        else:
+            assert f'action="/settings/{tab}"' in response.text
+        assert _audits(web_factory) == []
+        assert {key: _stored(web_factory, key) for key in before} == before
+
+
 # --- Part B: trust anchors ---------------------------------------------------------------------
 
 UPLOAD = "/settings/trust-anchors"
@@ -1188,8 +1293,8 @@ def test_maintenance_shows_cli_rotation_instructions_and_keyring_state_only(sign
     assert 'install -d -m 0700 -o 10001 -g 10001 "$tmp"' in flat
     assert "docs/operations.md" in flat and "as root" in flat
     assert "from the repository checkout" not in flat
-    # no keyring edit or rotation control: the only form is the typed-confirmed prune
-    assert re.findall(r'<form[^>]*\saction="([^"]+)"', text) == [PRUNE]
+    # no keyring edit or rotation control: the grouped General settings form plus typed-confirmed prune
+    assert re.findall(r'<form[^>]*\saction="([^"]+)"', text) == ["/settings/general", PRUNE]
     assert "<textarea" not in text and 'type="file"' not in text
 
 

@@ -97,4 +97,7 @@ def test_styles_only_use_shared_tokens_and_the_script_is_settings_only():
             assert '/static/settings.js' not in path.read_text()
     js = (ROOT / 'app/static/settings.js').read_text()
     assert 'innerHTML' not in js and 'eval(' not in js and 'localStorage' not in js
-    assert "addEventListener('submit'" not in js
+    # Only an uncancelled native submission releases the unload guard.
+    assert 'if (!event.defaultPrevented) leavingForTab = true' in js
+    assert 'queueMicrotask(' in js
+    assert '.submit(' not in js and '.requestSubmit(' not in js

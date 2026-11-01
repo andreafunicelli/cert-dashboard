@@ -3,7 +3,65 @@
 {% block extra_css %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}<link rel="stylesheet" href="/static/pages/scans.css">{% endblock %}
 {% block content %}
 {% from "_inventory_ui.html.j2" import scan_state %}
-<h1>Scans</h1>
+{% from "_operations_ui.html.j2" import page_header, more_actions, filters, observation_age %}
+{% set observed_now = request.app.state.clock() if request.app is defined else now %}
+{% call page_header('Scans', 'Read the latest endpoint verdict and observation age; open an endpoint for evidence and history.') %}
+  {% if scan_supported %}<form class="inline" method="post" action="/scans/run"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="scope" value="all"><button type="submit">Scan all</button></form>
+  {% else %}<button type="button" disabled title="{{ scan_reason }}">Scan all</button>{% endif %}
+  {% call more_actions() %}<a href="#add-endpoint">Add endpoint</a><a href="{{ export_url }}" download="scans.json">Export list as JSON</a><a href="{{ sort_url('expected') }}">Sort by expected certificate</a>{% endcall %}
+{% endcall %}
+{% if add_errors %}<p class="form-error" role="alert">The endpoint was not added. <a href="#add-endpoint">Review the highlighted fields</a>.</p>{% endif %}
+{% call filters('/scans', values, {'search': 'Search', 'status': 'Status', 'server_id': 'Server', 'group': 'Group', 'active': 'Endpoints', 'certificate_id': 'Expected certificate'}, 'search', 'Host or SNI') %}
+  <label>Status <select name="status"><option value="">Any</option>{% for item in statuses %}<option value="{{ item }}"{% if values.status == item %} selected{% endif %}>{{ item }}</option>{% endfor %}</select></label>
+  <label>Server <select name="server_id"><option value="">Any</option>{% for id, hostname in servers %}<option value="{{ id }}"{% if values.server_id == id | string %} selected{% endif %}>{{ hostname }}</option>{% endfor %}</select></label>
+  <label>Group <input name="group" value="{{ values.group or '' }}" maxlength="200"></label>
+  <label>Endpoints <select name="active">
+    <option value="true"{% if not values.active %} selected{% endif %}>Active</option>
+    <option value="false"{% if values.active == 'false' %} selected{% endif %}>Inactive</option>
+    <option value="all"{% if values.active == 'all' %} selected{% endif %}>All</option>
+  </select></label>
+  {% if values.certificate_id %}<input type="hidden" name="certificate_id" value="{{ values.certificate_id }}">{% endif %}
+  <input type="hidden" name="sort" value="{{ sort_state }}">
+  <input type="hidden" name="page_size" value="{{ page.page_size }}">
+{% endcall %}
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> endpoint{{ '' if page.total == 1 else 's' }} · Stored results, not live probes.</div>
+{% if values.certificate_id %}<p class="hint">Only endpoints expecting certificate #{{ values.certificate_id }}. <a href="/certificates/{{ values.certificate_id }}">View the certificate</a></p>{% endif %}
+{% if page.items %}
+<div class="table-wrap" role="region" tabindex="0" aria-label="Endpoint verdicts">
+<table class="scans verdict-list">
+  <thead><tr>
+    <th scope="col"><a href="{{ sort_url('host') }}">Endpoint / SNI</a></th>
+    <th scope="col"><a href="{{ sort_url('server') }}">Server</a></th>
+    <th scope="col"><a href="{{ sort_url('status') }}">Status</a></th>
+    <th scope="col" class="numeric"><a href="{{ sort_url('checked_at') }}">Last observation</a></th>
+    <th scope="col">Actions</th>
+  </tr></thead>
+  <tbody>
+  {% for row in page.items %}
+  <tr data-host="{{ row.host }}"{% if not row.is_active %} class="inactive"{% endif %}>
+    <td><a class="row-identity" href="/scans/{{ row.id }}" title="{{ hostport(row.host, row.port) }}">{{ hostport(row.host, row.port) }}</a><small class="row-secondary" title="{{ row.sni or '' }}">{{ row.sni or 'Default SNI' }}{% if not row.is_active %} (inactive){% endif %}</small></td>
+    <td><span class="row-identity" title="{{ row.server or '' }}">{{ row.server or 'Manual endpoint' }}</span></td>
+    <td>{{ scan_state(row.status) }}{% if row.error %}<small class="row-secondary scan-error" title="{{ row.error }}">{{ row.error[:200] }}</small>{% endif %}</td>
+    <td class="numeric">{{ observation_age(row.checked_at, observed_now) }}<small class="row-secondary">{{ time_tag(row.checked_at, tz) }}</small></td>
+    <td><details class="action-menu"><summary aria-label="Actions for {{ hostport(row.host, row.port) }}">Actions</summary><div class="action-menu-items">
+      <a href="/scans/{{ row.id }}">Details</a><a href="/scans/{{ row.id }}#history">History</a>
+      {% if scan_supported and row.is_active %}<form class="inline" method="post" action="/scans/run">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="scope" value="endpoint"><input type="hidden" name="endpoint_id" value="{{ row.id }}"><button class="button-secondary" type="submit">Scan now</button>
+      </form>{% endif %}
+    </div></details></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<section class="empty-state"><h2>No endpoints match these filters</h2><p><a href="/scans">Clear the filters</a> or <a href="#add-endpoint">add an endpoint</a> not covered by discovery.</p></section>
+{% endif %}
+<nav class="pager" aria-label="Pages">
+  {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
+  <span>Page {{ page.page }} of {{ pages }}</span>
+  {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
+</nav>
 {% block add_endpoint %}
 <section class="panel wide" id="add-endpoint" aria-label="Add endpoint">
   <h2>Add endpoint</h2>
@@ -12,107 +70,20 @@
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label for="add_host">Host name or IP address</label>
     <input id="add_host" name="host" value="{{ add_form.host }}" maxlength="300" required autocomplete="off" spellcheck="false">
-    {% if add_errors.host %}<div class="form-error" data-error="host" role="alert"><p>{{ add_errors.host }}{% if existing_id %} <a href="/scans/{{ existing_id }}">View endpoint #{{ existing_id }}</a>{% endif %}</p></div>{% endif %}
+    {% if add_errors.get('host') %}<div class="form-error" data-error="host" role="alert"><p>{{ add_errors.host }}{% if existing_id %} <a href="/scans/{{ existing_id }}">View endpoint #{{ existing_id }}</a>{% endif %}</p></div>{% endif %}
     <label for="add_port">Port</label>
     <input id="add_port" name="port" value="{{ add_form.port }}" inputmode="numeric" maxlength="5" autocomplete="off">
-    {% if add_errors.port %}<div class="form-error" data-error="port" role="alert"><p>{{ add_errors.port }}</p></div>{% endif %}
+    {% if add_errors.get('port') %}<div class="form-error" data-error="port" role="alert"><p>{{ add_errors.port }}</p></div>{% endif %}
     <label for="add_sni">SNI server name (optional)</label>
     <input id="add_sni" name="sni" value="{{ add_form.sni }}" maxlength="300" autocomplete="off" spellcheck="false">
-    {% if add_errors.sni %}<div class="form-error" data-error="sni" role="alert"><p>{{ add_errors.sni }}</p></div>{% endif %}
+    {% if add_errors.get('sni') %}<div class="form-error" data-error="sni" role="alert"><p>{{ add_errors.sni }}</p></div>{% endif %}
     <label for="add_expected">Expected certificate (optional)</label>
     <select id="add_expected" name="expected_certificate_id"><option value="">None</option>
       {% for id, name, not_after in certificates %}<option value="{{ id }}"{% if add_form.expected_certificate_id == id | string %} selected{% endif %}>{{ name }} (#{{ id }}, expires {{ not_after.date() }})</option>{% endfor %}
     </select>
-    {% if add_errors.expected_certificate_id %}<div class="form-error" data-error="expected_certificate_id" role="alert"><p>{{ add_errors.expected_certificate_id }}</p></div>{% endif %}
-    <button type="submit">Add endpoint</button>
+    {% if add_errors.get('expected_certificate_id') %}<div class="form-error" data-error="expected_certificate_id" role="alert"><p>{{ add_errors.expected_certificate_id }}</p></div>{% endif %}
+    <button class="button-secondary" type="submit">Add endpoint</button>
   </form>
 </section>
 {% endblock %}
-<section class="panel wide" aria-label="Filters">
-  <form method="get" action="/scans" class="filters">
-    <label>Search <input type="search" name="search" value="{{ values.search or '' }}" maxlength="200" placeholder="Host or SNI"></label>
-    <label>Status
-      <select name="status"><option value="">Any</option>
-        {% for item in statuses %}<option value="{{ item }}"{% if values.status == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
-      </select></label>
-    <label>Server
-      <select name="server_id"><option value="">Any</option>
-        {% for id, hostname in servers %}<option value="{{ id }}"{% if values.server_id == id | string %} selected{% endif %}>{{ hostname }}</option>{% endfor %}
-      </select></label>
-    <label>Group <input name="group" value="{{ values.group or '' }}" maxlength="200"></label>
-    <label>Endpoints
-      <select name="active">
-        <option value="true"{% if not values.active %} selected{% endif %}>Active</option>
-        <option value="false"{% if values.active == "false" %} selected{% endif %}>Inactive</option>
-        <option value="all"{% if values.active == "all" %} selected{% endif %}>All</option>
-      </select></label>
-    {% if values.certificate_id %}<input type="hidden" name="certificate_id" value="{{ values.certificate_id }}">{% endif %}
-    <input type="hidden" name="sort" value="{{ sort_state }}">
-    <input type="hidden" name="page_size" value="{{ page.page_size }}">
-    <button type="submit">Apply filters</button>
-    <a href="/scans">Reset</a>
-  </form>
-  {% if values.certificate_id %}<p class="hint">Only endpoints expecting certificate #{{ values.certificate_id }}. <a href="/certificates/{{ values.certificate_id }}">View the certificate</a></p>{% endif %}
-</section>
-
-<div class="list-summary" data-total="{{ page.total }}">{{ page.total }} endpoint{{ "" if page.total == 1 else "s" }}
-  · <a href="{{ export_url }}" download="scans.json">Export list as JSON</a>
-  {% if scan_supported %}<form class="inline" method="post" action="/scans/run">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="scope" value="all">
-    <button type="submit">Scan all</button>
-  </form>
-  {% else %}<button type="button" disabled title="{{ scan_reason }}">Scan all</button>{% endif %}</div>
-
-{% if page.items %}
-<div class="table-wrap">
-<table class="scans">
-  <thead><tr>
-    <th scope="col"><a href="{{ sort_url('host') }}">Endpoint</a></th>
-    <th scope="col">SNI</th>
-    <th scope="col"><a href="{{ sort_url('server') }}">Server</a></th>
-    <th scope="col"><a href="{{ sort_url('expected') }}">Expected certificate</a></th>
-    <th scope="col">Observed certificate</th>
-    <th scope="col" class="numeric">Expires</th>
-    <th scope="col"><a href="{{ sort_url('status') }}">Status</a></th>
-    <th scope="col" class="numeric"><a href="{{ sort_url('checked_at') }}">Last checked</a></th>
-    <th scope="col">Actions</th>
-  </tr></thead>
-  <tbody>
-  {% for row in page.items %}
-  <tr data-host="{{ row.host }}"{% if not row.is_active %} class="inactive"{% endif %}>
-    <td><a href="/scans/{{ row.id }}">{{ hostport(row.host, row.port) }}</a>{% if not row.is_active %} <small>(inactive)</small>{% endif %}</td>
-    <td>{{ row.sni or "—" }}</td>
-    <td>{{ row.server or "—" }}</td>
-    <td>{% if row.expected_certificate_id %}<a href="/certificates/{{ row.expected_certificate_id }}">{{ row.expected_common_name }}</a>{% else %}<em>none</em>{% endif %}</td>
-    <td>{% if row.observed_common_name %}{{ row.observed_common_name }}<br><small>{{ row.observed_issuer_cn or "" }}</small>{% else %}—{% endif %}</td>
-    <td class="numeric">{{ time_tag(row.observed_not_after, tz) }}</td>
-    <td>{{ scan_state(row.status) }}
-      {% if row.error %}<br><small class="scan-error">{{ row.error[:200] }}</small>{% endif %}</td>
-    <td class="numeric">{{ time_tag(row.checked_at, tz) }}</td>
-    <td>
-      <a href="/scans/{{ row.id }}#history" hx-get="/scans/{{ row.id }}/history" hx-target="#history-drawer" hx-swap="innerHTML">History</a>
-      {% if scan_supported and row.is_active %}<form class="inline" method="post" action="/scans/run">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="scope" value="endpoint">
-        <input type="hidden" name="endpoint_id" value="{{ row.id }}">
-        <button type="submit">Scan now</button>
-      </form>{% endif %}
-    </td>
-  </tr>
-  {% endfor %}
-  </tbody>
-</table>
-</div>
-{% else %}
-<p class="panel wide">No endpoints match these filters. <a href="/scans">Clear the filters</a>.</p>
-{% endif %}
-
-<div id="history-drawer" aria-live="polite"></div>
-
-<nav class="pager" aria-label="Pages">
-  {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
-  <span>Page {{ page.page }} of {{ pages }}</span>
-  {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
-</nav>
 {% endblock %}

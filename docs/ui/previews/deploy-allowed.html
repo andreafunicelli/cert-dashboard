@@ -122,8 +122,15 @@
 
 
 <main id="main-content" tabindex="-1">
-<h1>Deploy</h1>
-<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host. <a href="/deploy/jobs">Every job, filtered by outcome</a>.</p>
+
+<header class="page-header">
+  <div><h1>Deploy</h1><p class="page-subtitle">Review guardrails and the exact replacement plan before starting a rollout.</p></div>
+  <div class="page-actions">
+  <a class="button" href="#deploy-preview">Review plan</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/deploy/jobs">Every job, filtered by outcome</a><a href="/settings?tab=deployment">Deployment defaults</a></div></details>
+</div>
+</header>
+<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.</p>
 
 
 <div id="deploy-screen">
@@ -180,7 +187,7 @@
   <input id="not_before" name="not_before" type="datetime-local" value="">
   <p class="hint">The deploy window is a not-before time only, at most seven days ahead; times are shown in UTC and stored in UTC.</p>
 
-  <button type="submit">Preview</button>
+  <button class="button-secondary" type="submit">Preview</button>
 </form>
 </details>
 

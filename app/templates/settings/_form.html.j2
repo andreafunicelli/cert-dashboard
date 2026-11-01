@@ -1,0 +1,30 @@
+{# One configuration form for ordinary and grouped sections; native POST contracts unchanged. #}
+{% macro configuration_form(form_tab, label, fields, values, errors, csrf_token) %}
+<form id="settings-form-{{ form_tab }}" class="settings-form" data-settings-draft method="post" action="/settings/{{ form_tab }}" hx-post="/settings/{{ form_tab }}" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% for f in fields %}
+  <div class="settings-field">
+    {% if f.widget == 'checkbox' %}
+    <input type="hidden" name="{{ f.name }}" value="false">
+    <label for="f-{{ f.name }}" class="checkbox"><input type="checkbox" id="f-{{ f.name }}" name="{{ f.name }}" value="true"{% if values[f.name] %} checked{% endif %}> {{ f.label }}</label>
+    {% elif f.widget == 'select' %}
+    <label for="f-{{ f.name }}">{{ f.label }}</label>
+    <select id="f-{{ f.name }}" name="{{ f.name }}">{% for option, text in f.choices %}<option value="{{ option }}"{% if values[f.name] == option %} selected{% endif %}>{{ text }}</option>{% endfor %}</select>
+    {% elif f.widget == 'textarea' %}
+    <label for="f-{{ f.name }}">{{ f.label }}</label>
+    <textarea id="f-{{ f.name }}" name="{{ f.name }}" rows="6" maxlength="20000">{{ values[f.name] }}</textarea>
+    {% else %}
+    <label for="f-{{ f.name }}">{{ f.label }}</label>
+    <input id="f-{{ f.name }}" name="{{ f.name }}" value="{{ values[f.name] }}" maxlength="600" autocomplete="off"{% if f.placeholder %} placeholder="{{ f.placeholder }}"{% endif %}>
+    {% endif %}
+    <span class="field-change" hidden>Unsaved change</span>
+    {% if f.hint %}<p class="hint">{{ f.hint }}</p>{% endif %}
+    {% if f.name == 'tls_verify' %}<p class="warning-note">Disabling verification lets an impersonated SMTP server intercept mail credentials and content.</p>{% endif %}
+    {% if f.name == 'pause_after_canary' %}<p class="help">If disabled, a successful canary proceeds without waiting for operator approval.</p>{% endif %}
+    {% if f.name == 'cleanup_enabled' %}<p class="help">If disabled, old jobs, sessions and artifacts are not pruned by the scheduled cleanup.</p>{% endif %}
+    {% if errors.get(f.name) %}<div class="form-error" data-field="{{ f.name }}" role="alert">{% for message in errors[f.name] %}<p>{{ f.label }} {{ message }}</p>{% endfor %}</div>{% endif %}
+  </div>
+  {% endfor %}
+  <button class="button-secondary" type="submit">Save {{ label }} settings</button>
+</form>
+{% endmacro %}
