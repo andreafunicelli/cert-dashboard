@@ -1,4 +1,4 @@
-/* Approved settings-only enhancement. Never submits or handles a submit event. */
+/* Approved settings-only enhancement. Never submits or intercepts a submission. */
 (() => {
   'use strict';
   const prefix = 'cert-dashboard:settings-draft:v1:';
@@ -97,9 +97,12 @@
   const changed = event => { if (sections.some(section => section.controls.includes(event.target))) update(); };
   document.addEventListener('input', changed);
   document.addEventListener('change', changed);
-  // Pass-through only: the form's own native submission is an intentional exit, so release the
-  // unload guard. Nothing is prevented, delayed, rewritten or submitted from here.
-  document.addEventListener('submit', () => { leavingForTab = true; });
+  // Observe the completed dispatch: HTMX (or another cancelled submit) prevents native
+  // navigation. Keep its unload guard even if the request fails without a panel swap.
+  // Never prevent, delay, rewrite or trigger the submission itself.
+  document.addEventListener('submit', event => {
+    queueMicrotask(() => { if (!event.defaultPrevented) leavingForTab = true; });
+  });
   document.addEventListener('htmx:afterSwap', initialize);
   window.addEventListener('pageshow', () => { leavingForTab = false; initialize(); });
   document.addEventListener('click', event => {

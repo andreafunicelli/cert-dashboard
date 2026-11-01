@@ -35,7 +35,7 @@ function harness(initialPanel, stored = new Map(), unavailable = false, tabMarke
     history: {state: null, replaceState: (_state, _title, url) => { window.location.href = String(url); }},
     confirm: message => { prompts.push(message); return accepted; }, addEventListener: (name, fn) => { windowEvents[name] = fn; }};
   // Execute only the fixed repository asset, not user-provided source.
-  vm.runInNewContext(source, {document, window, URL});
+  vm.runInNewContext(source, {document, window, URL, queueMicrotask});
   return {stored, events, windowEvents, window, prompts,
     edit: (control, value) => { if (control.type === 'checkbox') control.checked = value; else control.value = value; events.input({target: control}); },
     swap: next => { current = next; events['htmx:afterSwap'](); },
@@ -177,12 +177,34 @@ test('tab changes confirm; cancelled navigation keeps edits; other exits warn be
   assert.ok(prevented);
 });
 
-test('a form submit is a pass-through intentional exit and is never prevented', () => {
+test('failed or cancelled HTMX saves keep non-persistable edits protected without a swap', async () => {
+  for (const outcome of ['network error', 'HTTP 500', 'cancelled request']) {
+    const repo = field('repo_url', 'https://example.test/repo');
+    const h = harness(panel('inventory', [repo]));
+    h.edit(repo, 'https://example.test/unsaved');
+    let intercepted = false;
+    const submit = {defaultPrevented: false, preventDefault: () => { intercepted = true; }};
+    h.events.submit(submit);
+    // HTMX prevents the native navigation during the same submit dispatch.
+    // These outcomes leave the existing panel untouched: no afterSwap follows.
+    submit.defaultPrevented = true;
+    await Promise.resolve();
+    assert.equal(intercepted, false, outcome);
+    let warned = false;
+    h.windowEvents.beforeunload({preventDefault: () => { warned = true; }});
+    assert.equal(warned, true, outcome);
+    assert.equal(repo.marker.hidden, false, outcome);
+    assert.equal(h.stored.size, 0, outcome);
+  }
+});
+
+test('a native form submit is a pass-through intentional exit and is never prevented', async () => {
   const host = field('host', 'old');
   const h = harness(panel('smtp', [host]));
   h.edit(host, 'new');
   let prevented = false;
-  h.events.submit({preventDefault: () => { prevented = true; }});
+  h.events.submit({defaultPrevented: false, preventDefault: () => { prevented = true; }});
+  await Promise.resolve();
   assert.equal(prevented, false);
   h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
   assert.equal(prevented, false);

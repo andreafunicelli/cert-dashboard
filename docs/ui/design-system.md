@@ -621,8 +621,10 @@ text plus a boundary; either section's draft marks the canonical tab. The same
 leave confirmation and secret/repository-URL exclusions apply. No new script,
 persistence mechanism or dependency is introduced, and submission itself is not
 intercepted. A pass-through submit listener only releases the unload guard for the
-form's own native navigation; it never prevents, rewrites, delays or triggers a
-submission. The always-visible fallback additionally explains that without
+form's own native navigation, after a microtask checks the completed event dispatch.
+An HTMX-prevented or otherwise cancelled submit keeps the guard active, including
+network/5xx failures with no panel swap. The listener never prevents, rewrites,
+delays or triggers a submission. The always-visible fallback additionally explains that without
 JavaScript saving one section reloads the tab and discards edits in other sections.
 
 ### Verification and remaining scope
@@ -633,8 +635,10 @@ Regenerate with `uv run python scripts/render_previews.py`. New fixtures include
 Repository regressions verify common headers, exact filter chips, server ordering,
 five-column endpoint verdicts, age boundaries/clock skew, eight settings tabs,
 legacy destinations, independent POST/CSRF forms, header form targets and grouped
-422 fragments. Eleven dependency-free Node tests exercise the draft lifecycle,
-including sibling restoration after success/422 and excluding maintenance secrets.
+422 fragments. Twelve dependency-free Node tests exercise the draft lifecycle,
+including sibling restoration after success/422, excluding maintenance secrets,
+and unload protection for non-persistable repository URLs after an HTMX save
+fails or is cancelled without a swap (including prevention later in dispatch).
 Static Chromium fixture checks covered 43 area previews at 375/1024/1280 × 900px
 in both themes (258 combinations), with no document overflow or missing state bars.
 The first narrow pass caught intrinsic-width header overflow, fixed in the shared
