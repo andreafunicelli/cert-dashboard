@@ -1,7 +1,7 @@
 /* Inventory layout; controls and data containers use shared components. */
-.certificate-table-wrap { overflow: visible; }
+.certificate-table-wrap { overflow: visible; max-height: none; }
 .certificates { table-layout: fixed; font-size: var(--text-sm); }
-.certificates th { background: var(--surface-raised); color: var(--text-muted); font-weight: var(--weight-medium); }
+.certificates th { background: var(--surface-inset); color: var(--text-muted); font-weight: var(--weight-medium); }
 .certificates th a { color: inherit; }
 .certificates th:first-child { width: 26%; }
 .certificates th:nth-child(2) { width: 21%; }
