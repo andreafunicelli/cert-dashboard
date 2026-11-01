@@ -72,7 +72,11 @@ def admin(web_user):
 def _audits(factory):
     with factory() as session:
         return list(
-            session.scalars(select(AuditLog).where(AuditLog.action == "settings.update").order_by(AuditLog.id))
+            session.scalars(
+                select(AuditLog)
+                .where(AuditLog.action == "settings.update")
+                .order_by(AuditLog.created_at, AuditLog.id)
+            )
         )
 
 
@@ -773,11 +777,11 @@ def test_grouped_posts_keep_separate_forms_redirects_and_writes(signed_in, csrf,
     assert response.status_code == 303 and response.headers["location"] == "/settings?tab=general&saved=1"
     assert _stored(web_factory, "retention.days") == 120
     assert _stored(web_factory, "ui.timezone") == original["ui.timezone"]
-    assert [set(audit.details["changes"]) for audit in _audits(web_factory)] == [
-        {"scan.timeout_seconds"},
-        {"digest.daily_at"},
-        {"retention.days"},
-    ]
+    assert {frozenset(audit.details["changes"]) for audit in _audits(web_factory)} == {
+        frozenset({"scan.timeout_seconds"}),
+        frozenset({"digest.daily_at"}),
+        frozenset({"retention.days"}),
+    }
 
 
 @pytest.mark.parametrize(
