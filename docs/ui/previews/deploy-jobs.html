@@ -1,0 +1,244 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Jobs · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/deploy.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+
+
+
+
+
+<div class="desktop-navigation">
+  <nav aria-label="Main">
+
+
+
+  <span><a href="/">Overview</a></span>
+    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span class="active-area" aria-current="location"><a href="/scans">Operations</a></span><span><a href="/settings">Administration</a></span>
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu · Operations</summary>
+  <nav aria-label="All pages">
+
+
+
+  <span><a href="/">Overview</a></span>
+
+    <section>
+      <h2>Certificates</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/certificates">Certificates</a></span>
+
+
+  <span><a href="/certificates/import">Import</a></span>
+
+
+  <span><a href="/renewals">Renewals</a></span></div>
+    </section>
+
+    <section>
+      <h2>Infrastructure</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/servers">Servers</a></span>
+
+
+  <span><a href="/bindings">Bindings</a></span>
+
+
+  <span><a href="/servers#discovery-actions">Discovery</a></span></div>
+    </section>
+
+    <section class="active-area">
+      <h2>Operations</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span aria-current="page"><a href="/deploy/jobs">Jobs</a></span></div>
+    </section>
+
+    <section>
+      <h2>Administration</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/account">Account</a></span></div>
+    </section>
+
+  </nav>
+</details>
+
+<nav class="area-navigation" aria-label="Operations pages">
+
+
+
+  <span><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span aria-current="page"><a href="/deploy/jobs">Jobs</a></span>
+</nav>
+
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+<header class="page-header">
+  <div><h1>Jobs</h1><p class="page-subtitle">Track queued, running and finished operations, newest first.</p></div>
+  <div class="page-actions">
+  <a class="button" href="/deploy">Plan a deployment</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/audit?target_type=job">Job audit history</a></div></details>
+</div>
+</header>
+<p class="hint">A rollout that rolled a host back is listed as
+<code>rolled_back</code> — a host state, not a job status — so it is never counted twice as a failure. Open a
+deployment for the full record; other jobs open their audit entries.</p>
+
+
+
+
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/deploy/jobs">
+
+    <details class="filter-disclosure"><summary>Filters</summary>
+      <div class="filters">
+    <label>Outcome
+      <select name="outcome"><option value="">Any</option>
+        <option value="queued">queued</option><option value="running">running</option><option value="paused">paused</option><option value="succeeded">succeeded</option><option value="failed">failed</option><option value="cancelled">cancelled</option><option value="rolled_back">rolled_back</option>
+      </select></label>
+    <label>Job type
+      <select name="type"><option value="">Any</option>
+        <option value="deploy">deploy</option><option value="scan">scan</option><option value="discover">discover</option><option value="cleanup">cleanup</option>
+      </select></label>
+
+<button class="button-secondary" type="submit">Apply filters</button></div>
+    </details>
+  </form>
+
+
+
+</section>
+
+
+<div class="list-summary" data-total="4"><span class="mono">4</span> jobs
+  · <a href="/deploy">Plan a deployment</a></div>
+
+
+<div class="table-wrap">
+<table class="jobs">
+  <thead><tr>
+    <th scope="col">Type</th>
+    <th scope="col">Target</th>
+    <th scope="col">Outcome</th>
+    <th scope="col">Hosts</th>
+    <th scope="col">Actor</th>
+    <th scope="col" class="numeric">Created</th>
+    <th scope="col">Details</th>
+  </tr></thead>
+  <tbody>
+
+  <tr class="job job-failed row-attention" data-job-id="fixture-job-0">
+    <td>deploy</td>
+    <td><a href="/certificates/42">gateway.ops.example.test</a></td>
+    <td><span class="badge badge-danger" data-outcome="failed" data-status="failed"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> failed</span></td>
+    <td><div class="host-outcomes"><span class="host-outcome" data-host="edge-01" data-status="failed"><span class="mono">edge-01</span> <span class="badge badge-danger">failed</span></span></div><p class="help"><span class="mono" data-host-total="succeeded">0</span> succeeded · <span class="mono" data-host-total="failed">1</span> failed · <span class="mono" data-host-total="rolled_back">0</span> rolled_back · <span class="mono" data-host-total="skipped">0</span> skipped · <span class="mono" data-host-total="pending">0</span> pending</p></td>
+    <td>Fixture operator</td>
+    <td class="numeric"><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+    <td><a href="/deploy/fixture-job-0" aria-label="Details for the deploy job">Details</a></td>
+  </tr>
+
+  <tr class="job job-failed row-attention" data-job-id="fixture-job-1">
+    <td>deploy</td>
+    <td><a href="/certificates/42">gateway.ops.example.test</a></td>
+    <td><span class="badge badge-danger" data-outcome="rolled_back" data-status="failed"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> rolled_back</span></td>
+    <td><div class="host-outcomes"><span class="host-outcome" data-host="edge-01" data-status="rolled_back"><span class="mono">edge-01</span> <span class="badge badge-danger">rolled_back</span></span></div><p class="help"><span class="mono" data-host-total="succeeded">0</span> succeeded · <span class="mono" data-host-total="failed">0</span> failed · <span class="mono" data-host-total="rolled_back">1</span> rolled_back · <span class="mono" data-host-total="skipped">0</span> skipped · <span class="mono" data-host-total="pending">0</span> pending</p></td>
+    <td>Fixture operator</td>
+    <td class="numeric"><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+    <td><a href="/deploy/fixture-job-1" aria-label="Details for the deploy job">Details</a></td>
+  </tr>
+
+  <tr class="job" data-job-id="fixture-job-2">
+    <td>deploy</td>
+    <td><a href="/certificates/42">gateway.ops.example.test</a></td>
+    <td><span class="badge badge-info" data-outcome="running" data-status="running"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg> running</span></td>
+    <td><div class="host-outcomes"><span class="host-outcome" data-host="edge-01" data-status="running"><span class="mono">edge-01</span> <span class="badge badge-info">running</span></span></div><p class="help"><span class="mono" data-host-total="succeeded">0</span> succeeded · <span class="mono" data-host-total="failed">0</span> failed · <span class="mono" data-host-total="rolled_back">0</span> rolled_back · <span class="mono" data-host-total="skipped">0</span> skipped · <span class="mono" data-host-total="pending">0</span> pending</p></td>
+    <td>Fixture operator</td>
+    <td class="numeric"><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+    <td><a href="/deploy/fixture-job-2" aria-label="Details for the deploy job">Details</a></td>
+  </tr>
+
+  <tr class="job" data-job-id="fixture-job-3">
+    <td>deploy</td>
+    <td><a href="/certificates/42">gateway.ops.example.test</a></td>
+    <td><span class="badge badge-ok" data-outcome="succeeded" data-status="succeeded"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> succeeded</span></td>
+    <td><div class="host-outcomes"><span class="host-outcome" data-host="edge-01" data-status="succeeded"><span class="mono">edge-01</span> <span class="badge badge-ok">succeeded</span></span></div><p class="help"><span class="mono" data-host-total="succeeded">1</span> succeeded · <span class="mono" data-host-total="failed">0</span> failed · <span class="mono" data-host-total="rolled_back">0</span> rolled_back · <span class="mono" data-host-total="skipped">0</span> skipped · <span class="mono" data-host-total="pending">0</span> pending</p></td>
+    <td>Fixture operator</td>
+    <td class="numeric"><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+    <td><a href="/deploy/fixture-job-3" aria-label="Details for the deploy job">Details</a></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span class="mono" aria-current="page">Page 1 of 1</span>
+
+</nav>
+</main>
+
+</body>
+</html>

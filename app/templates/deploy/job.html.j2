@@ -3,7 +3,11 @@
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/deploy.css">{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
 <p><a href="/overview">← Overview</a> · <a href="/deploy/jobs">All jobs</a></p>
-<h1>Deploy <a href="/certificates/{{ view.certificate_id }}">{{ view.certificate_cn }}</a></h1>
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% call page_header('Deploy ' ~ view.certificate_cn, 'Follow each host outcome; automatic restoration and failures remain in the report.') %}
+  <a class="button" href="/deploy/{{ view.job_id }}">Refresh progress</a>
+  {% call more_actions() %}<a href="/certificates/{{ view.certificate_id }}">Certificate details</a><a href="/deploy/{{ view.job_id }}/report.json" download="deploy-{{ view.job_id }}.json">Download report as JSON</a>{% endcall %}
+{% endcall %}
 
 {% include "deploy/_progress.html.j2" %}
 {% endblock %}

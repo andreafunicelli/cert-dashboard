@@ -125,14 +125,26 @@
 
 
 <main id="main-content" tabindex="-1">
-<h1>Users</h1>
+
+<header class="page-header">
+  <div><h1>Users</h1><p class="page-subtitle">Manage administrator access, sign-in security and local accounts.</p></div>
+  <div class="page-actions">
+  <a class="button" href="#create-heading">Add local user</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/audit?target_type=user">User audit history</a><a href="/account">Your account</a></div></details>
+</div>
+</header>
 <p>Every active user is an administrator. Security actions ask for <strong>your</strong> current password and sign the affected user out immediately.</p>
 
 
 
-<details class="panel wide user-create">
-  <summary>Add local user</summary>
-<section aria-labelledby="create-heading">
+
+
+<h2>User access</h2>
+
+<section class="empty-state"><h3>No users to display</h3><p><a href="#create-heading">Add a local user</a> to grant administrator access. Directory users appear after sign-in.</p></section>
+
+<p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
+<section class="panel wide user-create" aria-labelledby="create-heading">
   <h2 id="create-heading">Add local user</h2>
   <form method="post" action="/users">
     <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
@@ -146,17 +158,10 @@
     <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" required>
     <label for="new-confirm">Repeat temporary password</label>
     <input id="new-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
-    <button type="submit">Create user</button>
+    <button class="button-secondary" type="submit">Create user</button>
   </form>
   <p class="hint">The user must change this password at first sign-in. The password is never shown again.</p>
 </section>
-</details>
-
-<h2>User access</h2>
-
-<section class="empty-state"><h3>No users to display</h3><p>Add a local user above to grant administrator access. Directory users appear after sign-in.</p></section>
-
-<p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
 </main>
 
 </body>

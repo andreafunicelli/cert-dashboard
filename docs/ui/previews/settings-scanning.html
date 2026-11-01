@@ -120,30 +120,33 @@
 
 
 <main id="main-content" tabindex="-1">
-<h1>Settings</h1>
-<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
+
+<header class="page-header">
+  <div><h1>Settings</h1><p class="page-subtitle">Configure discovery, scans and delivery; save each configuration section explicitly.</p></div>
+  <div class="page-actions">
+  <button type="submit" form="settings-form-scanning">Save Scanning settings</button>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/settings?tab=status">System status</a><a href="/audit?target_type=settings">Settings audit history</a><a href="/settings?tab=scanning">Scanning section</a><a href="/settings?tab=general">General section</a></div></details>
+</div>
+</header>
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
 <nav class="tabs" aria-label="Settings sections">
   <ul>
 
-    <li><a href="/settings?tab=smtp">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=smtp">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (smtp unsaved draft)</span></a></li>
 
-    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (alerts unsaved draft)</span></a></li>
 
-    <li><a href="/settings?tab=inventory">Inventory<span class="field-change" data-settings-tab-draft="inventory" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=inventory">Inventory<span class="field-change" data-settings-tab-draft="inventory" hidden> (inventory unsaved draft)</span></a></li>
 
-    <li><a href="/settings?tab=deployment">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=deployment">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (deployment unsaved draft)</span></a></li>
 
-    <li><a href="/settings?tab=scanning" aria-current="page">Scanning<span class="field-change" data-settings-tab-draft="scanning" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=schedule" aria-current="page">Schedule and scans<span class="field-change" data-settings-tab-draft="schedule" hidden> (schedule unsaved draft)</span><span class="field-change" data-settings-tab-draft="scanning" hidden> (scanning unsaved draft)</span></a></li>
 
-    <li><a href="/settings?tab=schedule">Schedule<span class="field-change" data-settings-tab-draft="schedule" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (trust unsaved draft)</span></a></li>
 
-    <li><a href="/settings?tab=general">General<span class="field-change" data-settings-tab-draft="general" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=status">Status<span class="field-change" data-settings-tab-draft="status" hidden> (status unsaved draft)</span></a></li>
 
-    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (unsaved draft)</span></a></li>
-
-    <li><a href="/settings?tab=status">Status<span class="field-change" data-settings-tab-draft="status" hidden> (unsaved draft)</span></a></li>
-
-    <li><a href="/settings?tab=maintenance">Maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (unsaved draft)</span></a></li>
+    <li><a href="/settings?tab=maintenance">System and maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (maintenance unsaved draft)</span><span class="field-change" data-settings-tab-draft="general" hidden> (general unsaved draft)</span></a></li>
 
   </ul>
 </nav>
@@ -152,56 +155,155 @@
 
 
 <section class="panel wide" id="settings-panel" data-tab="scanning" data-settings-saved="false" data-settings-errors="false" aria-labelledby="tab-heading">
-  <h2 id="tab-heading">Scanning</h2>
+
+  <h2 id="tab-heading">Schedule and scans</h2>
   <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
 
 
 
+  <p class="help">Related settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.</p>
 
-  <form class="settings-form" data-settings-draft method="post" action="/settings/scanning" hx-post="/settings/scanning" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
-    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
 
-    <div class="settings-field">
+
+  <section class="settings-subsection" data-settings-section="schedule" data-tab="schedule" data-settings-saved="false" data-settings-errors="false" aria-labelledby="section-schedule">
+    <h3 id="section-schedule">Schedule</h3>
+
+<form id="settings-form-schedule" class="settings-form" data-settings-draft method="post" action="/settings/schedule" hx-post="/settings/schedule" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
+  <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+
+  <div class="settings-field">
+
+    <label for="f-discovery_nightly_at">Nightly discovery</label>
+    <input id="f-discovery_nightly_at" name="discovery_nightly_at" value="01:00" maxlength="600" autocomplete="off">
+
+    <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+  </div>
+
+  <div class="settings-field">
+
+    <input type="hidden" name="discovery_enabled" value="false">
+    <label for="f-discovery_enabled" class="checkbox"><input type="checkbox" id="f-discovery_enabled" name="discovery_enabled" value="true" checked> Run nightly discovery</label>
+
+    <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+  </div>
+
+  <div class="settings-field">
+
+    <label for="f-expiry_check_daily_at">Expiry check</label>
+    <input id="f-expiry_check_daily_at" name="expiry_check_daily_at" value="06:00" maxlength="600" autocomplete="off">
+
+    <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+  </div>
+
+  <div class="settings-field">
+
+    <label for="f-digest_daily_at">Daily digest</label>
+    <input id="f-digest_daily_at" name="digest_daily_at" value="07:00" maxlength="600" autocomplete="off">
+
+    <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+  </div>
+
+  <div class="settings-field">
+
+    <label for="f-cleanup_daily_at">Retention cleanup</label>
+    <input id="f-cleanup_daily_at" name="cleanup_daily_at" value="03:00" maxlength="600" autocomplete="off">
+
+    <span class="field-change" hidden>Unsaved change</span>
+
+
+
+
+
+  </div>
+
+  <div class="settings-field">
+
+    <input type="hidden" name="cleanup_enabled" value="false">
+    <label for="f-cleanup_enabled" class="checkbox"><input type="checkbox" id="f-cleanup_enabled" name="cleanup_enabled" value="true" checked> Run cleanup</label>
+
+    <span class="field-change" hidden>Unsaved change</span>
+
+
+
+    <p class="help">If disabled, old jobs, sessions and artifacts are not pruned by the scheduled cleanup.</p>
+
+  </div>
+
+  <button class="button-secondary" type="submit">Save Schedule settings</button>
+</form>
+
+  </section>
+
+
+  <section class="settings-subsection" data-settings-section="scanning" data-tab="scanning" data-settings-saved="false" data-settings-errors="false" aria-labelledby="section-scanning">
+    <h3 id="section-scanning">Scanning</h3>
+
+<form id="settings-form-scanning" class="settings-form" data-settings-draft method="post" action="/settings/scanning" hx-post="/settings/scanning" hx-target="#settings-panel" hx-swap="outerHTML" hx-select="#settings-panel">
+  <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+
+  <div class="settings-field">
 
     <label for="f-timeout_seconds">Timeout (seconds)</label>
     <input id="f-timeout_seconds" name="timeout_seconds" value="10" maxlength="600" autocomplete="off">
 
-      <span class="field-change" hidden>Unsaved change</span>
+    <span class="field-change" hidden>Unsaved change</span>
 
 
 
 
 
-    </div>
+  </div>
 
-    <div class="settings-field">
+  <div class="settings-field">
 
     <label for="f-daily_at">Daily scan time</label>
     <input id="f-daily_at" name="daily_at" value="02:00" maxlength="600" autocomplete="off">
 
-      <span class="field-change" hidden>Unsaved change</span>
+    <span class="field-change" hidden>Unsaved change</span>
 
 
 
 
 
-    </div>
+  </div>
 
-    <div class="settings-field">
+  <div class="settings-field">
 
     <input type="hidden" name="enabled" value="false">
     <label for="f-enabled" class="checkbox"><input type="checkbox" id="f-enabled" name="enabled" value="true" checked> Run daily scan</label>
 
-      <span class="field-change" hidden>Unsaved change</span>
+    <span class="field-change" hidden>Unsaved change</span>
 
 
 
 
 
-    </div>
+  </div>
 
-    <button type="submit">Save Scanning settings</button>
-  </form>
+  <button class="button-secondary" type="submit">Save Scanning settings</button>
+</form>
+
+  </section>
 
 
 </section>

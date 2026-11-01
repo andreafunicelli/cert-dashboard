@@ -42,6 +42,59 @@ function harness(initialPanel, stored = new Map(), unavailable = false, tabMarke
     accept: value => { accepted = value; }};
 }
 
+function groupedPanel(tab, children) {
+  const outer = panel(tab, []);
+  for (const child of children) child.dataset.settingsSection = child.dataset.tab;
+  outer.querySelectorAll = selector => selector === '[data-settings-section]' ? children : [];
+  return outer;
+}
+
+test('grouped sections keep separate baselines, drafts and tab markers through native save', () => {
+  const schedule = field('discovery_nightly_at', '03:00');
+  const scanning = field('timeout_seconds', '10');
+  const markers = ['schedule', 'scanning'].map(tab => ({dataset: {settingsTabDraft: tab}, hidden: true}));
+  const h = harness(groupedPanel('schedule', [panel('schedule', [schedule]), panel('scanning', [scanning])]), new Map(), false, markers);
+  h.edit(schedule, '04:00');
+  h.edit(scanning, '20');
+  assert.equal(markers.every(marker => !marker.hidden), true);
+  assert.deepEqual(JSON.parse(h.stored.get(key('schedule'))).values, {discovery_nightly_at: '04:00'});
+  assert.deepEqual(JSON.parse(h.stored.get(key('scanning'))).values, {timeout_seconds: '20'});
+  const restored = field('timeout_seconds', '10');
+  harness(groupedPanel('schedule', [panel('schedule', [field('discovery_nightly_at', '04:00')], true), panel('scanning', [restored])]), h.stored, false, markers);
+  assert.equal(h.stored.has(key('schedule')), false);
+  assert.equal(restored.value, '20');
+  assert.equal(restored.marker.hidden, false);
+  assert.equal(markers[0].hidden, true);
+  assert.equal(markers[1].hidden, false);
+});
+
+test('grouped HTMX 422 preserves the refused value and restores the sibling draft', () => {
+  const schedule = field('discovery_nightly_at', '03:00');
+  const scanning = field('timeout_seconds', '10');
+  const h = harness(groupedPanel('schedule', [panel('schedule', [schedule]), panel('scanning', [scanning])]));
+  h.edit(schedule, '04:00');
+  h.edit(scanning, 'bad');
+  const sibling = field('discovery_nightly_at', '03:00');
+  const invalid = field('timeout_seconds', 'bad');
+  h.swap(groupedPanel('scanning', [panel('schedule', [sibling]), panel('scanning', [invalid], false, true)]));
+  assert.equal(sibling.value, '04:00');
+  assert.equal(invalid.value, 'bad');
+  assert.equal(sibling.marker.hidden, false);
+  assert.equal(invalid.marker.hidden, false);
+  let prevented = false;
+  h.events.click({target: {closest: () => ({})}, button: 0, preventDefault: () => { prevented = true; }});
+  assert.equal(prevented, true);
+});
+
+test('grouped general drafts never include maintenance confirmations or key material', () => {
+  const timezone = field('timezone', 'UTC');
+  const secret = field('api_key', 'SECRET');
+  const h = harness(groupedPanel('maintenance', [panel('general', [timezone]), panel('maintenance', [secret])]));
+  h.edit(timezone, 'Europe/Rome');
+  assert.equal(h.stored.has(key('maintenance')), false);
+  assert.equal([...h.stored.values()].some(value => value.includes('SECRET')), false);
+});
+
 test('text, select and checkbox edits mark dirty, reverting removes the draft', () => {
   const fields = [field('host', 'old'), field('security', 'starttls', 'select-one'), field('tls_verify', true, 'checkbox')];
   const h = harness(panel('smtp', fields));

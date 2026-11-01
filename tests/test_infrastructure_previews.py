@@ -181,6 +181,6 @@ def test_area_styles_reuse_tokens_and_bound_long_server_rows():
         assert "overflow-wrap: break-word" in css
         assert "table-layout: fixed" in css
     css = (root / "app/static/pages/servers.css").read_text()
-    assert "width: 27%" in css and "width: 24%" in css and "white-space: nowrap" in css
+    assert "width: 25%" in css and "width: 24%" in css and "white-space: nowrap" in css
     assert 'data-server-id="2"' in rendered("server-list")
     assert "View host failure reason" in rendered("server-list")

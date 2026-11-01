@@ -9,8 +9,7 @@
 .audit-detail { padding: var(--space-2) var(--space-3); }
 .audit-detail pre { white-space: pre-wrap; overflow-wrap: break-word; }
 .audit-detail .fields { grid-template-columns: var(--label-width) minmax(0, 1fr); }
-.audit-filters .filters { gap: var(--space-4); }
-.list-summary { max-width: none; }
+
 @media (max-width: 719px) {
   .audit th, .audit td { padding-inline: var(--space-2); }
   .audit th { overflow-wrap: break-word; }

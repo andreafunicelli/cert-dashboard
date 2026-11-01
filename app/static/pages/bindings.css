@@ -18,7 +18,7 @@
 .binding-stale-text { min-width: 0; flex: 1 1 auto; overflow-wrap: break-word; }
 .binding-hash { display: block; user-select: all; overflow-wrap: anywhere; }
 .binding-note { font-size: var(--text-sm); }
-.list-summary { margin-block: var(--space-5); }
+
 @media (max-width: 719px) {
   /* Narrow screens keep the four-column comparison intact and scroll inside the region. */
   .bindings { min-width: 48rem; }

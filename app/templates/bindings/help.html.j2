@@ -4,7 +4,11 @@
 {% from "_ui.html.j2" import icon %}
 {% block content %}
 <p><a href="/bindings">← All bindings</a></p>
-<h1>Binding match states</h1>
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% call page_header('Binding match states', 'Understand disk evidence, inventory matches and the actions a finding needs.') %}
+  <a class="button" href="/bindings">Review bindings</a>
+  {% call more_actions() %}<a href="/servers#discovery-actions">Discovery controls</a><a href="/scans">Endpoint scans</a>{% endcall %}
+{% endcall %}
 <section class="panel wide" aria-label="Match states">
   <p>A binding is one certificate/key pair that a virtual host is configured to use on a server. Discovery compares what is on disk with the certificate inventory and records a match state. The dashboard only reports these states: it does not fix them, because correcting a server's files is your decision.</p>
   <p class="help">These are stored observations, not desired-deployment or live TLS verdicts. A matched certificate need not be the certificate you intend to deploy. Stale means the latest discovery did not succeed, not that this certificate changed.</p>

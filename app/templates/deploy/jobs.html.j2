@@ -3,13 +3,16 @@
 {% block title %}Jobs · Cert Dashboard{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/deploy.css">{% endblock %}
 {% block content %}
-<h1>Jobs</h1>
-<p class="hint">Every queued, running and finished job, newest first. A rollout that rolled a host back is listed as
+{% from "_operations_ui.html.j2" import page_header, more_actions, filters %}
+{% call page_header('Jobs', 'Track queued, running and finished operations, newest first.') %}
+  <a class="button" href="/deploy">Plan a deployment</a>
+  {% call more_actions() %}<a href="/audit?target_type=job">Job audit history</a>{% endcall %}
+{% endcall %}
+<p class="hint">A rollout that rolled a host back is listed as
 <code>rolled_back</code> — a host state, not a job status — so it is never counted twice as a failure. Open a
 deployment for the full record; other jobs open their audit entries.</p>
 
-<section class="panel wide" aria-label="Filters">
-  <form method="get" action="/deploy/jobs" class="filters">
+{% call filters('/deploy/jobs', values, {'outcome': 'Outcome', 'type': 'Job type'}) %}
     <label>Outcome
       <select name="outcome"><option value="">Any</option>
         {% for item in outcomes %}<option value="{{ item }}"{% if values.outcome == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
@@ -19,10 +22,7 @@ deployment for the full record; other jobs open their audit entries.</p>
         {% for item in types %}<option value="{{ item }}"{% if values.type == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
       </select></label>
     {% if values.page_size %}<input type="hidden" name="page_size" value="{{ values.page_size }}">{% endif %}
-    <button type="submit">Apply filters</button>
-    <a href="/deploy/jobs">Reset</a>
-  </form>
-</section>
+{% endcall %}
 
 <div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> job{{ "" if page.total == 1 else "s" }}
   · <a href="/deploy">Plan a deployment</a></div>
@@ -36,7 +36,7 @@ deployment for the full record; other jobs open their audit entries.</p>
     <th scope="col">Outcome</th>
     <th scope="col">Hosts</th>
     <th scope="col">Actor</th>
-    <th scope="col">Created</th>
+    <th scope="col" class="numeric">Created</th>
     <th scope="col">Details</th>
   </tr></thead>
   <tbody>
@@ -47,7 +47,7 @@ deployment for the full record; other jobs open their audit entries.</p>
     <td><span class="badge {{ 'badge-danger' if job.outcome in ('failed', 'rolled_back') else 'badge-ok' if job.outcome == 'succeeded' else 'badge-info' }}" data-outcome="{{ job.outcome }}" data-status="{{ job.status }}">{{ icon('danger' if job.outcome in ('failed', 'rolled_back') else 'ok' if job.outcome == 'succeeded' else 'info') }} {{ job.outcome }}</span></td>
     <td>{% if job.hosts %}<div class="host-outcomes">{% for host in job.hosts %}<span class="host-outcome" data-host="{{ host.hostname }}" data-status="{{ host.status }}"><span class="mono">{{ host.hostname }}</span> <span class="badge {{ 'badge-danger' if host.status in ('failed', 'rolled_back') else 'badge-ok' if host.status == 'succeeded' else 'badge-info' }}">{{ host.status }}</span></span>{% if not loop.last %}<br>{% endif %}{% endfor %}</div>{% if job.hosts_omitted %}<p class="help" data-hosts-omitted="{{ job.hosts_omitted }}">+{{ job.hosts_omitted }} more host{{ "" if job.hosts_omitted == 1 else "s" }} — open the deployment for the full record</p>{% endif %}<p class="help">{% for key in ('succeeded', 'failed', 'rolled_back', 'skipped', 'pending') %}<span class="mono" data-host-total="{{ key }}">{{ job.totals[key] }}</span> {{ key }}{% if not loop.last %} · {% endif %}{% endfor %}</p>{% else %}—{% endif %}</td>
     <td>{{ job.actor }}</td>
-    <td>{{ time_tag(job.created_at, tz) }}</td>
+    <td class="numeric">{{ time_tag(job.created_at, tz) }}</td>
     <td><a href="{{ job.href }}" aria-label="Details for the {{ job.type }} job">Details</a></td>
   </tr>
   {% endfor %}

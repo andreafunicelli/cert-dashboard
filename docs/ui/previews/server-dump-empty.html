@@ -123,7 +123,14 @@
 
 <main id="main-content" tabindex="-1">
 <p><a href="/servers/1">← edge-01.ops.example.test</a></p>
-<h1>Last raw dump summary</h1>
+
+<header class="page-header">
+  <div><h1>Last raw dump summary</h1><p class="page-subtitle">Inspect captured discovery evidence without exposing the raw configuration dump.</p></div>
+  <div class="page-actions">
+  <a class="button" href="/servers/1">Review server</a>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/servers/1#actions">Discovery controls</a><a href="/scans?server_id=1">Endpoint scans</a></div></details>
+</div>
+</header>
 
 <section class="panel wide" id="dump-summary">
   <p>No raw dump has been captured for <strong>edge-01.ops.example.test</strong> yet. Run discovery from the server page; unreachable or failed runs capture nothing.</p>

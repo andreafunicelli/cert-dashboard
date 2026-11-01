@@ -1,0 +1,40 @@
+{# Composition only: canonical shared CSS, native links/forms, no new widget system. #}
+{% from "_ui.html.j2" import icon %}
+{% macro page_header(title, purpose) -%}
+<header class="page-header">
+  <div><h1>{{ title }}</h1><p class="page-subtitle">{{ purpose }}</p></div>
+  {% if caller is defined %}<div class="page-actions">{{ caller() }}</div>{% endif %}
+</header>
+{%- endmacro %}
+{% macro more_actions() -%}
+<details class="action-menu"><summary>More actions</summary><div class="action-menu-items">{{ caller() }}</div></details>
+{%- endmacro %}
+{% macro filters(path, values, labels, search='', placeholder='') %}
+{% set active = namespace(count=0) %}
+{% for key in labels %}{% if key != search and values.get(key) and not (key == 'active' and values[key] == 'true') %}{% set active.count = active.count + 1 %}{% endif %}{% endfor %}
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="{{ path }}">
+    {% if search %}<div class="filter-toolbar">
+      <label class="filter-search">{{ labels[search] }} <input type="search" name="{{ search }}" value="{{ values.get(search) or '' }}" maxlength="200" placeholder="{{ placeholder }}"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>{% endif %}
+    <details class="filter-disclosure"><summary>Filters{% if active.count %} · {{ active.count }}{% endif %}</summary>
+      <div class="filters">{{ caller() }}<button class="button-secondary" type="submit">Apply filters</button></div>
+    </details>
+  </form>
+  {% set selected = namespace(count=0) %}
+  {% for key in labels %}{% if values.get(key) and not (key == 'active' and values[key] == 'true') %}{% set selected.count = selected.count + 1 %}{% endif %}{% endfor %}
+  {% if selected.count %}<div class="applied-filters" aria-label="Applied filters">
+    <a href="{{ path }}">Reset</a>
+    {% for key, label in labels.items() %}{% if values.get(key) and not (key == 'active' and values[key] == 'true') %}
+      {% set remaining = namespace(pairs=[]) %}
+      {% for name, value in values.items() %}{% if name not in (key, 'page') and value %}{% set remaining.pairs = remaining.pairs + [(name, value)] %}{% endif %}{% endfor %}
+      {% set display = ({'true': 'Active', 'false': 'Retired' if path == '/bindings' else 'Inactive', 'all': 'All'}.get(values[key], values[key])) if key == 'active' else values[key] %}
+      <a class="chip filter-chip" href="{{ path }}{% if remaining.pairs %}?{{ remaining.pairs | urlencode }}{% endif %}" aria-label="Remove {{ label }} filter: {{ display }}">{{ label }}: {{ display }} {{ icon('danger') }}</a>
+    {% endif %}{% endfor %}
+  </div>{% endif %}
+</section>
+{% endmacro %}
+{% macro observation_age(at, now) -%}
+{% if at %}{% set seconds = (now - at).total_seconds() | int %}<span class="mono">{% if seconds < 0 %}Time ahead of server clock{% elif seconds < 60 %}Less than a minute ago{% elif seconds < 3600 %}{{ seconds // 60 }} min ago{% elif seconds < 86400 %}{{ seconds // 3600 }} h ago{% else %}{{ seconds // 86400 }} d ago{% endif %}</span>{% else %}Not observed{% endif %}
+{%- endmacro %}

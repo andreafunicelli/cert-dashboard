@@ -189,6 +189,7 @@ def fixtures():
     pages.update(certificate_density_fixtures())
     pages.update(operations_fixtures())
     pages.update(infrastructure_fixtures())
+    pages.update(consistency_fixtures(pages))
     return {name: (template, common | context) for name, (template, context) in pages.items()}
 
 
@@ -433,6 +434,11 @@ def inventory_fixtures():
             "page": ns(items=[row], total=1, page=1, page_size=50),
             "servers": [(1, "edge-01")],
             "statuses": ["ok", "expired", "mismatch", "unreachable", "error"],
+            "sort_state": "status",
+            "values": {key: '' for key in ('search', 'status', 'server_id', 'group', 'active', 'certificate_id')},
+            "sort_url": lambda column: f"/scans?sort={column}",
+            "page_url": lambda n: f"/scans?page={n}",
+            "export_url": "/scans/export.json",
             "add_form": {"host": "", "port": "443", "sni": "", "expected_certificate_id": ""},
             "add_errors": {},
             "existing_id": None,
@@ -684,6 +690,55 @@ def infrastructure_fixtures():
         "binding-help": ("bindings/help.html.j2", listing),
     }
 
+
+
+def consistency_fixtures(pages):
+    """Grouped settings, endpoint verdicts and job-list fixtures for the final UX pass."""
+    ns = SimpleNamespace
+    result = {}
+    for name, (template, context) in pages.items():
+        if not name.startswith('settings-'):
+            continue
+        tab = context['tab']
+        canonical = {'scanning': 'schedule', 'general': 'maintenance'}.get(tab, tab)
+        labels = {'schedule': 'Schedule and scans', 'maintenance': 'System and maintenance'}
+        section_tabs = [ns(name=t.name, label=labels.get(t.name, t.label))
+                        for t in context['tabs'] if t.name not in ('scanning', 'general')]
+        related = {'schedule': 'scanning', 'scanning': 'schedule',
+                   'maintenance': 'general', 'general': 'maintenance'}.get(tab)
+        related_sections = []
+        if related:
+            sibling = pages['settings-' + related][1]
+            related_sections = [{'tab': related, 'label': sibling['tab_label'], 'fields': sibling['fields'],
+                                 'values': sibling['values'], 'errors': {}, 'saved': False}]
+        result[name] = (template, context | {'section_tabs': section_tabs, 'section_tab': canonical,
+                                          'section_label': labels.get(canonical, context['tab_label']),
+                                          'related_sections': related_sections})
+    template, scan = pages['scan-list']
+    seed = scan['page'].items[0]
+    rows = [ns(**(vars(seed) | {'id': 20 + index, 'host': f'{status or "new"}.ops.example.test',
+             'status': status, 'checked_at': scan['now'] - timedelta(hours=index + 1) if status else None,
+             'error': 'TLS connection refused. Review endpoint details.' if status == 'unreachable' else ''}))
+            for index, status in enumerate(('mismatch', 'unreachable', 'expired', None, 'ok'))]
+    result['scan-list-verdicts'] = (template, scan | {'page': ns(items=rows, total=len(rows), page=1, page_size=50)})
+    result['scan-list-empty'] = (template, scan | {'page': ns(items=[], total=0, page=1, page_size=50)})
+    stamp = scan['now']
+    jobs = [ns(job_id=f'fixture-job-{index}', type='deploy', certificate_id=42,
+               certificate_cn=seed.expected_common_name, outcome=outcome,
+               status='failed' if outcome == 'rolled_back' else outcome,
+               hosts=[ns(hostname=seed.server, status=outcome)], hosts_omitted=0,
+               totals={key: int(key == outcome) for key in ('succeeded', 'failed', 'rolled_back', 'skipped', 'pending')},
+               actor='Fixture operator', created_at=stamp, href=f'/deploy/fixture-job-{index}')
+            for index, outcome in enumerate(('failed', 'rolled_back', 'running', 'succeeded'))]
+    job_context = {'page': ns(items=jobs, total=len(jobs), page=1, page_size=50), 'pages': 1,
+                   'values': {'outcome': '', 'type': '', 'page_size': ''}, 'types': ['deploy', 'scan', 'discover', 'cleanup'],
+                   'outcomes': ['queued', 'running', 'paused', 'succeeded', 'failed', 'cancelled', 'rolled_back'],
+                   'page_url': lambda number: f'/deploy/jobs?page={number}', 'tz': 'UTC',
+                   'request': ns(url=ns(path='/deploy/jobs'), state=ns(worker_stale=False)),
+                   'user': ns(display_name='Fixture operator')}
+    result['deploy-jobs'] = ('deploy/jobs.html.j2', job_context)
+    result['deploy-jobs-empty'] = ('deploy/jobs.html.j2', job_context | {'page': ns(items=[], total=0, page=1, page_size=50)})
+    return result
 
 
 def render(output=OUTPUT):

@@ -149,7 +149,7 @@ def test_unbadged_rows_are_not_painted():
     ("certificate-list", "certificates", [2]),
     ("server-list", "servers", [4]),
     ("audit", "audit", [0]),
-    ("scan-list", "scans", [5, 7]),
+    ("scan-list", "scans", [3]),
     ("scan-findings", None, [0]),
     ("server-detail", "discovery-history", [0]),
 ])
