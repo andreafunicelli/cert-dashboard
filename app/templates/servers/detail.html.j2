@@ -83,17 +83,6 @@
   {% else %}<p>No captured dump is available.{% if not server.last_discovery_at and not server.last_discovery_status and not detail.discovery_history %} This server has not been discovered yet.{% else %} Failed or unreachable attempts may capture nothing.{% endif %}</p>{% endif %}
   {% if detail.dump_summary or detail.discovery_history %}<p class="help">Changes since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove “no changes”.</p>{% endif %}
 </section>
-<section class="panel wide" id="server-configuration" aria-label="Configuration">
-  <h2>Configuration</h2>
-  <dl class="fields">
-    <dt>Display name</dt><dd>{{ server.display_name or "—" }}</dd>
-    <dt>Groups</dt><dd>{{ server.groups | join(", ") or "—" }}</dd>
-    <dt>Web server</dt><dd>{{ server.webserver or "—" }}</dd>
-    <dt>Connection address</dt><dd class="mono">{{ detail.connection_address or "—" }}</dd>
-    <dt>Inventory source</dt><dd>{{ detail.inventory_source }}</dd>
-    <dt>Notes</dt><dd class="notes">{{ detail.notes or "—" }}</dd>
-  </dl>
-</section>
 <section class="panel wide" id="actions" aria-label="Actions">
   <h2>Discovery and endpoint checks</h2>
   {% if discovery_reason %}
@@ -109,5 +98,16 @@
   {% endif %}
   <p><a href="/servers/{{ server.id }}/dump">Last raw dump summary</a></p>
   <p><a href="/scans?server_id={{ server.id }}">Open endpoint scan</a></p>
+</section>
+<section class="panel wide" id="server-configuration" aria-label="Configuration">
+  <h2>Configuration</h2>
+  <dl class="fields">
+    <dt>Display name</dt><dd>{{ server.display_name or "—" }}</dd>
+    <dt>Groups</dt><dd>{{ server.groups | join(", ") or "—" }}</dd>
+    <dt>Web server</dt><dd>{{ server.webserver or "—" }}</dd>
+    <dt>Connection address</dt><dd class="mono">{{ detail.connection_address or "—" }}</dd>
+    <dt>Inventory source</dt><dd>{{ detail.inventory_source }}</dd>
+    <dt>Notes</dt><dd class="notes">{{ detail.notes or "—" }}</dd>
+  </dl>
 </section>
 {% endblock %}

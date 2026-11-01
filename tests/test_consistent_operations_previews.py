@@ -58,7 +58,7 @@ def test_filter_disclosures_keep_one_get_form_and_precise_removable_chips(name, 
 
 def test_server_detail_prioritises_state_bindings_history_then_configuration():
     html = rendered('server-detail')
-    positions = [html.index(f'id="{name}"') for name in ('server-panel', 'bindings-panel', 'discovery-history', 'server-configuration')]
+    positions = [html.index(f'id="{name}"') for name in ('server-panel', 'bindings-panel', 'discovery-history', 'actions', 'server-configuration')]
     assert positions == sorted(positions)
     assert 'Discovery state' in rendered('server-list')
     assert 'Last seen / discovery' in rendered('server-list')

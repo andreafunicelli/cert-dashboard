@@ -6,7 +6,8 @@
 {% block content %}
 {% from "_operations_ui.html.j2" import page_header, more_actions, filters %}
 {% call page_header('Servers', 'Find hosts, stored bindings and discovery failures before checking live TLS drift.') %}
-  <a class="button" href="#discovery-actions">Run discovery</a>
+  {% if discovery_reason %}<button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
+  {% else %}<a class="button" href="#discovery-actions">Run discovery</a>{% endif %}
   {% call more_actions() %}<a href="{{ export_url }}" download="servers.json">Export list as JSON</a><a href="/bindings">Where is a certificate used?</a>{% endcall %}
 {% endcall %}
 {% call filters('/servers', values, {'search': 'Search', 'group': 'Group', 'active': 'Servers'}, 'search', 'Host name') %}

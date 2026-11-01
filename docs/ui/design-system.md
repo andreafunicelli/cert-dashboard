@@ -584,8 +584,9 @@ Server column allocation is now 25% identity / 11% groups / 18% discovery state 
 Binding count means **bindings**, not a fabricated distinct-certificate count.
 Discovery state and last discovery time remain separate from current TLS drift;
 there is no aggregate live host-health claim or invented last-seen heartbeat.
-Server detail is state → bindings → history → captured evidence → configuration.
-Discovery actions remain native POST/CSRF forms after those sections.
+Server detail is state → bindings → history → captured evidence → discovery actions →
+configuration; configuration is last. Discovery actions remain native POST/CSRF
+forms before it.
 
 The endpoint list is five columns: endpoint/SNI, server, latest verdict, observation
 age/exact time, actions. Observation age is rendered against the request's server

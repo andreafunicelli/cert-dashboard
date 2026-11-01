@@ -6,8 +6,8 @@
 <p><a href="/scans">← All scans</a></p>
 {% from "_operations_ui.html.j2" import page_header, more_actions %}
 {% call page_header(hostport(row.host, row.port), 'Compare the last observed certificate with the inventory expectation, then review scan history.') %}
-  <a class="button" href="#endpoint-panel">Review verdict</a>
-  {% call more_actions() %}<a href="#history">History</a><a href="#manage-panel">Manage endpoint</a>{% endcall %}
+  <a class="button" href="#manage-panel">Manage endpoint</a>
+  {% call more_actions() %}<a href="#history">History</a><a href="/scans">All endpoints</a>{% endcall %}
 {% endcall %}
 <section class="panel wide" id="endpoint-panel" aria-label="Endpoint">
   <p>{{ scan_state(row.status) }}
