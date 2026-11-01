@@ -1,6 +1,7 @@
 """Repository-only inventory fixture and fragment checks (not runtime image inputs)."""
 
 from copy import deepcopy
+from urllib.parse import parse_qs, urlsplit
 
 from scripts.render_previews import environment, fixtures
 from tests.test_ui_previews import Elements
@@ -143,9 +144,43 @@ def test_list_preserves_filters_hooks_and_right_aligned_counts():
         "renewal_state",
         "sort",
         "page_size",
+        "csrf_token",
     }
     html = rendered("certificate-list")
     assert html.count("data-cn=") == 5 and 'data-total="5"' in html
     assert 'class="numeric"' in html and "chip-expired" in html
-    for state in ("Valid", "Expiring", "Expired", "Revoked", "Unknown validity"):
+    for state in ("Valid", "20 days", "Expired", "Revoked", "Unknown"):
         assert state in html
+
+
+def test_compact_list_has_six_columns_one_status_and_existing_row_actions():
+    html = rendered("certificate-list")
+    elements = Elements(html).elements
+    assert sum(tag == "th" for tag, _ in elements) == 6
+    assert sum(tag == "time" for tag, _ in elements) == 5
+    assert sum("badge" in attrs.get("class", "").split() for _, attrs in elements) == 5
+    assert sum(attrs.get("class") == "button" for _, attrs in elements) == 1
+    assert "Expired 3 days ago" not in html and 'class="lifecycle"' not in html
+    for certificate_id in (42, 50, 51, 52, 53):
+        assert f'action="/certificates/{certificate_id}/scan"' in html
+        assert f'href="/certificates/{certificate_id}/leaf.pem"' in html
+        assert f'href="/certificates/{certificate_id}#status-panel"' in html
+    assert "Deletion is unavailable" in html and "/delete" not in html
+
+
+def test_filters_are_collapsed_and_chips_remove_only_one_encoded_value():
+    html = rendered("certificate-list")
+    assert 'aria-label="Applied filters"' not in html
+    details = [a for t, a in Elements(html).elements if t == "details" and a.get("class") == "filter-disclosure"]
+    assert len(details) == 1 and "open" not in details[0]
+    source, context = fixtures()["certificate-list"]
+    values = {"search": "*.apps.example.test", "owner": 'a&b+<script>"', "status": "active",
+              "has_key": "false", "sort": "-common_name", "page_size": "100", "page": "3"}
+    html = environment().get_template(source).render(context | {"values": values})
+    assert "Filters · 3" in html and '<script>"' not in html
+    chips = [attrs for tag, attrs in Elements(html).elements if tag == "a" and "filter-chip" in attrs.get("class", "")]
+    assert len(chips) == 4
+    for chip, removed in zip(chips, ("search", "status", "owner", "has_key"), strict=True):
+        query = parse_qs(urlsplit(chip["href"]).query)
+        assert query == {k: [v] for k, v in values.items() if k not in (removed, "page")}
+    assert "Private key: Absent" in html

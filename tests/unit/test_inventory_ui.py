@@ -125,5 +125,7 @@ def test_page_css_reuses_known_tokens_and_shared_controls():
     for area in ("certificates", "renewals", "import", "scans"):
         css = (ROOT / f"app/static/pages/{area}.css").read_text()
         assert set(re.findall(r"var\(--([\w-]+)\)", css)) <= tokens
-        assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\b\d+(?:px|rem)\b", css.replace("719px", ""))
+        # Only the documented mobile and compact-desktop breakpoints are literals.
+        rules = css.replace("719px", "").replace("1279px", "")
+        assert not re.search(r"#[0-9a-fA-F]{3,8}\b|\b\d+(?:px|rem)\b", rules)
     assert "white-space: nowrap" in shared and "user-select: all" in shared

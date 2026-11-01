@@ -15,5 +15,5 @@
 .overview-failures .help { color: inherit; }
 .actions { margin-block: var(--space-5) var(--space-6); }
 .empty-state ol { max-width: var(--panel-width); margin-inline: auto; text-align: left; }
-.recent-jobs td, .unknown-bindings td { overflow-wrap: anywhere; }
-.renewals-in-flight li { padding: var(--space-4); border-bottom: var(--line) solid var(--separator); overflow-wrap: anywhere; }
+.recent-jobs td, .unknown-bindings td { overflow-wrap: break-word; }
+.renewals-in-flight li { padding: var(--space-4); border-bottom: var(--line) solid var(--separator); overflow-wrap: break-word; }

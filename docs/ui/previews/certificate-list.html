@@ -50,162 +50,180 @@
 
 <main id="main-content" tabindex="-1">
 
-<h1>Certificates</h1>
-<section class="panel wide" aria-label="Filters">
-  <form method="get" action="/certificates" class="filters">
-    <label>Search <input type="search" name="search" value="" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
-    <label>Status
-      <select name="status"><option value="">Any</option>
-        <option value="active">active</option><option value="superseded">superseded</option><option value="revoked">revoked</option>
-      </select></label>
-    <label>Expires
-      <select name="expiry"><option value="">Any</option>
-        <option value="expired">Already expired</option><option value="lt7">In less than 7 days</option><option value="lt30">In 7 to 30 days</option><option value="lt60">In 30 to 60 days</option>
-      </select></label>
-    <label>Issuer <input name="issuer" value="" maxlength="200"></label>
-    <label>Team <input name="team" value="" maxlength="200"></label>
-    <label>Owner <input name="owner" value="" maxlength="200"></label>
-    <label>Private key
-      <select name="has_key"><option value="">Any</option>
-        <option value="true">Present</option>
-        <option value="false">Absent</option></select></label>
-    <label>Bindings
-      <select name="has_bindings"><option value="">Any</option>
-        <option value="true">Has bindings</option>
-        <option value="false">No bindings</option></select></label>
-    <label>Renewal
-      <select name="renewal_state"><option value="">Any</option>
 
-      </select></label>
+
+
+
+<header class="page-header">
+  <div><h1>Certificates</h1><p class="page-subtitle" data-total="5">5 certificates</p></div>
+  <div class="page-actions">
+    <a class="button" href="/certificates/import">Import certificate</a>
+    <details class="action-menu"><summary>More actions</summary><div class="action-menu-items">
+      <a href="/certificates/export.json" download="certificates.json">Export list as JSON</a>
+    </div></details>
+  </div>
+</header>
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/certificates">
+    <div class="filter-toolbar">
+      <label class="filter-search">Search <input type="search" name="search" value="" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>
+    <details class="filter-disclosure">
+      <summary>Filters</summary>
+      <div class="filters">
+        <label>Status
+          <select name="status"><option value="">Any</option>
+            <option value="active">active</option><option value="superseded">superseded</option><option value="revoked">revoked</option>
+          </select></label>
+        <label>Expires
+          <select name="expiry"><option value="">Any</option>
+            <option value="expired">Already expired</option><option value="lt7">In less than 7 days</option><option value="lt30">In 7 to 30 days</option><option value="lt60">In 30 to 60 days</option>
+          </select></label>
+        <label>Issuer <input name="issuer" value="" maxlength="200"></label>
+        <label>Team <input name="team" value="" maxlength="200"></label>
+        <label>Owner <input name="owner" value="" maxlength="200"></label>
+        <label>Private key
+          <select name="has_key"><option value="">Any</option>
+            <option value="true">Present</option>
+            <option value="false">Absent</option></select></label>
+        <label>Bindings
+          <select name="has_bindings"><option value="">Any</option>
+            <option value="true">Has bindings</option>
+            <option value="false">No bindings</option></select></label>
+        <label>Renewal
+          <select name="renewal_state"><option value="">Any</option>
+
+          </select></label>
+        <button class="button-secondary" type="submit">Apply filters</button>
+      </div>
+    </details>
     <input type="hidden" name="sort" value="not_after">
     <input type="hidden" name="page_size" value="50">
-    <button type="submit">Apply filters</button>
-    <a href="/certificates">Reset</a>
   </form>
+
 </section>
 
-<p class="list-summary" data-total="5">5 certificates
-  · <a href="/certificates/export.json" download="certificates.json">Export list as JSON</a>
-  · <a href="/certificates/import">Import certificate</a></p>
 
-
-<div class="table-wrap">
+<div class="table-wrap certificate-table-wrap" tabindex="0" role="region" aria-label="Certificate results">
 <table class="certificates">
   <thead><tr>
     <th scope="col"><a href="/certificates?sort=common_name">Common name</a></th>
-    <th scope="col" class="numeric">SANs</th>
     <th scope="col"><a href="/certificates?sort=issuer_cn">Issuer</a></th>
-    <th scope="col"><a href="/certificates?sort=not_after">Expires</a></th>
-    <th scope="col">Owner</th>
+    <th scope="col" class="numeric"><a href="/certificates?sort=not_after">Expires</a></th>
     <th scope="col"><a href="/certificates?sort=status">Status</a></th>
-    <th scope="col">Source</th>
-    <th scope="col">Key</th>
     <th scope="col" class="numeric">Bindings</th>
+    <th scope="col">Actions</th>
   </tr></thead>
   <tbody>
 
-
   <tr data-cn="gateway.ops.example.test">
-    <td><a href="/certificates/42">gateway.ops.example.test</a></td>
-    <td class="numeric">40</td>
-    <td>Operations Intermediate CA</td>
-    <td class="numeric"><time datetime="2026-11-19T12:00:00Z">2026-11-19 12:00 UTC</time> <span class="chip chip-warning"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
-
-</svg>20 days</span></td>
-    <td>Operations team<br><small>Infrastructure</small></td>
+    <td class="certificate-name"><a href="/certificates/42" title="gateway.ops.example.test">gateway.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-19T12:00:00Z">2026-11-19 12:00 UTC</time></td>
     <td>
 <span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
 
-</svg>Expiring</span>
-<small class="lifecycle">active</small></td>
-    <td>Imported</td>
-    <td>yes</td>
+</svg>20 days</span>
+</td>
     <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for gateway.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/42">Details</a>
+        <form method="post" action="/certificates/42/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/42/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/42#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
   </tr>
 
-
   <tr data-cn="active-0.ops.example.test">
-    <td><a href="/certificates/50">active-0.ops.example.test</a></td>
-    <td class="numeric">40</td>
-    <td>Operations Intermediate CA</td>
-    <td class="numeric"><time datetime="2027-04-28T12:00:00Z">2027-04-28 12:00 UTC</time> <span class="chip chip-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <path d="m5 12 4 4 10-10"/>
-
-</svg>180 days</span></td>
-    <td>Operations team<br><small>Infrastructure</small></td>
+    <td class="certificate-name"><a href="/certificates/50" title="active-0.ops.example.test">active-0.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-04-28T12:00:00Z">2027-04-28 12:00 UTC</time></td>
     <td>
 <span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m5 12 4 4 10-10"/>
 
 </svg>Valid</span>
-<small class="lifecycle">active</small></td>
-    <td>Imported</td>
-    <td>yes</td>
+</td>
     <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for active-0.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/50">Details</a>
+        <form method="post" action="/certificates/50/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/50/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/50#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
   </tr>
 
-
   <tr data-cn="active-1.ops.example.test">
-    <td><a href="/certificates/51">active-1.ops.example.test</a></td>
-    <td class="numeric">40</td>
-    <td>Operations Intermediate CA</td>
-    <td class="numeric"><time datetime="2026-10-27T12:00:00Z">2026-10-27 12:00 UTC</time> <span class="chip chip-expired"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
-
-</svg>Expired 3 days ago</span></td>
-    <td>Operations team<br><small>Infrastructure</small></td>
+    <td class="certificate-name"><a href="/certificates/51" title="active-1.ops.example.test">active-1.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-10-27T12:00:00Z">2026-10-27 12:00 UTC</time></td>
     <td>
-<span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+<span class="badge badge-danger chip-expired"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
 
 </svg>Expired</span>
-<small class="lifecycle">active</small></td>
-    <td>Imported</td>
-    <td>yes</td>
+</td>
     <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for active-1.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/51">Details</a>
+        <form method="post" action="/certificates/51/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/51/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/51#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
   </tr>
 
-
   <tr data-cn="revoked-2.ops.example.test">
-    <td><a href="/certificates/52">revoked-2.ops.example.test</a></td>
-    <td class="numeric">40</td>
-    <td>Operations Intermediate CA</td>
-    <td class="numeric"><time datetime="2026-11-09T12:00:00Z">2026-11-09 12:00 UTC</time> <span class="chip chip-warning"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
-
-</svg>10 days</span></td>
-    <td>Operations team<br><small>Infrastructure</small></td>
+    <td class="certificate-name"><a href="/certificates/52" title="revoked-2.ops.example.test">revoked-2.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-09T12:00:00Z">2026-11-09 12:00 UTC</time></td>
     <td>
 <span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
 
 </svg>Revoked</span>
-<small class="lifecycle">revoked</small></td>
-    <td>Imported</td>
-    <td>yes</td>
+</td>
     <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for revoked-2.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/52">Details</a>
+        <form method="post" action="/certificates/52/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/52/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/52#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
   </tr>
 
-
   <tr data-cn="unknown-3.ops.example.test">
-    <td><a href="/certificates/53">unknown-3.ops.example.test</a></td>
-    <td class="numeric">40</td>
-    <td>Operations Intermediate CA</td>
-    <td class="numeric"><time datetime="2026-11-09T12:00:00Z">2026-11-09 12:00 UTC</time> <span class="chip chip-warning"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
-
-</svg>10 days</span></td>
-    <td>Operations team<br><small>Infrastructure</small></td>
+    <td class="certificate-name"><a href="/certificates/53" title="unknown-3.ops.example.test">unknown-3.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-09T12:00:00Z">2026-11-09 12:00 UTC</time></td>
     <td>
 <span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
-</svg>Unknown validity</span>
-<small class="lifecycle">unknown</small></td>
-    <td>Imported</td>
-    <td>yes</td>
+</svg>Unknown</span>
+</td>
     <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for unknown-3.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/53">Details</a>
+        <form method="post" action="/certificates/53/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/53/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/53#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
   </tr>
 
   </tbody>

@@ -178,7 +178,7 @@ def test_area_styles_reuse_tokens_and_bound_long_server_rows():
     for area in ("servers", "bindings"):
         css = (root / f"app/static/pages/{area}.css").read_text()
         assert not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(", css)
-        assert "overflow-wrap: anywhere" in css
+        assert "overflow-wrap: break-word" in css
         assert "table-layout: fixed" in css
     css = (root / "app/static/pages/servers.css").read_text()
     assert "width: 27%" in css and "width: 24%" in css and "white-space: nowrap" in css

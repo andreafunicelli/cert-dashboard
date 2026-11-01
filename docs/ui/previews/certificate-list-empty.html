@@ -1,0 +1,132 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Certificates · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/certificates.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span aria-current="page"><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+
+
+
+
+<header class="page-header">
+  <div><h1>Certificates</h1><p class="page-subtitle" data-total="0">0 certificates</p></div>
+  <div class="page-actions">
+    <a class="button" href="/certificates/import">Import certificate</a>
+    <details class="action-menu"><summary>More actions</summary><div class="action-menu-items">
+      <a href="/certificates/export.json" download="certificates.json">Export list as JSON</a>
+    </div></details>
+  </div>
+</header>
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/certificates">
+    <div class="filter-toolbar">
+      <label class="filter-search">Search <input type="search" name="search" value="no-match" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>
+    <details class="filter-disclosure">
+      <summary>Filters</summary>
+      <div class="filters">
+        <label>Status
+          <select name="status"><option value="">Any</option>
+            <option value="active">active</option><option value="superseded">superseded</option><option value="revoked">revoked</option>
+          </select></label>
+        <label>Expires
+          <select name="expiry"><option value="">Any</option>
+            <option value="expired">Already expired</option><option value="lt7">In less than 7 days</option><option value="lt30">In 7 to 30 days</option><option value="lt60">In 30 to 60 days</option>
+          </select></label>
+        <label>Issuer <input name="issuer" value="" maxlength="200"></label>
+        <label>Team <input name="team" value="" maxlength="200"></label>
+        <label>Owner <input name="owner" value="" maxlength="200"></label>
+        <label>Private key
+          <select name="has_key"><option value="">Any</option>
+            <option value="true">Present</option>
+            <option value="false">Absent</option></select></label>
+        <label>Bindings
+          <select name="has_bindings"><option value="">Any</option>
+            <option value="true">Has bindings</option>
+            <option value="false">No bindings</option></select></label>
+        <label>Renewal
+          <select name="renewal_state"><option value="">Any</option>
+
+          </select></label>
+        <button class="button-secondary" type="submit">Apply filters</button>
+      </div>
+    </details>
+    <input type="hidden" name="sort" value="not_after">
+    <input type="hidden" name="page_size" value="50">
+  </form>
+
+  <div class="applied-filters" aria-label="Applied filters">
+    <a href="/certificates">Reset</a>
+
+
+
+
+      <a class="chip filter-chip" href="/certificates" aria-label="Remove Search filter: no-match">Search: no-match <svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg></a>
+
+  </div>
+
+</section>
+
+
+<div class="empty-state"><h2>No matching certificates</h2><p>No certificates match these filters. <a href="/certificates/import">Import a certificate</a> or <a href="/certificates">clear the filters</a>.</p></div>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span aria-current="page">Page <span class="mono">1</span> of <span class="mono">1</span></span>
+
+</nav>
+</main>
+
+</body>
+</html>

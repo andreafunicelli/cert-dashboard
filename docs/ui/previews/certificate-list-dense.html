@@ -1,0 +1,572 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Certificates · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/certificates.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+  <nav aria-label="Main">
+
+    <span><a href="/">Overview</a></span>
+
+
+    <span aria-current="page"><a href="/certificates">Certificates</a></span>
+
+
+    <span><a href="/servers">Servers</a></span>
+
+
+    <span><a href="/deploy">Deploy</a></span>
+
+
+    <span><a href="/scans">Scans</a></span>
+
+
+    <span><a href="/audit">Audit</a></span>
+
+
+    <span><a href="/settings">Settings</a></span>
+
+
+  </nav>
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">Account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+
+
+
+
+<header class="page-header">
+  <div><h1>Certificates</h1><p class="page-subtitle" data-total="20">20 certificates</p></div>
+  <div class="page-actions">
+    <a class="button" href="/certificates/import">Import certificate</a>
+    <details class="action-menu"><summary>More actions</summary><div class="action-menu-items">
+      <a href="/certificates/export.json" download="certificates.json">Export list as JSON</a>
+    </div></details>
+  </div>
+</header>
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/certificates">
+    <div class="filter-toolbar">
+      <label class="filter-search">Search <input type="search" name="search" value="" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>
+    <details class="filter-disclosure">
+      <summary>Filters</summary>
+      <div class="filters">
+        <label>Status
+          <select name="status"><option value="">Any</option>
+            <option value="active">active</option><option value="superseded">superseded</option><option value="revoked">revoked</option>
+          </select></label>
+        <label>Expires
+          <select name="expiry"><option value="">Any</option>
+            <option value="expired">Already expired</option><option value="lt7">In less than 7 days</option><option value="lt30">In 7 to 30 days</option><option value="lt60">In 30 to 60 days</option>
+          </select></label>
+        <label>Issuer <input name="issuer" value="" maxlength="200"></label>
+        <label>Team <input name="team" value="" maxlength="200"></label>
+        <label>Owner <input name="owner" value="" maxlength="200"></label>
+        <label>Private key
+          <select name="has_key"><option value="">Any</option>
+            <option value="true">Present</option>
+            <option value="false">Absent</option></select></label>
+        <label>Bindings
+          <select name="has_bindings"><option value="">Any</option>
+            <option value="true">Has bindings</option>
+            <option value="false">No bindings</option></select></label>
+        <label>Renewal
+          <select name="renewal_state"><option value="">Any</option>
+
+          </select></label>
+        <button class="button-secondary" type="submit">Apply filters</button>
+      </div>
+    </details>
+    <input type="hidden" name="sort" value="not_after">
+    <input type="hidden" name="page_size" value="50">
+  </form>
+
+</section>
+
+
+<div class="table-wrap certificate-table-wrap" tabindex="0" role="region" aria-label="Certificate results">
+<table class="certificates">
+  <thead><tr>
+    <th scope="col"><a href="/certificates?sort=common_name">Common name</a></th>
+    <th scope="col"><a href="/certificates?sort=issuer_cn">Issuer</a></th>
+    <th scope="col" class="numeric"><a href="/certificates?sort=not_after">Expires</a></th>
+    <th scope="col"><a href="/certificates?sort=status">Status</a></th>
+    <th scope="col" class="numeric">Bindings</th>
+    <th scope="col">Actions</th>
+  </tr></thead>
+  <tbody>
+
+  <tr data-cn="gateway.ops.example.test">
+    <td class="certificate-name"><a href="/certificates/42" title="gateway.ops.example.test">gateway.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-19T12:00:00Z">2026-11-19 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>20 days</span>
+</td>
+    <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for gateway.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/42">Details</a>
+        <form method="post" action="/certificates/42/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/42/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/42#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="active-0.ops.example.test">
+    <td class="certificate-name"><a href="/certificates/50" title="active-0.ops.example.test">active-0.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-04-28T12:00:00Z">2027-04-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for active-0.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/50">Details</a>
+        <form method="post" action="/certificates/50/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/50/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/50#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="active-1.ops.example.test">
+    <td class="certificate-name"><a href="/certificates/51" title="active-1.ops.example.test">active-1.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-10-27T12:00:00Z">2026-10-27 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-danger chip-expired"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>Expired</span>
+</td>
+    <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for active-1.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/51">Details</a>
+        <form method="post" action="/certificates/51/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/51/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/51#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="revoked-2.ops.example.test">
+    <td class="certificate-name"><a href="/certificates/52" title="revoked-2.ops.example.test">revoked-2.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-09T12:00:00Z">2026-11-09 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg>Revoked</span>
+</td>
+    <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for revoked-2.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/52">Details</a>
+        <form method="post" action="/certificates/52/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/52/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/52#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="unknown-3.ops.example.test">
+    <td class="certificate-name"><a href="/certificates/53" title="unknown-3.ops.example.test">unknown-3.ops.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-09T12:00:00Z">2026-11-09 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg>Unknown</span>
+</td>
+    <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for unknown-3.ops.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/53">Details</a>
+        <form method="post" action="/certificates/53/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/53/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/53#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="*.apps.example.test">
+    <td class="certificate-name"><a href="/certificates/100" title="*.apps.example.test">*.apps.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2026-11-03T12:00:00Z">2026-11-03 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg>4 days</span>
+</td>
+    <td class="numeric">0</td>
+    <td><details class="action-menu"><summary aria-label="Actions for *.apps.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/100">Details</a>
+        <form method="post" action="/certificates/100/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/100/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/100#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-01.example.test">
+    <td class="certificate-name"><a href="/certificates/101" title="edge-01.example.test">edge-01.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">1</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-01.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/101">Details</a>
+        <form method="post" action="/certificates/101/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/101/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/101#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-02.example.test">
+    <td class="certificate-name"><a href="/certificates/102" title="edge-02.example.test">edge-02.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">2</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-02.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/102">Details</a>
+        <form method="post" action="/certificates/102/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/102/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/102#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-03.example.test">
+    <td class="certificate-name"><a href="/certificates/103" title="edge-03.example.test">edge-03.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">3</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-03.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/103">Details</a>
+        <form method="post" action="/certificates/103/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/103/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/103#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-04.example.test">
+    <td class="certificate-name"><a href="/certificates/104" title="edge-04.example.test">edge-04.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">4</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-04.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/104">Details</a>
+        <form method="post" action="/certificates/104/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/104/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/104#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-05.example.test">
+    <td class="certificate-name"><a href="/certificates/105" title="edge-05.example.test">edge-05.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">5</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-05.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/105">Details</a>
+        <form method="post" action="/certificates/105/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/105/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/105#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-06.example.test">
+    <td class="certificate-name"><a href="/certificates/106" title="edge-06.example.test">edge-06.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">6</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-06.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/106">Details</a>
+        <form method="post" action="/certificates/106/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/106/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/106#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-07.example.test">
+    <td class="certificate-name"><a href="/certificates/107" title="edge-07.example.test">edge-07.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">7</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-07.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/107">Details</a>
+        <form method="post" action="/certificates/107/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/107/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/107#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-08.example.test">
+    <td class="certificate-name"><a href="/certificates/108" title="edge-08.example.test">edge-08.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">8</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-08.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/108">Details</a>
+        <form method="post" action="/certificates/108/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/108/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/108#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-09.example.test">
+    <td class="certificate-name"><a href="/certificates/109" title="edge-09.example.test">edge-09.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">9</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-09.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/109">Details</a>
+        <form method="post" action="/certificates/109/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/109/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/109#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-10.example.test">
+    <td class="certificate-name"><a href="/certificates/110" title="edge-10.example.test">edge-10.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">10</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-10.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/110">Details</a>
+        <form method="post" action="/certificates/110/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/110/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/110#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-11.example.test">
+    <td class="certificate-name"><a href="/certificates/111" title="edge-11.example.test">edge-11.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">11</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-11.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/111">Details</a>
+        <form method="post" action="/certificates/111/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/111/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/111#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-12.example.test">
+    <td class="certificate-name"><a href="/certificates/112" title="edge-12.example.test">edge-12.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">12</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-12.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/112">Details</a>
+        <form method="post" action="/certificates/112/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/112/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/112#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-13.example.test">
+    <td class="certificate-name"><a href="/certificates/113" title="edge-13.example.test">edge-13.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">13</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-13.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/113">Details</a>
+        <form method="post" action="/certificates/113/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/113/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/113#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  <tr data-cn="edge-14.example.test">
+    <td class="certificate-name"><a href="/certificates/114" title="edge-14.example.test">edge-14.example.test</a></td>
+    <td class="certificate-issuer" title="Operations Intermediate CA">Operations Intermediate CA</td>
+    <td class="numeric"><time datetime="2027-01-28T12:00:00Z">2027-01-28 12:00 UTC</time></td>
+    <td>
+<span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg>Valid</span>
+</td>
+    <td class="numeric">14</td>
+    <td><details class="action-menu"><summary aria-label="Actions for edge-14.example.test">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/114">Details</a>
+        <form method="post" action="/certificates/114/scan"><input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/114/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/114#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
+  </tr>
+
+  </tbody>
+</table>
+</div>
+
+
+<nav class="pager" aria-label="Pages">
+
+  <span aria-current="page">Page <span class="mono">1</span> of <span class="mono">1</span></span>
+
+</nav>
+</main>
+
+</body>
+</html>

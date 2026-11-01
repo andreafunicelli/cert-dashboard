@@ -1,18 +1,42 @@
 /* Inventory layout; controls and data containers use shared components. */
-.certificates td { overflow-wrap: anywhere; }
-.certificates time { display: block; white-space: nowrap; font-size: var(--text-sm); }
-.certificates .numeric .chip { margin-top: var(--space-2); }
-.certificates .lifecycle { display: block; margin-top: var(--space-1); color: var(--text-muted); }
-.list-summary { margin-block: var(--space-5); }
-.lineage { overflow-wrap: anywhere; color: var(--text-muted); }
+.certificate-table-wrap { overflow: visible; }
+.certificates { table-layout: fixed; font-size: var(--text-sm); }
+.certificates th { background: var(--surface-raised); color: var(--text-muted); font-weight: var(--weight-medium); }
+.certificates th a { color: inherit; }
+.certificates th:first-child { width: 26%; }
+.certificates th:nth-child(2) { width: 21%; }
+.certificates th:nth-child(3) { width: 21%; }
+.certificates th:nth-child(4) { width: 14%; }
+.certificates th:nth-child(5) { width: 9%; }
+.certificates th:last-child { width: 9%; }
+.certificates th, .certificates td { padding: var(--space-0) var(--space-3); vertical-align: middle; white-space: nowrap; }
+.certificates th { padding-block: var(--space-2); }
+.certificates td { height: var(--row-height); }
+.certificates .certificate-name, .certificates .certificate-issuer { overflow: hidden; text-overflow: ellipsis; }
+.certificates time, .certificates .badge { white-space: nowrap; }
+.certificates .action-menu > summary { padding-inline: var(--space-0); }
+.certificates .action-menu-items { font-size: var(--text-base); }
+.lineage { overflow-wrap: break-word; color: var(--text-muted); }
 #actions-panel .actions { align-items: flex-start; }
 #actions-panel .button { background: var(--surface-raised); color: var(--accent); }
 #actions-panel button { margin-top: var(--space-0); }
 #summary-panel .fields dd, #key-panel .fields dd { min-width: 0; }
 #summary-panel .notes { max-height: var(--material-height); overflow: auto; }
 #summary-panel .hint { margin-bottom: var(--space-0); }
-#bindings-panel td, #endpoints-panel td, #history-panel td { overflow-wrap: anywhere; }
+#bindings-panel td, #endpoints-panel td, #history-panel td { overflow-wrap: break-word; }
 #status-panel select, #status-panel textarea, #chain-panel textarea { max-width: var(--panel-width); }
 #chain-panel textarea { font-family: var(--font-mono); }
 textarea { resize: vertical; max-height: var(--material-height); }
 #key-panel .fields dd { font-variant-numeric: tabular-nums; }
+@media (max-width: 1279px) {
+  .certificates th:first-child { width: 24%; }
+  .certificates th:nth-child(2) { width: 16%; }
+  .certificates th:nth-child(3) { width: 25%; }
+  .certificates th:nth-child(4) { width: 17%; }
+}
+@media (max-width: 719px) {
+  .certificate-table-wrap { overflow-x: auto; }
+  .certificates { min-width: var(--content-width); }
+  /* Narrow scroll regions keep open actions in flow, never clipped below the table. */
+  .certificates .action-menu-items { position: static; width: var(--menu-width); }
+}

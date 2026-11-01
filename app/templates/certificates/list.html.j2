@@ -3,71 +3,98 @@
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/certificates.css">{% endblock %}
 {% block content %}
 {% from "_inventory_ui.html.j2" import certificate_state %}
-<h1>Certificates</h1>
-<section class="panel wide" aria-label="Filters">
-  <form method="get" action="/certificates" class="filters">
-    <label>Search <input type="search" name="search" value="{{ values.search or '' }}" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
-    <label>Status
-      <select name="status"><option value="">Any</option>
-        {% for item in statuses %}<option value="{{ item }}"{% if values.status == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
-      </select></label>
-    <label>Expires
-      <select name="expiry"><option value="">Any</option>
-        {% for item in buckets %}<option value="{{ item }}"{% if values.expiry == item %} selected{% endif %}>{{ {"expired": "Already expired", "lt7": "In less than 7 days", "lt30": "In 7 to 30 days", "lt60": "In 30 to 60 days"}[item] }}</option>{% endfor %}
-      </select></label>
-    <label>Issuer <input name="issuer" value="{{ values.issuer or '' }}" maxlength="200"></label>
-    <label>Team <input name="team" value="{{ values.team or '' }}" maxlength="200"></label>
-    <label>Owner <input name="owner" value="{{ values.owner or '' }}" maxlength="200"></label>
-    <label>Private key
-      <select name="has_key"><option value="">Any</option>
-        <option value="true"{% if values.has_key == "true" %} selected{% endif %}>Present</option>
-        <option value="false"{% if values.has_key == "false" %} selected{% endif %}>Absent</option></select></label>
-    <label>Bindings
-      <select name="has_bindings"><option value="">Any</option>
-        <option value="true"{% if values.has_bindings == "true" %} selected{% endif %}>Has bindings</option>
-        <option value="false"{% if values.has_bindings == "false" %} selected{% endif %}>No bindings</option></select></label>
-    <label>Renewal
-      <select name="renewal_state"><option value="">Any</option>
-        {% for item in renewal_states %}<option value="{{ item }}"{% if values.renewal_state == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
-      </select></label>
+{% set filter_labels = {'search': 'Search', 'status': 'Status', 'expiry': 'Expires', 'issuer': 'Issuer', 'team': 'Team', 'owner': 'Owner', 'has_key': 'Private key', 'has_bindings': 'Bindings', 'renewal_state': 'Renewal'} %}
+{% set expiry_labels = {'expired': 'Already expired', 'lt7': 'In less than 7 days', 'lt30': 'In 7 to 30 days', 'lt60': 'In 30 to 60 days'} %}
+{% set active = namespace(count=0, extra=0) %}
+{% for key in filter_labels %}{% if values.get(key) %}{% set active.count = active.count + 1 %}{% if key != 'search' %}{% set active.extra = active.extra + 1 %}{% endif %}{% endif %}{% endfor %}
+<header class="page-header">
+  <div><h1>Certificates</h1><p class="page-subtitle" data-total="{{ page.total }}">{{ page.total }} certificate{{ "" if page.total == 1 else "s" }}</p></div>
+  <div class="page-actions">
+    <a class="button" href="/certificates/import">Import certificate</a>
+    <details class="action-menu"><summary>More actions</summary><div class="action-menu-items">
+      <a href="{{ export_url }}" download="certificates.json">Export list as JSON</a>
+    </div></details>
+  </div>
+</header>
+<section class="filter-bar" aria-label="Filters">
+  <form method="get" action="/certificates">
+    <div class="filter-toolbar">
+      <label class="filter-search">Search <input type="search" name="search" value="{{ values.search or '' }}" maxlength="200" placeholder="CN, SAN, serial or fingerprint"></label>
+      <button class="button-secondary" type="submit">Search</button>
+    </div>
+    <details class="filter-disclosure">
+      <summary>Filters{% if active.extra %} · {{ active.extra }}{% endif %}</summary>
+      <div class="filters">
+        <label>Status
+          <select name="status"><option value="">Any</option>
+            {% for item in statuses %}<option value="{{ item }}"{% if values.status == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
+          </select></label>
+        <label>Expires
+          <select name="expiry"><option value="">Any</option>
+            {% for item in buckets %}<option value="{{ item }}"{% if values.expiry == item %} selected{% endif %}>{{ expiry_labels[item] }}</option>{% endfor %}
+          </select></label>
+        <label>Issuer <input name="issuer" value="{{ values.issuer or '' }}" maxlength="200"></label>
+        <label>Team <input name="team" value="{{ values.team or '' }}" maxlength="200"></label>
+        <label>Owner <input name="owner" value="{{ values.owner or '' }}" maxlength="200"></label>
+        <label>Private key
+          <select name="has_key"><option value="">Any</option>
+            <option value="true"{% if values.has_key == "true" %} selected{% endif %}>Present</option>
+            <option value="false"{% if values.has_key == "false" %} selected{% endif %}>Absent</option></select></label>
+        <label>Bindings
+          <select name="has_bindings"><option value="">Any</option>
+            <option value="true"{% if values.has_bindings == "true" %} selected{% endif %}>Has bindings</option>
+            <option value="false"{% if values.has_bindings == "false" %} selected{% endif %}>No bindings</option></select></label>
+        <label>Renewal
+          <select name="renewal_state"><option value="">Any</option>
+            {% for item in renewal_states %}<option value="{{ item }}"{% if values.renewal_state == item %} selected{% endif %}>{{ item }}</option>{% endfor %}
+          </select></label>
+        <button class="button-secondary" type="submit">Apply filters</button>
+      </div>
+    </details>
     <input type="hidden" name="sort" value="{{ sort_state }}">
     <input type="hidden" name="page_size" value="{{ page.page_size }}">
-    <button type="submit">Apply filters</button>
-    <a href="/certificates">Reset</a>
   </form>
+  {% if active.count %}
+  <div class="applied-filters" aria-label="Applied filters">
+    <a href="/certificates">Reset</a>
+    {% for key, label in filter_labels.items() %}{% if values.get(key) %}
+      {% set remaining = namespace(pairs=[]) %}
+      {% for name, value in values.items() %}{% if name != key and name != 'page' and value %}{% set remaining.pairs = remaining.pairs + [(name, value)] %}{% endif %}{% endfor %}
+      {% set display = expiry_labels.get(values[key], values[key]) if key == 'expiry' else ({'true': 'Present', 'false': 'Absent'}.get(values[key], values[key]) if key == 'has_key' else ({'true': 'Has bindings', 'false': 'No bindings'}.get(values[key], values[key]) if key == 'has_bindings' else values[key])) %}
+      <a class="chip filter-chip" href="/certificates{% if remaining.pairs %}?{{ remaining.pairs | urlencode }}{% endif %}" aria-label="Remove {{ label }} filter: {{ display }}">{{ label }}: {{ display }} {{ icon('danger') }}</a>
+    {% endif %}{% endfor %}
+  </div>
+  {% endif %}
 </section>
 
-<p class="list-summary" data-total="{{ page.total }}">{{ page.total }} certificate{{ "" if page.total == 1 else "s" }}
-  · <a href="{{ export_url }}" download="certificates.json">Export list as JSON</a>
-  · <a href="/certificates/import">Import certificate</a></p>
-
 {% if page.items %}
-<div class="table-wrap">
+<div class="table-wrap certificate-table-wrap" tabindex="0" role="region" aria-label="Certificate results">
 <table class="certificates">
   <thead><tr>
     <th scope="col"><a href="{{ sort_url('common_name') }}">Common name</a></th>
-    <th scope="col" class="numeric">SANs</th>
     <th scope="col"><a href="{{ sort_url('issuer_cn') }}">Issuer</a></th>
-    <th scope="col"><a href="{{ sort_url('not_after') }}">Expires</a></th>
-    <th scope="col">Owner</th>
+    <th scope="col" class="numeric"><a href="{{ sort_url('not_after') }}">Expires</a></th>
     <th scope="col"><a href="{{ sort_url('status') }}">Status</a></th>
-    <th scope="col">Source</th>
-    <th scope="col">Key</th>
     <th scope="col" class="numeric">Bindings</th>
+    <th scope="col">Actions</th>
   </tr></thead>
   <tbody>
   {% for cert in page.items %}
-  {% set chip = expiry_chip(cert.not_after, now) %}
   <tr data-cn="{{ cert.common_name }}">
-    <td><a href="/certificates/{{ cert.id }}">{{ cert.common_name }}</a></td>
-    <td class="numeric">{{ cert.sans | length }}</td>
-    <td>{{ cert.issuer_cn }}</td>
-    <td class="numeric">{{ time_tag(cert.not_after, tz) }} <span class="chip {{ chip.css }}">{{ icon('danger' if chip.css == 'chip-expired' else ('ok' if chip.css == 'chip-ok' else 'warn')) }}{{ chip.label }}</span></td>
-    <td>{% if cert.owner_name %}{{ cert.owner_name }}{% elif cert.owner_email %}{{ cert.owner_email }}{% endif %}{% if cert.team %}<br><small>{{ cert.team }}</small>{% endif %}</td>
-    <td>{{ certificate_state(cert, now) }}<small class="lifecycle">{{ cert.status.value }}</small></td>
-    <td>{% if cert.renews_id %}Renewed{% else %}Imported{% endif %}</td>
-    <td>{% if cert.key_id %}yes{% else %}no{% endif %}</td>
+    <td class="certificate-name"><a href="/certificates/{{ cert.id }}" title="{{ cert.common_name }}">{{ cert.common_name }}</a></td>
+    <td class="certificate-issuer" title="{{ cert.issuer_cn }}">{{ cert.issuer_cn }}</td>
+    <td class="numeric">{{ time_tag(cert.not_after, tz) }}</td>
+    <td>{{ certificate_state(cert, now, compact=true) }}</td>
     <td class="numeric">{{ cert.binding_count }}</td>
+    <td><details class="action-menu"><summary aria-label="Actions for {{ cert.common_name }}">Actions</summary>
+      <div class="action-menu-items">
+        <a href="/certificates/{{ cert.id }}">Details</a>
+        <form method="post" action="/certificates/{{ cert.id }}/scan"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="button-secondary" type="submit">Scan now</button></form>
+        <a href="/certificates/{{ cert.id }}/leaf.pem">Download certificate</a>
+        <a class="action-destructive" href="/certificates/{{ cert.id }}#status-panel">Change lifecycle status…</a>
+        <p class="help">Deletion is unavailable. Revoke or supersede from the detail page with confirmation.</p>
+      </div>
+    </details></td>
   </tr>
   {% endfor %}
   </tbody>

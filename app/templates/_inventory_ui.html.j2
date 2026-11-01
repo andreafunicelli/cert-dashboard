@@ -5,19 +5,19 @@
 <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
 {%- endmacro %}
 
-{% macro certificate_state(cert, now) -%}
+{% macro certificate_state(cert, now, compact=false) -%}
 {% if cert.status.value == 'revoked' %}
 <span class="badge badge-danger">{{ icon('danger') }}Revoked</span>
 {% elif cert.status.value == 'superseded' %}
 <span class="badge badge-warn">{{ icon('warn') }}Superseded</span>
 {% elif cert.status.value != 'active' or not cert.not_after or not cert.not_before or not now %}
-<span class="badge badge-info">{{ icon() }}Unknown validity</span>
+<span class="badge badge-info">{{ icon() }}{% if compact %}Unknown{% else %}Unknown validity{% endif %}</span>
 {% elif cert.not_before > now %}
 <span class="badge badge-warn">{{ icon('warn') }}Not yet valid</span>
 {% elif cert.not_after < now %}
-<span class="badge badge-danger">{{ icon('danger') }}Expired</span>
+<span class="badge badge-danger{% if compact %} chip-expired{% endif %}">{{ icon('danger') }}Expired</span>
 {% elif (cert.not_after - now).days < 60 %}
-<span class="badge badge-warn">{{ icon('warn') }}Expiring</span>
+<span class="badge badge-warn">{{ icon('warn') }}{% if compact %}{{ (cert.not_after - now).days }} days{% else %}Expiring{% endif %}</span>
 {% else %}
 <span class="badge badge-ok">{{ icon('ok') }}Valid</span>
 {% endif %}

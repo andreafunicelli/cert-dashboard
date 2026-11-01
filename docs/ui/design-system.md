@@ -107,6 +107,63 @@ Do not fork button/table/badge implementations during those migrations. Existing
 page markup is not migrated by this card; state icons and numeric modifiers must
 be applied as those pages come into scope.
 
+## Calmer list composition (certificate area)
+
+Reuse these shared components for subsequent areas rather than adding another
+button, badge or header style:
+
+- `.page-header`: flex title/subtitle group on the left, `.page-actions` on the
+  right; stacks naturally on narrow screens. The `h1` remains `text-xl`, the
+  largest page text. `.page-subtitle` is muted `text-sm`. There is exactly one
+  visible filled primary action: **Import certificate**. Secondary tasks go into
+  native `details.action-menu > summary` with `.action-menu-items` (no ARIA menu
+  role: this is ordinary links/forms with native Tab order, not a JS menu widget).
+- `.filter-bar`: always-visible search capped by `search-width: 20rem` on desktop,
+  full-width on mobile. All eight other filters remain successful controls in
+  the same native GET form behind `details.filter-disclosure`. Closed controls
+  still submit their selected values. `Filters · N` counts non-search filters;
+  `.applied-filters` appears only with an active filter, next to Reset. Chip links
+  remove just that filter, reset pagination, and preserve all remaining filters,
+  sort and page size with Jinja's URL encoding and automatic HTML escaping.
+- `.certificates` row contract: common-name link, issuer, right-aligned monospaced
+  exact expiry date, **one** icon/word state, right-aligned bindings count, native
+  row actions. `certificate_state(..., compact=true)` shares lifecycle precedence
+  with detail; expiring active certificates show days instead of a second expiry
+  badge, unknown shows Unknown. SAN count, owner, source and key remain available
+  on detail, not repeated in the default list. No hidden duplicate status.
+- Rows use `row-height: 3rem` (48px at default text size) with 44px action-summary
+  targets, no vertical cell padding. Header uses muted text and the existing
+  raised surface/hairline separators. Cells do not wrap at desktop widths;
+  oversized common names/issuers ellipsize with full text in `title` and on the
+  common-name detail link. Below 1280px (`max-width: 1279px`) column priorities
+  reserve more space for dates/status; below 720px the table scrolls **inside**
+  its labelled focusable region. On mobile open row menus stay in flow to avoid
+  clipping inside that scroll region; desktop menus overlay without changing
+  row height, including at the last row.
+- Row menus use existing detail, POST scan + CSRF, leaf download and destructive
+  lifecycle-confirmation destinations. **There is no certificate delete route**:
+  the menu explicitly explains deletion is unavailable and points to confirmed
+  revoke/supersede on detail. Do not invent a delete endpoint or imply a download
+  contains private keys. Destructive links use `.action-destructive` with the
+  existing danger token; actual mutation remains behind the detail confirmation.
+
+Text wrapping uses `break-word` instead of `anywhere` throughout normal content:
+`anywhere` lowers intrinsic word widths and previously let table/flex tracks
+collapse words into character columns. Bounded raw material and fingerprint
+regions retain their intentional behavior; `.identifier`/`.material` remain
+non-wrapping scrollable exact-copy values. The global wrapping substitution is
+mechanical, not a redesign of the other areas.
+
+`certificate-list-dense.html` contains twenty synthetic rows; filtered/empty
+variants exercise disclosures and removable chips. Static Chromium checks at
+1024, 1280 and 1440px (900px viewport height) in **both themes** found no mid-token
+line breaks and no page overflow on these fixtures. At 1280px, 12 complete rows
+fit above the fold, all rows measure 48px, and only Import certificate is a visible
+primary button. Palette tests check dark and light contrast. These checks are
+not a complete WCAG audit or a database-backed application test.
+
+Structural checks passed; visual verification pending on the deployed instance.
+
 ## Preview and verification
 
 ### Deploy, settings and outbound email
@@ -201,9 +258,9 @@ Presentation macros in `_inventory_ui.html.j2`:
 - `certificate_state(cert, now)`: revoked/superseded lifecycle takes priority;
   active certificates show not-yet-valid, expired, expiring (<60 days, matching
   existing expiry buckets), or valid. Unrecognised state/missing dates shows
-  unknown validity. Each uses the canonical badge + SVG + visible word. The
-  existing expiry-chip text and classes are retained; days/counts are right-aligned
-  monospaced tabular data in the certificate list, separate from the state word.
+  unknown validity. Each uses the canonical badge + SVG + visible word. The compact
+  list variant shows days in the same badge for expiring active certificates;
+  the exact date remains a separate right-aligned monospaced column.
 - `chain_verdict(status)`: trusted / incomplete / untrusted root / not verified;
   missing diagnostics explicitly shows incomplete chain **verification**, not a
   fabricated verdict about missing intermediates. Detail prioritises the current assessment, never silently
