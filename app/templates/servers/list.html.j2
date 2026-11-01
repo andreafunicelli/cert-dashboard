@@ -61,7 +61,7 @@
     <th scope="col">Groups</th>
     <th scope="col">Web server</th>
     <th scope="col" class="numeric"><a href="{{ sort_url('binding_count') }}">Bindings</a></th>
-    <th scope="col"><a href="{{ sort_url('last_discovery_at') }}">Last discovery</a></th>
+    <th scope="col" class="numeric"><a href="{{ sort_url('last_discovery_at') }}">Last discovery</a></th>
     <th scope="col" class="numeric"><a href="{{ sort_url('mismatch_count') }}">TLS drift</a></th>
   </tr></thead>
   <tbody>
@@ -71,7 +71,7 @@
     <td>{{ row.groups | join(", ") or "—" }}</td>
     <td>{{ row.webserver or "—" }}</td>
     <td class="numeric">{{ row.binding_count }}{% if row.attention_count %}<p><span class="badge badge-warn" title="Bindings with a key mismatch or a missing file">{{ icon('warn') }}{{ row.attention_count }} need attention</span></p>{% endif %}</td>
-    <td>{{ discovery_state(row.last_discovery_status, row.last_discovery_at) }}{% if row.last_discovery_at %}<p>{{ time_tag(row.last_discovery_at, tz) }}</p>{% endif %}{% if row.last_discovery_status in ('failed', 'unreachable', 'error') %}<p class="help"><a href="/servers/{{ row.id }}#server-panel">View host failure reason</a></p>{% endif %}</td>
+    <td class="numeric">{{ discovery_state(row.last_discovery_status, row.last_discovery_at) }}{% if row.last_discovery_at %}<p>{{ time_tag(row.last_discovery_at, tz) }}</p>{% endif %}{% if row.last_discovery_status in ('failed', 'unreachable', 'error') %}<p class="help"><a href="/servers/{{ row.id }}#server-panel">View host failure reason</a></p>{% endif %}</td>
     <td class="numeric">{% if row.mismatch_count %}<a href="/scans?server_id={{ row.id }}&amp;status=mismatch"><span class="badge badge-warn">{{ icon('warn') }}{{ row.mismatch_count }} drifted</span></a>{% else %}0{% endif %}</td>
   </tr>
   {% endfor %}
