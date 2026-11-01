@@ -16,6 +16,7 @@
 <section class="panel wide status-strip" data-status-strip="true" aria-label="Status">
   <div><h2>Worker</h2><span class="badge {{ 'badge-ok' if status.worker == 'ok' else 'badge-warn' }}">{{ icon('ok' if status.worker == 'ok' else 'warn') }} {{ status.worker }}</span>
   <p class="help">{% if status.last_heartbeat_at %}Last heartbeat {{ time_tag(status.last_heartbeat_at, tz) }}{% else %}No heartbeat recorded{% endif %}. <a href="/settings?tab=status">Worker details</a></p></div>
+  <div><h2>Last discovery</h2><p data-last-discovery>{% if status.last_discovery_at %}{{ time_tag(status.last_discovery_at, tz) }}{% else %}never{% endif %}</p></div>
   <div><h2>Inventory revision</h2><p>{% if status.inventory_rev %}<code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %}no inventory revision recorded yet{% endif %}</p></div>
   <div><h2>Last digest</h2><p>{% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</p></div>
 </section>

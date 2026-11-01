@@ -6,10 +6,12 @@ become a 422 page, or the panel fragment for htmx, with the renewal left untouch
 can mark a renewal ``deployed``: that transition belongs to the Plan 3 deploy handler.
 """
 
+import math
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import urlencode
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
@@ -26,10 +28,12 @@ from app.models import Certificate, Renewal
 from app.models.enums import CertificateStatus, JobType, RenewalState
 from app.services.audit import Actor, record
 from app.services.renewals import (
+    STATE_FILTERS,
     InvalidTransition,
     IssuedValidationError,
     RenewalBasics,
     RenewalError,
+    RenewalFilters,
     RenewalValidationError,
     attach_issued,
     cancel,
@@ -38,9 +42,19 @@ from app.services.renewals import (
     finalize,
     generate_csr,
     issued_warnings,
+    list_renewals,
     mark_submitted,
 )
-from app.web.certificates import _MAX_PART, _is_htmx, _read_object, _redirect, describe_chain_message
+from app.web.certificates import (
+    _MAX_PART,
+    LIST_DEFAULT_PAGE_SIZE,
+    LIST_MAX_PAGE_SIZE,
+    _is_htmx,
+    _query_int,
+    _read_object,
+    _redirect,
+    describe_chain_message,
+)
 from app.web.common import _render, _transact, display_timezone, install_template_helpers, render_block
 
 STEPS = ("basics", "csr", "submitted", "upload", "ready", "done")
@@ -567,6 +581,60 @@ def _download_csr(request: Request, renewal_id: str) -> Response:
 
 
 # --------------------------------------------------------------------------
+# The renewal list (/renewals)
+# --------------------------------------------------------------------------
+
+# The state filter's labels: a real state is shown by its own value, the "awaiting an issued certificate"
+# group gets a sentence (it is three states, not one).
+_STATE_LABELS = {"awaiting_certificate": "Awaiting an issued certificate"}
+
+
+def _list_url(params: dict[str, str]) -> str:
+    return f"/renewals?{urlencode(params)}" if params else "/renewals"
+
+
+def _list_query(request: Request) -> tuple[RenewalFilters, dict[str, str], int, int]:
+    """Validated query-string state of the list; ``params`` are the non-default values."""
+
+    def raw(name: str) -> str | None:
+        value = request.query_params.get(name)
+        return value.strip() or None if isinstance(value, str) else None
+
+    try:
+        state = raw("state")
+        filters = RenewalFilters(state=state)
+        page = _query_int(raw("page"), 1, 1, 10**9)
+        size = _query_int(raw("page_size"), LIST_DEFAULT_PAGE_SIZE, 1, LIST_MAX_PAGE_SIZE)
+    except ValueError:
+        raise HTTPException(422) from None
+    params = {"state": state} if state else {}
+    if size != LIST_DEFAULT_PAGE_SIZE:
+        params["page_size"] = str(size)
+    return filters, params, page, size
+
+
+def _list_page(request: Request, status: int = 200) -> HTMLResponse:
+    """Every renewal, oldest state change first: name, state, age and the one action that moves it on."""
+    filters, params, page, size = _list_query(request)
+    with request.app.state.factory() as db:
+        renewals = list_renewals(db, filters, page, size, now=request.app.state.clock())
+        timezone_name = display_timezone(db)
+    pages = max(1, math.ceil(renewals.total / renewals.page_size))
+    return _render(
+        request,
+        "renewals/list.html.j2",
+        status,
+        page=renewals,
+        pages=pages,
+        values=params,
+        states=list(STATE_FILTERS),
+        state_labels=_STATE_LABELS,
+        tz=timezone_name,
+        page_url=lambda number: _list_url({**params, "page": str(number)} if number > 1 else params),
+    )
+
+
+# --------------------------------------------------------------------------
 # Registration
 # --------------------------------------------------------------------------
 
@@ -586,6 +654,11 @@ def register_renewal_routes(app: FastAPI) -> None:
     @app.get("/renewals/new")
     def renewal_new_form(request: Request):
         return _handle_new_form(request)
+
+    # The list is a fixed path under /renewals: it must be registered before ``/renewals/{renewal_id}``.
+    @app.get("/renewals")
+    def renewal_list(request: Request):
+        return _list_page(request)
 
     @app.post("/renewals/new")
     async def renewal_new_submit(request: Request):

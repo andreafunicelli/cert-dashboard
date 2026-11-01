@@ -11,9 +11,11 @@ the enqueue POST echoes the previewed ``plan_sha256`` so a plan that changed und
 with the new preview instead of starting a rollout nobody confirmed.
 """
 
+import math
 import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import urlencode
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -35,16 +37,20 @@ from app.services.deploy import (
     start_deploy,
 )
 from app.services.deploy_views import (
+    OUTCOMES,
     DeployCandidate,
     DeployJobNotFound,
     DeployJobSummary,
     DeployJobView,
+    JobFilters,
     active_deploy,
     deploy_candidates,
     deploy_job_view,
     deploy_report,
+    list_jobs,
 )
 from app.services.settings import get_setting
+from app.web.certificates import LIST_DEFAULT_PAGE_SIZE, LIST_MAX_PAGE_SIZE, _query_int
 from app.web.common import (
     _render,
     _transact,
@@ -469,6 +475,50 @@ def _create(request: Request, form) -> Response:
     )
 
 
+def _jobs_url(params: dict[str, str]) -> str:
+    return f"/deploy/jobs?{urlencode(params)}" if params else "/deploy/jobs"
+
+
+def _jobs_query(request: Request) -> tuple[JobFilters, dict[str, str], int, int]:
+    """Validated query-string state of the job list; ``params`` are the non-default values."""
+
+    def raw(name: str) -> str | None:
+        value = request.query_params.get(name)
+        return value.strip() or None if isinstance(value, str) else None
+
+    try:
+        outcome, kind = raw("outcome"), raw("type")
+        filters = JobFilters(outcome=outcome, type=JobType(kind) if kind else None)
+        page = _query_int(raw("page"), 1, 1, 10**9)
+        size = _query_int(raw("page_size"), LIST_DEFAULT_PAGE_SIZE, 1, LIST_MAX_PAGE_SIZE)
+    except ValueError:
+        raise HTTPException(422) from None
+    params = {name: value for name, value in {"outcome": outcome, "type": kind}.items() if value}
+    if size != LIST_DEFAULT_PAGE_SIZE:
+        params["page_size"] = str(size)
+    return filters, params, page, size
+
+
+def _jobs_page(request: Request, status: int = 200) -> HTMLResponse:
+    """The job list: every job with its outcome, the deploy hosts' outcomes and the detail destination."""
+    filters, params, page, size = _jobs_query(request)
+    with request.app.state.factory() as db:
+        jobs = list_jobs(db, filters, page, size)
+        timezone_name = display_timezone(db)
+    pages = max(1, math.ceil(jobs.total / jobs.page_size))
+    return _render(
+        request,
+        "deploy/jobs.html.j2",
+        status,
+        page=jobs,
+        pages=pages,
+        values=params,
+        outcomes=OUTCOMES,
+        types=[item.value for item in JobType],
+        tz=timezone_name,
+        page_url=lambda number: _jobs_url({**params, "page": str(number)} if number > 1 else params),
+    )
+
 
 def register_deploy_routes(app: FastAPI) -> None:
     install_template_helpers(app)
@@ -481,6 +531,11 @@ def register_deploy_routes(app: FastAPI) -> None:
     @app.get("/deploy/preview")
     def deploy_preview(request: Request):
         return _preview_fragment(request, request.query_params)
+
+    # ... and so must the job list: ``/deploy/jobs`` is a fixed path, not a job id.
+    @app.get("/deploy/jobs")
+    def deploy_jobs(request: Request):
+        return _jobs_page(request)
 
     @app.post("/deploy")
     async def deploy_create(request: Request):

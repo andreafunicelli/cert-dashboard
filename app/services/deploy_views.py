@@ -1,4 +1,4 @@
-"""Read models for the deploy job screen (spec §8.7; Plan 3 Task 18).
+"""Read models for the deploy job screen (spec §8.7; Plan 3 Task 18) and the job list (``/deploy/jobs``).
 
 The screen shows what the worker already persisted: this module only reads rows — no Ansible, no git, no SSH.
 Its cost is constant however many hosts a rollout has: one query for the job, its certificate and its requester,
@@ -7,17 +7,18 @@ job is paused.
 """
 
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlencode
 from uuid import UUID
 
-from sqlalchemy import Integer, and_, func, or_, select
+from sqlalchemy import Integer, and_, case, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.jobs.queue import ALLOWED_ERROR_CLASSES, TIMEOUT_MESSAGE
-from app.models import Binding, Certificate, Job, JobHost, PrivateKey, Renewal, Server, User
+from app.models import Binding, Certificate, Job, JobHost, JSONValue, PrivateKey, Renewal, Server, User
 from app.models.enums import CertificateStatus, JobHostStatus, JobStatus, JobType, RenewalState
 from app.services.deploy import _EXCLUDED_MATCH_STATES, pause_deadline
 from app.services.settings import get_setting
@@ -667,6 +668,22 @@ def deploy_candidates(db: Session, now: datetime, limit: int = CANDIDATE_LIMIT) 
     ]
 
 
+@dataclass(frozen=True)
+class HostOutcome:
+    """One host of a listed rollout: its hostname and the outcome that host reached."""
+
+    hostname: str
+    status: str
+
+
+@dataclass(frozen=True)
+class HostSummary:
+    """The hosts one list row names, and how many hosts the rollout really has."""
+
+    hosts: tuple[HostOutcome, ...]
+    total: int
+
+
 def _host_totals(db: Session, job_ids: Sequence[UUID]) -> dict[UUID, dict[str, int]]:
     """One grouped query for the host totals of every listed job (constant cost, whatever the host count)."""
     totals: dict[UUID, dict[str, int]] = {job_id: {key: 0 for key in TOTAL_KEYS} for job_id in job_ids}
@@ -682,6 +699,53 @@ def _host_totals(db: Session, job_ids: Sequence[UUID]) -> dict[UUID, dict[str, i
         if key in totals[job_id]:
             totals[job_id][key] = int(count)
     return totals
+
+
+# The host states that stop or stall a rollout come first: a list that has to cut a host must never cut the
+# one the operator has to act on. ``succeeded`` is the fallback, so an unknown future state sorts with it.
+_HOST_ATTENTION = case(
+    (JobHost.status == JobHostStatus.ROLLED_BACK, 0),
+    (JobHost.status == JobHostStatus.FAILED, 1),
+    (JobHost.status == JobHostStatus.RUNNING, 2),
+    (JobHost.status == JobHostStatus.PENDING, 3),
+    (JobHost.status == JobHostStatus.SKIPPED, 4),
+    else_=5,
+)
+
+
+def _host_outcomes(db: Session, job_ids: Sequence[UUID]) -> dict[UUID, HostSummary]:
+    """Up to ``HOST_SUMMARY_LIMIT`` hosts per listed job, the ones needing attention first, plus the real total.
+
+    One statement for the whole page, and the window function caps the rows per job, so a deploy to a whole
+    fleet cannot grow the list query into a full ``job_host`` scan of the page's jobs.
+    """
+    if not job_ids:
+        return {}
+    ranked = (
+        select(
+            JobHost.job_id.label("job_id"),
+            Server.hostname.label("hostname"),
+            JobHost.status.label("status"),
+            func.row_number()
+            .over(partition_by=JobHost.job_id, order_by=(_HOST_ATTENTION, Server.hostname))
+            .label("position"),
+            func.count().over(partition_by=JobHost.job_id).label("host_total"),
+        )
+        .join(Server, Server.id == JobHost.server_id)
+        .where(JobHost.job_id.in_(tuple(job_ids)))
+        .subquery()
+    )
+    rows = db.execute(
+        select(ranked.c.job_id, ranked.c.hostname, ranked.c.status, ranked.c.host_total)
+        .where(ranked.c.position <= HOST_SUMMARY_LIMIT)
+        .order_by(ranked.c.job_id, ranked.c.position)
+    ).all()
+    shown: dict[UUID, list[HostOutcome]] = {}
+    totals: dict[UUID, int] = {}
+    for job_id, hostname, status, host_total in rows:
+        shown.setdefault(job_id, []).append(HostOutcome(hostname, getattr(status, "value", status)))
+        totals[job_id] = int(host_total)
+    return {job_id: HostSummary(tuple(items), totals[job_id]) for job_id, items in shown.items()}
 
 
 def _summaries(db: Session, condition, limit: int) -> tuple[DeployJobSummary, ...]:
@@ -792,3 +856,146 @@ def certificate_deploy_panel(db: Session, certificate_id: int, now: datetime) ->
         active=active,
         blocked=_panel_blocked(db, certificate, now, active),
     )
+
+
+# --------------------------------------------------------------------------
+# The job list (/deploy/jobs)
+# --------------------------------------------------------------------------
+
+# The outcome filter values. ``rolled_back`` is a ``job_host`` state, not a ``JobStatus``: a rollout that rolled
+# a host back is a *failed* job whose hosts carry the evidence (§8.7), so ``failed`` excludes it and the two
+# filters partition the failures instead of double-counting one rollout.
+OUTCOMES = ("failed", "rolled_back", "running", "succeeded", "queued", "paused", "cancelled")
+DEFAULT_PAGE_SIZE = 50
+PAGE_SIZE_LIMIT = 100
+# How many hosts one list row names before it defers to the deployment for the rest: a rollout may target a
+# whole fleet, and the list must stay one screen. The order puts the hosts that need attention first, so a
+# failure is never the host that gets cut off.
+HOST_SUMMARY_LIMIT = 8
+
+
+def _rolled_back_host():
+    """A job with at least one host row in the ``rolled_back`` state (``job_host.status``, §4.6)."""
+    return exists().where(JobHost.job_id == Job.id, JobHost.status == JobHostStatus.ROLLED_BACK)
+
+
+def outcome_clause(outcome: str):
+    """The predicate one outcome filter selects; the overview queue counts reuse it so they cannot drift."""
+    if outcome == "failed":
+        return and_(Job.status == JobStatus.FAILED, ~_rolled_back_host())
+    if outcome == "rolled_back":
+        return _rolled_back_host()
+    if outcome not in OUTCOMES:
+        raise ValueError("unknown job outcome")
+    return Job.status == JobStatus(outcome)
+
+
+@dataclass(frozen=True)
+class JobFilters:
+    """Validated job-list filters; an unknown value raises ``ValueError`` (the route answers 422)."""
+
+    outcome: str | None = None
+    type: JobType | None = None
+
+    def __post_init__(self) -> None:
+        if self.outcome is not None and (not isinstance(self.outcome, str) or self.outcome not in OUTCOMES):
+            raise ValueError("unknown job outcome")
+        if self.type is not None:
+            object.__setattr__(self, "type", JobType(self.type))
+
+
+@dataclass(frozen=True)
+class JobListRow:
+    """One job as the list shows it: where it stands, its hosts' outcomes and its detail destination."""
+
+    job_id: UUID
+    type: str
+    status: str
+    outcome: str
+    certificate_id: int | None
+    certificate_cn: str | None
+    actor: str
+    created_at: datetime
+    totals: dict[str, int]
+    hosts: tuple[HostOutcome, ...]
+    hosts_omitted: int
+    href: str
+
+
+@dataclass(frozen=True)
+class JobListPage:
+    items: list[JobListRow]
+    total: int
+    page: int
+    page_size: int
+
+
+def job_href(job_type: JobType, payload: Mapping[str, JSONValue], job_id: str) -> str:
+    """Where one job's detail lives: the deploy screen, the pull import, or its audit entries."""
+    if job_type is JobType.DEPLOY:
+        return f"/deploy/{job_id}"
+    if job_type is JobType.SCAN and payload.get("action") == "import_pull":
+        return f"/imports/{job_id}"
+    return "/audit?" + urlencode({"target_type": "job", "target_id": job_id})
+
+
+def _job_conditions(filters: JobFilters) -> list:
+    conditions: list = []
+    if filters.outcome is not None:
+        conditions.append(outcome_clause(filters.outcome))
+    if filters.type is not None:
+        conditions.append(Job.type == filters.type)
+    return conditions
+
+
+def count_jobs(db: Session, filters: JobFilters) -> int:
+    """How many jobs the same filters list; one COUNT, no rows."""
+    return db.scalar(select(func.count()).select_from(Job).where(*_job_conditions(filters))) or 0
+
+
+def list_jobs(db: Session, filters: JobFilters, page: int = 1, page_size: int = DEFAULT_PAGE_SIZE) -> JobListPage:
+    """One page (1-100 rows) of jobs, newest first, with the outcome of every deploy host.
+
+    Four statements whatever the page holds: the rows with their certificate and requester, one grouped
+    ``job_host`` count and one capped host summary for the deploys on it, and the total.
+    """
+    if type(page) is not int or page < 1:
+        raise ValueError("page must be at least 1")
+    if type(page_size) is not int or not 1 <= page_size <= PAGE_SIZE_LIMIT:
+        raise ValueError(f"page_size must be between 1 and {PAGE_SIZE_LIMIT}")
+    rows = db.execute(
+        select(Job, Certificate, User.username)
+        .outerjoin(Certificate, Certificate.id == _payload_certificate_id())
+        .outerjoin(User, User.id == Job.requested_by)
+        .where(*_job_conditions(filters))
+        .order_by(Job.created_at.desc(), Job.id.desc())
+        .limit(page_size)
+        .offset((page - 1) * page_size)
+    ).all()
+    deploy_ids = [job.id for job, _certificate, _actor in rows if JobType(job.type) is JobType.DEPLOY]
+    totals = _host_totals(db, deploy_ids)
+    summaries = _host_outcomes(db, deploy_ids)
+    items = []
+    for job, certificate, actor in rows:
+        kind = JobType(job.type)
+        payload = job.payload if isinstance(job.payload, dict) else {}
+        host_totals = totals.get(job.id, {})
+        summary = summaries.get(job.id)
+        status = JobStatus(job.status).value
+        items.append(
+            JobListRow(
+                job_id=job.id,
+                type=kind.value,
+                status=status,
+                outcome="rolled_back" if host_totals.get("rolled_back") else status,
+                certificate_id=certificate.id if certificate is not None else None,
+                certificate_cn=certificate.common_name if certificate is not None else None,
+                actor=actor or "system",
+                created_at=job.created_at,
+                totals=host_totals if kind is JobType.DEPLOY else {},
+                hosts=summary.hosts if summary is not None else (),
+                hosts_omitted=summary.total - len(summary.hosts) if summary is not None else 0,
+                href=job_href(kind, payload, str(job.id)),
+            )
+        )
+    return JobListPage(items, count_jobs(db, filters), page, page_size)

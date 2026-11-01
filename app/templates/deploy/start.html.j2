@@ -3,7 +3,7 @@
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/deploy.css">{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
 <h1>Deploy</h1>
-<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.</p>
+<p class="hint">The preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host. <a href="/deploy/jobs">Every job, filtered by outcome</a>.</p>
 
 {% if not candidates %}
 <section class="panel wide" data-empty-state="deploy">

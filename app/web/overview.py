@@ -5,7 +5,7 @@ renewals in flight and status strip slots (Plan 2 Task 16); the expiry counters 
 from fastapi import FastAPI, Request
 
 from app.services.certificates import expiry_counts, has_certificates
-from app.services.overview import overview_snapshot
+from app.services.overview import overview_snapshot, queue_counts
 from app.services.servers import unknown_bindings
 from app.web.common import _render, display_timezone, install_template_helpers
 
@@ -41,6 +41,7 @@ def register_overview_routes(app: FastAPI) -> None:
             counts = expiry_counts(db, now)
             empty = not has_certificates(db)
             snapshot = overview_snapshot(db, now)
+            queue = queue_counts(db, now)
             unknown = unknown_bindings(db)
             timezone_name = display_timezone(db)
         counters = [
@@ -52,6 +53,6 @@ def register_overview_routes(app: FastAPI) -> None:
             for key, label, href in TLS_COUNTERS
         ]
         return _render(
-            request, "overview.html.j2", counters=counters, empty=empty, snapshot=snapshot,
+            request, "overview.html.j2", counters=counters, empty=empty, snapshot=snapshot, queue=queue,
             tls_counters=tls_counters, unknown=unknown, tz=timezone_name,
         )

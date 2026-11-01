@@ -1,4 +1,5 @@
-"""Overview read models (spec §8.2): TLS health, recent jobs, renewals in flight and the status strip.
+"""Overview read models (spec §8.2): TLS health, recent jobs, renewals in flight, the status strip and the
+work queue's counts.
 
 Every slot is one aggregate or one bounded query, so the page costs the same statements for any row count.
 Job payloads are caller-supplied JSON: only a closed allowlist of keys is ever summarised, and each value
@@ -9,18 +10,38 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from urllib.parse import urlencode
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.jobs.worker import worker_liveness
-from app.models import Binding, Endpoint, Job, JSONValue, NotificationLog, Renewal, User, WorkerHeartbeat
-from app.models.enums import JobType, NotificationStatus, RenewalState, ScanStatus
+from app.models import (
+    Binding,
+    Certificate,
+    Endpoint,
+    Job,
+    JSONValue,
+    NotificationLog,
+    Renewal,
+    User,
+    WorkerHeartbeat,
+)
+from app.models.enums import (
+    CertificateStatus,
+    JobStatus,
+    JobType,
+    NotificationStatus,
+    RenewalState,
+    ScanStatus,
+)
+from app.services.certificates import _bucket_clause
+from app.services.deploy_views import job_href, outcome_clause
 from app.services.digest import (  # same Plan 3 result keys as the digest
     inventory_revision_result,
     parse_inventory_revision,
 )
+from app.services.endpoints import EndpointFilters, count_endpoints
+from app.services.renewals import RenewalFilters, count_renewals
 from app.services.scans import format_hostport
 
 RECENT_JOBS = 10
@@ -74,9 +95,30 @@ class RenewalInFlight:
 class StatusStrip:
     worker: str
     last_heartbeat_at: datetime | None
+    last_discovery_at: datetime | None
     inventory_rev: str | None
     inventory_rev_age_hours: int | None
     last_digest_at: datetime | None
+
+
+@dataclass(frozen=True)
+class QueueCounts:
+    """The landing page's work queue: one number per filtered list that answers "what do I have to do now".
+
+    Every number is produced by the same predicate as the list it links to (the certificate expiry bucket, the
+    endpoint list's own query, the job outcome filter, the renewal state filter), so a count cannot drift from
+    the rows the operator sees. ``deploy_jobs_failed`` and ``deploy_jobs_rolled_back`` are disjoint: a rollout
+    that rolled a host back is reported once, under ``rolled_back``.
+    """
+
+    certificates_expired: int
+    certificates_expiring_7d: int
+    endpoints_mismatch: int
+    deploy_jobs_failed: int
+    deploy_jobs_rolled_back: int
+    renewals_awaiting_certificate: int
+    scans_running: int
+    deploys_running: int
 
 
 @dataclass(frozen=True)
@@ -151,20 +193,12 @@ def recent_jobs(db: Session) -> list[RecentJob]:
     for row in rows:
         payload = row.payload if isinstance(row.payload, dict) else {}
         job_id = str(row.id)
-        pulled = row.type is JobType.SCAN and payload.get("action") == "import_pull"
-        if row.type is JobType.DEPLOY:
-            # The deploy job screen is the operator's view of a rollout; the audit entry stays one click away.
-            href = f"/deploy/{job_id}"
-        elif pulled:
-            href = f"/imports/{job_id}"
-        else:
-            href = "/audit?" + urlencode({"target_type": "job", "target_id": job_id})
         duration = int((row.finished_at - row.started_at).total_seconds()) if row.finished_at and row.started_at else None
         jobs.append(
             RecentJob(
                 id=job_id, type=row.type.value, summary=job_summary(row.type, payload), status=row.status.value,
                 duration_seconds=duration, actor=row.username or "system", finished_at=row.finished_at,
-                href=href,
+                href=job_href(row.type, payload, job_id),
             )
         )
     return jobs
@@ -182,11 +216,44 @@ def renewals_in_flight(db: Session, now: datetime) -> list[RenewalInFlight]:
     ]
 
 
+def queue_counts(db: Session, now: datetime) -> QueueCounts:
+    """Four aggregate statements, one per source, each reusing the predicate of the list it links to."""
+    active = Certificate.status == CertificateStatus.ACTIVE
+    expired, expiring = db.execute(
+        select(
+            func.count().filter(and_(active, _bucket_clause("expired", now))),
+            func.count().filter(and_(active, _bucket_clause("lt7", now))),
+        ).select_from(Certificate)
+    ).one()
+    failing, rolled_back, scans_running, deploys_running = db.execute(
+        select(
+            func.count().filter(Job.type == JobType.DEPLOY, outcome_clause("failed")),
+            func.count().filter(Job.type == JobType.DEPLOY, outcome_clause("rolled_back")),
+            func.count().filter(Job.type == JobType.SCAN, outcome_clause("running")),
+            func.count().filter(Job.type == JobType.DEPLOY, outcome_clause("running")),
+        ).select_from(Job)
+    ).one()
+    return QueueCounts(
+        certificates_expired=int(expired),
+        certificates_expiring_7d=int(expiring),
+        endpoints_mismatch=count_endpoints(db, EndpointFilters(status=ScanStatus.MISMATCH)),
+        deploy_jobs_failed=int(failing),
+        deploy_jobs_rolled_back=int(rolled_back),
+        renewals_awaiting_certificate=count_renewals(db, RenewalFilters(state="awaiting_certificate")),
+        scans_running=int(scans_running),
+        deploys_running=int(deploys_running),
+    )
+
+
 def status_strip(db: Session, now: datetime) -> StatusStrip:
-    """Two statements: the shared ``worker_liveness`` helper, then one SELECT of heartbeat, digest and revision."""
-    heartbeat, digest, result = db.execute(
+    """Two statements: the shared ``worker_liveness`` helper, then one SELECT of heartbeat, discovery, digest
+    and revision."""
+    heartbeat, discovery, digest, result = db.execute(
         select(
             select(func.max(WorkerHeartbeat.last_seen_at)).scalar_subquery(),
+            select(func.max(Job.finished_at))
+            .where(Job.type == JobType.DISCOVER, Job.status == JobStatus.SUCCEEDED)
+            .scalar_subquery(),
             select(func.max(NotificationLog.sent_at))
             .where(NotificationLog.kind == "digest", NotificationLog.status == NotificationStatus.SENT)
             .scalar_subquery(),
@@ -196,8 +263,8 @@ def status_strip(db: Session, now: datetime) -> StatusStrip:
     revision, revision_date = parse_inventory_revision(result)
     age = max(int((now - revision_date).total_seconds() // 3600), 0) if revision_date else None
     return StatusStrip(
-        worker=worker_liveness(db, now), last_heartbeat_at=heartbeat, inventory_rev=revision,
-        inventory_rev_age_hours=age, last_digest_at=digest,
+        worker=worker_liveness(db, now), last_heartbeat_at=heartbeat, last_discovery_at=discovery,
+        inventory_rev=revision, inventory_rev_age_hours=age, last_digest_at=digest,
     )
 
 

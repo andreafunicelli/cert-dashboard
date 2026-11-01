@@ -53,7 +53,8 @@ def operator_fixtures():
         ("unknown_certificates", "Unknown certificates on servers", 1, "/bindings?match_state=unknown"),
         ("key_mismatch_bindings", "Bindings with a key mismatch", 1, "/bindings?match_state=key_mismatch"),
     ]]
-    status = {"worker": "stale", "last_heartbeat_at": stamp, "inventory_rev": "abc123def4567890",
+    status = {"worker": "stale", "last_heartbeat_at": stamp, "last_discovery_at": stamp,
+                  "inventory_rev": "abc123def4567890",
                   "inventory_rev_age_hours": 5, "last_digest_at": stamp}
     jobs = [{"id": "fixture-job-1", "type": "scan", "summary": "2 endpoints", "status": "failed",
                  "duration_seconds": 120, "actor": "operator", "finished_at": stamp,
@@ -84,6 +85,7 @@ def operator_fixtures():
         "overview-empty": ("overview.html.j2", overview | {"empty": True, "unknown": [],
             "counters": [item | {"count": 0} for item in counters], "tls_counters": [item | {"count": 0} for item in tls],
             "snapshot": {"recent_jobs": [], "renewals": [], "status": {"worker": "stale", "last_heartbeat_at": None,
+                "last_discovery_at": None,
                 "inventory_rev": None, "inventory_rev_age_hours": None, "last_digest_at": None}}}),
         "account": ("account.html.j2", account),
         "account-enrollment": ("account.html.j2", account | {"totp_enabled": False, "totp_pending": True,
