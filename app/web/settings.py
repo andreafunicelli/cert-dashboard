@@ -40,6 +40,20 @@ back to the tab; refusals are 422 and change nothing)::
                  GET  /settings/smtp/test/{job_id}             htmx fragment: the test job's outcome
     inventory    POST /settings/inventory/test-pull            (no fields)         (enqueue discover/test_pull)
                  GET  /settings/inventory/test-pull/{job_id}   htmx fragment: the test pull's outcome
+
+The UX consolidation reads Scanning beside Schedule and General beside Maintenance without moving any
+route or form. Additive read context only::
+
+    section_tabs      canonical navigation: every tab except scanning and general, with the labels
+                      "Schedule and scans" and "System and maintenance"
+    section_tab       the canonical navigation target (scanning -> schedule, general -> maintenance)
+    section_label     that target's label
+    related_sections  the sibling sub-section(s) rendered in the same panel, each with
+                      tab/label/fields/values/errors/saved; values are always the stored ones, and
+                      errors/saved only ever describe the original (refused or saved) section
+
+``tabs`` keeps all ten legacy entries, and every GET/POST path, field name, redirect, allowlist,
+validator, CSRF check and audit action is unchanged.
 """
 
 import re
@@ -215,6 +229,29 @@ _TAB_LABELS = {
 }
 _TAB_LINKS = [{"name": name, "label": label} for name, label in _TAB_LABELS.items()]
 
+# The UX consolidation groups Scanning inside Schedule and General inside Maintenance. Every route,
+# POST allowlist and legacy ``tabs`` entry above stays untouched; ``section_tabs`` is the canonical
+# navigation the settings template renders, and ``related_sections`` carries the sibling sub-section
+# (with its own fields/values/errors/saved) so one grouped panel can show both forms.
+_SECTION_LABELS = {
+    "smtp": "SMTP",
+    "alerts": "Alerts",
+    "inventory": "Inventory",
+    "deployment": "Deployment",
+    "schedule": "Schedule and scans",
+    "trust": "Trust anchors",
+    "status": "Status",
+    "maintenance": "System and maintenance",
+}
+_SECTION_TABS = [{"name": name, "label": label} for name, label in _SECTION_LABELS.items()]
+_GROUPED_SECTIONS = {"scanning": "schedule", "general": "maintenance"}
+_RELATED_SECTIONS = {
+    "schedule": ("scanning",),
+    "scanning": ("schedule",),
+    "maintenance": ("general",),
+    "general": ("maintenance",),
+}
+
 
 # --- form text -> JSON values ----------------------------------------------------------------------
 
@@ -258,6 +295,28 @@ def _display(field: _Field, value: JSONValue) -> JSONValue:
 
 def _current_values(db: Session, tab: str) -> dict[str, JSONValue]:
     return {field.name: _display(field, get_setting(db, field.key)) for field in _TAB_FIELDS[tab]}
+
+
+def _related_sections(db: Session, tab: str) -> list[dict[str, object]]:
+    """The sibling sub-section(s) that render beside ``tab``, with their stored values only.
+
+    A refused POST belongs to its own tab: ``errors``/``saved`` are only meaningful for the original
+    section, so every related entry carries empty errors and ``saved=False`` while its values stay the
+    stored ones (the refused form text is never echoed into the sibling section).
+    """
+    sections: list[dict[str, object]] = []
+    for name in _RELATED_SECTIONS.get(tab, ()):
+        sections.append(
+            {
+                "tab": name,
+                "label": _TAB_LABELS[name],
+                "fields": _TAB_FIELDS.get(name, ()),
+                "values": _current_values(db, name) if name in _TAB_FIELDS else {},
+                "errors": {},
+                "saved": False,
+            }
+        )
+    return sections
 
 
 # --- rendering -------------------------------------------------------------------------------------
@@ -461,10 +520,16 @@ def _page(
     values: Mapping[str, JSONValue] | None = None,
     errors: Mapping[str, list[str]] | None = None,
 ):
+    section_tab = _GROUPED_SECTIONS.get(tab, tab)
     context: dict = {
         "tab": tab,
         "tab_label": _TAB_LABELS[tab],
         "tabs": _TAB_LINKS,
+        # Additive canonical navigation: Scanning and General live inside Schedule and Maintenance.
+        "section_tabs": _SECTION_TABS,
+        "section_tab": section_tab,
+        "section_label": _SECTION_LABELS[section_tab],
+        "related_sections": [],
         "fields": _TAB_FIELDS.get(tab, ()),
         "errors": errors or {},
         "saved": request.query_params.get("saved") == "1" and status == 200,
@@ -477,6 +542,9 @@ def _page(
         if tab in _TAB_FIELDS:
             context["values"] = _current_values(db, tab) | dict(values or {})
             context["tls_unsafe"] = tab == "smtp" and get_setting(db, "smtp.tls_verify") is False
+            if tab == "general":
+                # The related Maintenance panel (keyring state and prune) renders on this page too.
+                context.update(_status_context(request, db))
             if tab == "smtp":
                 context.update(smtp_test=latest_smtp_test(db), timezone=display_timezone(db), when=_when)
             if tab == "inventory":
@@ -494,6 +562,7 @@ def _page(
             context.update(_trust_context(db))
         else:  # status and maintenance both render the snapshot (maintenance shows the keyring state)
             context.update(_status_context(request, db))
+        context["related_sections"] = _related_sections(db, tab)
     if status == 422 and _is_htmx(request):
         return render_block(request, "settings.html.j2", "panel", status, **context)
     return _render(request, "settings.html.j2", status, **context)
