@@ -3,7 +3,7 @@
 ## Intent
 
 An operator reads certificate state and security failures before taking action.
-Use quiet, near-black surfaces, blue actions, generous table rows and restrained
+Use quiet, blue-black surfaces, cyan actions, generous table rows and restrained
 hairlines. Light mode supports daytime/projector use without a second component
 system. No illustrations, gradients, web fonts, animation on entry or build step.
 
@@ -14,45 +14,100 @@ Use `var(--token)` in rules; never introduce page-specific colours.
 
 | Token | Dark | Light | Meaning |
 |---|---|---|---|
-| `surface` | `#101419` | `#f3f5f7` | Page canvas |
-| `surface-raised` | `#1b222b` | `#ffffff` | Header, panels, table body |
-| `surface-inset` | `#151b22` | `#e8edf3` | Inputs, table headings, code |
-| `border` | `#8290a1` | `#697789` | Interactive boundaries (3:1 minimum) |
-| `separator` | `#394552` | `#c5ced8` | Decorative row/panel dividers, not control boundaries |
-| `text` | `#edf1f6` | `#172333` | Main content |
-| `text-muted` | `#b3bfcd` | `#49596c` | Help and secondary content |
-| `accent` | `#93c5fd` | `#204f89` | Links, selection indicators, info |
-| `accent-fill` | `#244f83` | same | Primary button and text selection |
-| `on-accent` | `#ffffff` | same | Filled-button/selection text |
-| `ok` / `ok-surface` | `#91d8af` / `#173529` | `#21633d` / `#e2f2e8` | Valid/success |
+| `surface` | `#0b1326` | `#f5f7fc` | Page canvas |
+| `surface-raised` | `#171f33` | `#ffffff` | Header, panels, table body |
+| `surface-inset` | `#222a3d` | `#e8edf5` | Inputs, sticky table headings, code |
+| `surface-variant` | `#2d3449` | `#dce3ee` | Reserved stronger neutral from reference; not another card layer |
+| `border` | `#869397` | `#68777b` | One interactive outline colour (3:1 minimum) |
+| `separator` | `#3d494c` | `#c0cbce` | One decorative hairline colour; not a control boundary |
+| `text` | `#dae2fd` | `#172033` | Main content |
+| `text-muted` | `#bcc9cd` | `#47565c` | Help, secondary content, unknown state |
+| `primary` / `accent` | `#4cd7f6` | `#006579` | Links and selection indicators; accent aliases primary |
+| `primary-container` / `accent-fill` | `#06b6d4` | `#006579` | Primary button and text selection |
+| `secondary` | `#c0c1ff` | `#52538c` | Reference token only; not a second action colour |
+| `on-accent` | `#002e38` | `#ffffff` | Primary-button/selection text |
+| `on-danger` | `#ffffff` | same | Destructive-button text, distinct from on-accent |
+| `ok` / `ok-surface` | `#1bbd85` / `#10352b` | `#006b48` / `#def5e9` | Reference tertiary / valid / success |
 | `warn` / `warn-surface` | `#f1cd7d` / `#382e1b` | `#775000` / `#fff1cf` | Expiring, degraded, requires attention |
-| `danger` / `danger-surface` | `#ffb4b4` / `#422528` | `#9b252e` / `#fce8e9` | Expired, critical, errors |
-| `danger-fill` | `#963c43` | same | Destructive button |
-| `focus` | `#f1cd7d` | `#865b00` | Keyboard focus, 3px outline + 3px offset |
+| `danger` / `danger-surface` | `#ffb4ab` / `#4b2025` | `#a1262b` / `#ffebe8` | Expired, critical, errors |
+| `danger-fill` | `#93000a` | same | Reference error-container / destructive button |
+| `focus` | `#4cd7f6` | `#006579` | Primary-colour keyboard focus, 2px outline + 2px offset |
 
 Body/help/link text is tested at 4.5:1 on all three neutral surfaces; state
 text at 4.5:1 on its state surface; control boundaries/focus at 3:1.
 These palette checks are not a complete accessibility audit.
 
-- Spacing: `space-0` through `space-8` = `0, .25, .5, .75, 1, 1.5, 2, 3, 4rem`.
+- Three working surface layers: canvas → raised card/table → inset control/header.
+  Normal panels have no visible outline; control outlines and table hairlines keep
+  their distinct accessibility roles. No new per-page grey or decorative shadow.
+- Spacing: an 8px grid; `space-0` through `space-8` =
+  `0, .5, .5, 1, 1, 1.5, 2, 3, 4rem`. Compatibility token names are retained;
+  adjacent aliases intentionally coincide rather than introducing off-grid values.
 - Type: `text-sm .875rem`, `text-base 1rem`, `text-brand 1.125rem`,
   `text-lg 1.5rem`, `text-xl 2rem`; line heights `leading 1.6`, `leading-tight 1.25`;
   weights `weight-medium 600`, `weight-bold 700`. Body measure `72ch`.
-- `font-sans`: system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif.
-  `font-mono`: ui-monospace, SFMono-Regular, Consolas, Liberation Mono, monospace.
+- `font-sans`: `Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`.
+  `font-mono`: `ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace`.
+  LAN-only deployments must not request a CDN: installed fonts are preferred,
+  otherwise local system fallbacks apply. No font files are fetched or bundled.
+  Embedding Inter requires a separate operator decision and committed font files.
   Numbers, dates, serials and fingerprints use tabular numerals and monospace,
-  not monospaced prose. Add `.numeric` for right alignment and `.mono` for identifiers.
-- Radius: `radius .25rem`, `radius-panel .5rem`, `radius-pill 2rem`.
-  `line 1px`; controls minimum `control-height 2.75rem`.
+  not monospaced prose. Add `.numeric` to both a dedicated date/number column's
+  heading and cells (including missing-value cells), and `.mono` for identifiers.
+  Do not rely on `td:has(> time)`: nested timestamps such as server discovery
+  live inside a paragraph. Explicit column classes align their headings too.
+- Exactly five type sizes (14/16/18/24/32px at the default root). H1 is largest;
+  H2 is 24px, H3/brand 18px, all tables 14px. Counter figures are subordinate to H1.
+- One radius: `radius .25rem` (4px); `radius-panel` and `radius-pill` alias it.
+  `line 1px`; inputs/selects/buttons share minimum `control-height 3rem` and
+  8px block / 16px inline padding. Certificate rows use `row-height 3.5rem` (56px).
 - Widths: content `80rem`, panel `42rem`, auth `30rem`, field `24rem`,
   filter/menu `12rem`, definition-list label `14rem`.
-- Elevation: user-menu only, `0 .5rem 1.5rem #00000040` dark,
+- Elevation: overlapping user/action menus only, `0 .5rem 1.5rem #00000040` dark,
   `0 .5rem 1.5rem #17233320` light. Ordinary panels are flat.
 - Motion: button background transition `duration 120ms`,
   `ease cubic-bezier(.2, 0, 0, 1)`; reduced motion replaces duration with
   `duration-reduced 0s`. No animated page entrances or scrolling.
 - Shell stacks below 720px (media query `max-width: 719px`). Navigation wraps;
   the open user menu stays in flow on small screens. Tables scroll inside `.table-wrap`.
+  Shared table regions cap at `table-height 36rem` so the stronger sticky header
+  stays visible during region scrolling. The desktop certificate list keeps its
+  existing overflow-visible action menus and page scrolling; its header sticks
+  to the viewport instead. On narrow screens its horizontal scroll stays local.
+
+### Measured contrast (WCAG relative luminance)
+
+| Foreground / background | Dark | Light |
+|---|---:|---:|
+| Body / surface | 14.34:1 | 15.18:1 |
+| Muted / surface | 10.90:1 | 7.12:1 |
+| Accent / surface | 10.88:1 | 6.24:1 |
+| On-accent / primary button | 5.97:1 | 6.69:1 |
+| OK / OK background | 5.53:1 | 5.74:1 |
+| Warning / warning background | 8.74:1 | 6.39:1 |
+| Danger / danger background | 8.07:1 | 6.47:1 |
+| On-danger / destructive button | 9.35:1 | 9.35:1 |
+
+White on the reference's bright cyan fails AA, so dark primary buttons use dark
+on-primary text; destructive red buttons retain white. Tests resolve inherited
+aliases in both themes and check all three neutral layers, not just the canvas.
+
+### Shared status-row component
+
+Existing state macros remain the presentation source of truth: authored SVG icon
+plus visible word inside `.badge` (legacy `.chip` supported). One shared CSS
+component decorates `tbody > tr:has(> td .badge, > td .chip)` with a 4px inset
+left bar on the first cell. It does not change table width, routes, fields, hooks,
+accessible names or lifecycle decisions. Multiple observations use worst-severity
+precedence: danger → warning → OK → muted/unknown. This is visual aggregation,
+not a new host health verdict. Unknown badges are muted, not action-cyan.
+
+The same implementation covers certificate, endpoint scan, server discovery,
+binding, recent-job, discovery-history, scan-history and deployment-host rows.
+No template hooks, duplicate state mapping, JavaScript or new icon assets are
+needed. Browsers without CSS `:has()` retain the existing accessible icon/word;
+they omit only the supplementary bar. Target browsers are current Chromium,
+Firefox and Safari. Status text never depends on that bar to convey meaning.
 
 ## Page styles
 
@@ -104,8 +159,8 @@ Fixed area filenames (one area, one file; never name a file after a lane):
 `.action-disabled`, `.row-attention`, `.row-inactive`, legacy badge/chip state names
 and `table.users` hooks retain shared, token-based compatibility for cards 2–5.
 Do not fork button/table/badge implementations during those migrations. Existing
-page markup is not migrated by this card; state icons and numeric modifiers must
-be applied as those pages come into scope.
+page markup keeps its existing state macros. The shared Stitch status-row
+component consumes those existing badges without changing the markup contracts.
 
 ## Calmer list composition (certificate area)
 
@@ -131,9 +186,9 @@ button, badge or header style:
   with detail; expiring active certificates show days instead of a second expiry
   badge, unknown shows Unknown. SAN count, owner, source and key remain available
   on detail, not repeated in the default list. No hidden duplicate status.
-- Rows use `row-height: 3rem` (48px at default text size) with 44px action-summary
+- Rows use `row-height: 3.5rem` (56px at default text size) with 48px action-summary
   targets, no vertical cell padding. Header uses muted text and the existing
-  raised surface/hairline separators. Cells do not wrap at desktop widths;
+  inset surface/hairline separators. Cells do not wrap at desktop widths;
   oversized common names/issuers ellipsize with full text in `title` and on the
   common-name detail link. Below 1280px (`max-width: 1279px`) column priorities
   reserve more space for dates/status; below 720px the table scrolls **inside**
@@ -155,12 +210,37 @@ non-wrapping scrollable exact-copy values. The global wrapping substitution is
 mechanical, not a redesign of the other areas.
 
 `certificate-list-dense.html` contains twenty synthetic rows; filtered/empty
-variants exercise disclosures and removable chips. Static Chromium checks at
-1024, 1280 and 1440px (900px viewport height) in **both themes** found no mid-token
-line breaks and no page overflow on these fixtures. At 1280px, 12 complete rows
-fit above the fold, all rows measure 48px, and only Import certificate is a visible
-primary button. Palette tests check dark and light contrast. These checks are
-not a complete WCAG audit or a database-backed application test.
+variants exercise disclosures and removable chips. After the Stitch token pass,
+static Chromium checks at 1024px (900px viewport height) covered all 70 non-email
+fixtures in **both themes**: 140 fixture/theme combinations, no page overflow,
+and exactly five computed type sizes (14/16/18/24/32px). Every matching state row
+had a computed inset bar, including certificate, endpoint, server, binding, job
+and deployment-host lists. At 1280px, the certificate fixture has 10 complete rows
+above the fold and all twenty rows measure 56px. Its sticky header remained at
+viewport top after scrolling; keyboard focus measured 2px plus 2px offset in both
+themes. This supersedes the earlier 48px/12-row evidence. Palette tests check
+dark and light contrast. These checks are not a complete WCAG audit or a
+database-backed application test.
+
+The existing generator regenerates all 72 HTML previews. The initial token pass
+left their bytes unchanged; the review correction adds `.numeric` classes to the
+date headers/cells in audit, server inventory/discovery history and endpoint
+inventory/scan history. No template structure or fixture content changed.
+Screenshots inspected here are **static fixtures**, never the deployed app.
+
+`tests/test_stitch_styles.py` is a repository-only, Docker-independent CSS/DOM
+regression suite. It renders real certificate, server, binding and endpoint lists,
+matches the shared component's deliberately bounded selector grammar against
+their DOM, and checks the cascaded bar for both palettes. It exercises every
+severity/fallback, competing observations, reordered cells/badges and unbadged
+audit rows. Date-column assertions cover matching headings/cells, missing values
+and server timestamps nested inside `p`. The evaluator is not a browser engine;
+unsupported component selector syntax fails rather than being silently ignored.
+The suite runs in normal repository CI, not the runtime-image unit suite (which
+does not ship the preview generator). No dependency or browser install is needed.
+Separate static Chromium checks of seven fixtures in both themes at 1024×900
+confirmed 30 date/header pairs aligned right with monospaced timestamps, 42
+painted status rows and no page overflow. This is not deployed-flow evidence.
 
 Structural checks passed; visual verification pending on the deployed instance.
 

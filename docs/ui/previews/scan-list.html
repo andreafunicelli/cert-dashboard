@@ -120,9 +120,9 @@
     <th scope="col"><a href="/certificates?sort=server">Server</a></th>
     <th scope="col"><a href="/certificates?sort=expected">Expected certificate</a></th>
     <th scope="col">Observed certificate</th>
-    <th scope="col">Expires</th>
+    <th scope="col" class="numeric">Expires</th>
     <th scope="col"><a href="/certificates?sort=status">Status</a></th>
-    <th scope="col"><a href="/certificates?sort=checked_at">Last checked</a></th>
+    <th scope="col" class="numeric"><a href="/certificates?sort=checked_at">Last checked</a></th>
     <th scope="col">Actions</th>
   </tr></thead>
   <tbody>
@@ -133,14 +133,14 @@
     <td>edge-01</td>
     <td><a href="/certificates/42">gateway.ops.example.test</a></td>
     <td>old-gateway.ops.example.test<br><small>Operations Intermediate CA</small></td>
-    <td><time datetime="2026-11-01T12:00:00Z">2026-11-01 12:00 UTC</time></td>
+    <td class="numeric"><time datetime="2026-11-01T12:00:00Z">2026-11-01 12:00 UTC</time></td>
     <td>
 <span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
 
 </svg>Findings: mismatch</span>
       </td>
-    <td><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
+    <td class="numeric"><time datetime="2026-10-30T12:00:00Z">2026-10-30 12:00 UTC</time></td>
     <td>
       <a href="/scans/12#history" hx-get="/scans/12/history" hx-target="#history-drawer" hx-swap="innerHTML">History</a>
       <form class="inline" method="post" action="/scans/run">

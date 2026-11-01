@@ -26,7 +26,7 @@
 <div class="table-wrap">
 <table class="audit">
   <thead><tr>
-    <th scope="col">Time</th>
+    <th scope="col" class="numeric">Time</th>
     <th scope="col">Actor</th>
     <th scope="col">Action</th>
     <th scope="col">Target</th>
@@ -37,7 +37,7 @@
   {% for item in items %}
   {% set row = item.row %}
   <tr data-audit-row>
-    <td><time datetime="{{ item.utc }}">{{ item.local }}</time></td>
+    <td class="numeric"><time datetime="{{ item.utc }}">{{ item.local }}</time></td>
     <td><strong class="audit-value" title="{{ row.actor_label }}">{{ row.actor_label }}</strong></td>
     <td><span class="audit-value mono" title="{{ row.action }}">{{ row.action }}</span></td>
     <td><span class="audit-value" title="{{ row.target_type }}">{{ row.target_type }}</span>{% if row.target_id is not none %} <small class="audit-value mono" title="{{ row.target_id }}">{{ row.target_id }}</small>{% endif %}</td>
