@@ -592,7 +592,8 @@ The endpoint list is five columns: endpoint/SNI, server, latest verdict, observa
 age/exact time, actions. Observation age is rendered against the request's server
 clock, never a browser timer; a future observation explicitly reports clock skew.
 Expected/served certificate evidence and history stay on detail. History links
-navigate to detail even with HTMX enabled (the legacy drawer hook/route is retained).
+navigate to detail even with HTMX enabled; the list no longer carries a drawer
+region, while the existing detail fragment route remains available.
 Per-endpoint scan POSTs remain in native row actions; expanded menus stay in flow
 inside the scrolling table so they cannot clip. No scroll or toast behavior is added.
 Deploy guardrail verdict → scope/batches → file detail, failed-host-first progress,

@@ -80,7 +80,7 @@ def test_scans_are_endpoint_verdicts_not_inline_history_or_certificate_dumps():
         assert 'hx-get' not in history.attrib
     assert 'Observed certificate' not in html and 'Observed fingerprint' not in html
     assert 'name="endpoint_id"' in html and 'name="csrf_token"' in html
-    assert 'id="history-drawer" aria-live="polite"' in html  # compatibility hook retained
+    assert 'history-drawer' not in html  # history belongs on the detail, not as a list drawer
 
 
 @pytest.mark.parametrize('delta,label', [(timedelta(seconds=20), 'Less than a minute ago'),
