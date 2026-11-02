@@ -192,13 +192,14 @@ def ansible_unavailable_reason(db: Session, now: datetime) -> str:
 
     A worker that has not reported (none alive, or one that started before it wrote its start row) is a
     hint rather than a reason: a dead worker already raises its own banner, and the jobs simply wait.
-    The key counts when it is stored in the database too: it is then resolved for the next job even if
-    the worker started before an operator saved it.
+    The key counts when the database holds it *now* — read live, so a removal takes effect on the next
+    page load — or when the worker reported a mounted file. The effective startup flag is not used:
+    it is true for a database-held key too, so it would outlive the row it came from.
     """
     capabilities = worker_capabilities(db, now)
     if capabilities is None:
         return ""
-    if not capabilities.ssh_key_present and not credential_configured(db, SSH_PRIVATE_KEY):
+    if capabilities.ssh_key_file_present is not True and not credential_configured(db, SSH_PRIVATE_KEY):
         return NO_SSH_KEY
     if not capabilities.known_hosts_present:
         return NO_KNOWN_HOSTS

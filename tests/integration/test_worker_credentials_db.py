@@ -15,13 +15,14 @@ from sqlalchemy.orm import sessionmaker
 from app.config import Settings
 from app.crypto.keyring import Keyring, KeyUnwrapError
 from app.jobs.handlers import build_registry
-from app.jobs.worker import Worker, record_worker_start
-from app.models import AuditLog, EncryptedSetting, WorkerHeartbeat
+from app.jobs.worker import Worker, record_worker_start, worker_capabilities
+from app.models import AuditLog, EncryptedSetting, JSONValue, WorkerHeartbeat
 from app.models.enums import JobType
 from app.services import worker_credentials as credentials
 from app.services.audit import Actor, record
 from app.services.certificates import rotate_master_key, stale_master_key_rows
 from app.web.common import NO_SSH_KEY, ansible_unavailable_reason
+from app.web.settings import inventory_status
 
 SSH = credentials.SSH_PRIVATE_KEY
 VAULT = credentials.VAULT_PASSWORD
@@ -219,6 +220,171 @@ def test_rotation_rewraps_the_credentials_and_preserves_their_value(db, actor, c
     assert rotation.details["credentials_rotated"] == 2
 
 
+def _heartbeat(db, worker_id: str, now: datetime) -> None:
+    """A fresh heartbeat, so ``worker_capabilities`` accepts that worker's newest start row."""
+    db.add(WorkerHeartbeat(worker_id=worker_id, started_at=now, last_seen_at=now))
+    db.flush()
+
+
+def _start_report(db) -> dict[str, JSONValue]:
+    details = db.scalars(select(AuditLog.details).where(AuditLog.action == "worker.start")).one()
+    assert isinstance(details, dict)
+    return details
+
+
+def test_removing_a_database_only_credential_hides_it_and_restores_the_banner(
+    db, actor, credentials_settings, same_connection_factory
+):
+    """Start with database-only credentials, remove them without restarting the worker.
+
+    The startup row says the worker *had* the three credentials (effective flags), but no mounted file
+    supplied them, so after the removal every state is absent, the SSH banner is back and the next job
+    resolves no key at all.
+    """
+    now = datetime.now(UTC)
+    worker_id = "worker-db-only"
+    _heartbeat(db, worker_id, now)
+    pem, fingerprint = ssh_key()
+    credentials.set_credential(db, credentials_settings, SSH, pem, actor)
+    credentials.set_credential(db, credentials_settings, VAULT, b"vault-value", actor)
+    credentials.set_credential(db, credentials_settings, TOKEN, b"token-value", actor)
+    record_worker_start(same_connection_factory, credentials_settings, worker_id, now)
+
+    startup = _start_report(db)
+    assert startup["ssh_key_present"] is True  # effective: the database held it at startup
+    assert startup["ssh_key_file_present"] is False  # but no mounted file did
+    assert startup["vault_password_file_present"] is False
+    assert startup["inventory_token_file_present"] is False
+    assert ansible_unavailable_reason(db, now) == ""
+    stored = credentials.credential_state(db, credentials_settings, SSH, worker=worker_capabilities(db, now))
+    assert (stored.configured, stored.source, stored.fingerprint_sha256) == (True, "database", fingerprint)
+
+    for name in (SSH, VAULT, TOKEN):
+        credentials.remove_credential(db, credentials_settings, name, actor)
+
+    worker = worker_capabilities(db, now)
+    states = credentials.credential_states(db, credentials_settings, worker=worker)
+    assert [(state.configured, state.source, state.key_type, state.fingerprint_sha256) for state in states.values()] == [
+        (False, None, None, None)
+    ] * 3
+    assert ansible_unavailable_reason(db, now) == NO_SSH_KEY
+    assert inventory_status(db, now)["worker"]["ssh_key_present"] is False
+    assert credentials.resolve_worker_settings(db, credentials_settings).ansible_ssh_key is None
+    # The startup report is append-only evidence: the removal is its own credential.removed event,
+    # never an edit of the row that recorded the startup.
+    assert _start_report(db) == startup
+    removed = db.scalars(select(AuditLog).where(AuditLog.action == "credential.removed")).all()
+    assert {event.details["name"] for event in removed} == {SSH, VAULT, TOKEN}
+
+
+def test_removing_a_database_credential_keeps_the_mounted_fallback_configured(
+    db, actor, credentials_settings, same_connection_factory
+):
+    """The file level still answers after the row is gone: configured, source=file, no banner."""
+    now = datetime.now(UTC)
+    worker_id = "worker-with-files"
+    pem, _ = ssh_key()
+    mounted_key = (pem + b"\n").rstrip(b"\r\n")
+    (credentials_settings.secrets_dir / "ansible_ssh_key").write_bytes(pem + b"\n")
+    (credentials_settings.secrets_dir / "ansible_vault_password").write_bytes(b"file-vault-password\n")
+    _heartbeat(db, worker_id, now)
+    credentials.set_credential(db, credentials_settings, SSH, pem, actor)
+    credentials.set_credential(db, credentials_settings, VAULT, b"database-vault-password", actor)
+    record_worker_start(same_connection_factory, credentials_settings, worker_id, now)
+
+    startup = _start_report(db)
+    assert (startup["ssh_key_present"], startup["ssh_key_file_present"]) == (True, True)
+    assert (startup["vault_password_present"], startup["vault_password_file_present"]) == (True, True)
+    assert (startup["inventory_token_present"], startup["inventory_token_file_present"]) == (False, False)
+
+    ssh_state = credentials.remove_credential(db, credentials_settings, SSH, actor)
+    vault_state = credentials.remove_credential(db, credentials_settings, VAULT, actor)
+
+    assert (ssh_state.configured, ssh_state.source) == (True, "file")
+    assert (vault_state.configured, vault_state.source) == (True, "file")
+    assert ansible_unavailable_reason(db, now) == ""
+    assert inventory_status(db, now)["worker"]["ssh_key_present"] is True
+    resolved = credentials.resolve_worker_settings(db, credentials_settings)
+    assert resolved.ansible_ssh_key == mounted_key
+    assert resolved.ansible_vault_password == b"file-vault-password"
+
+
+def test_a_worker_started_before_the_save_reports_the_saved_credential_and_its_removal(
+    db, actor, credentials_settings, same_connection_factory
+):
+    """No restart between the three steps: absent, then database, then absent again."""
+    now = datetime.now(UTC)
+    worker_id = "worker-before-save"
+    _heartbeat(db, worker_id, now)
+    record_worker_start(same_connection_factory, credentials_settings, worker_id, now)
+
+    startup = _start_report(db)
+    assert (startup["ssh_key_present"], startup["ssh_key_file_present"]) == (False, False)
+    assert ansible_unavailable_reason(db, now) == NO_SSH_KEY
+
+    pem, _ = ssh_key()
+    credentials.set_credential(db, credentials_settings, SSH, pem, actor)
+    state = credentials.credential_state(db, credentials_settings, SSH, worker=worker_capabilities(db, now))
+    assert (state.configured, state.source) == (True, "database")
+    assert ansible_unavailable_reason(db, now) == ""
+    assert _start_report(db) == startup  # the save did not rewrite the startup row
+
+    credentials.remove_credential(db, credentials_settings, SSH, actor)
+    state = credentials.credential_state(db, credentials_settings, SSH, worker=worker_capabilities(db, now))
+    assert (state.configured, state.source) == (False, None)
+    assert ansible_unavailable_reason(db, now) == NO_SSH_KEY
+
+
+def test_a_legacy_start_report_is_not_read_as_a_mounted_file(db, actor, credentials_settings):
+    """A row written before this fix has no provenance: unknown, never "mounted".
+
+    The effective flags stay intact for readers that only ask whether the worker can run jobs, but no
+    consumer may turn them into a file claim. The documented consequence is a degraded window until
+    the worker restarts and writes a report with provenance; job resolution is untouched, so mounted
+    files still work and nothing is lost.
+    """
+    now = datetime.now(UTC)
+    worker_id = "worker-legacy"
+    _heartbeat(db, worker_id, now)
+    record(
+        db,
+        Actor(None, f"worker:{worker_id}"),
+        "worker.start",
+        "worker",
+        worker_id,
+        {
+            "worker_id": worker_id,
+            "ssh_key_present": True,
+            "known_hosts_present": True,
+            "vault_password_present": True,
+            "inventory_token_present": True,
+        },
+    )
+    db.flush()
+
+    capabilities = worker_capabilities(db, now)
+    assert capabilities is not None
+    assert capabilities.ssh_key_present is True  # compatibility field, unchanged meaning
+    assert capabilities.ssh_key_file_present is None
+    assert capabilities.vault_password_file_present is None
+    assert capabilities.inventory_token_file_present is None
+
+    states = credentials.credential_states(db, credentials_settings, worker=capabilities)
+    assert [(state.configured, state.source) for state in states.values()] == [(False, None)] * 3
+    assert ansible_unavailable_reason(db, now) == NO_SSH_KEY
+
+    # A mounted-only installation keeps working: the file is still resolved for the next job, and a
+    # value saved in the database is reported from the live row even while the worker is old.
+    pem, _ = ssh_key()
+    (credentials_settings.secrets_dir / "ansible_ssh_key").write_bytes(pem + b"\n")
+    assert credentials.resolve_worker_settings(db, credentials_settings).ansible_ssh_key == (
+        pem + b"\n"
+    ).rstrip(b"\r\n")
+    credentials.set_credential(db, credentials_settings, VAULT, b"database-vault-password", actor)
+    state = credentials.credential_state(db, credentials_settings, VAULT, worker=capabilities)
+    assert (state.configured, state.source) == (True, "database")
+
+
 def test_the_banner_clears_when_the_key_is_stored_in_the_database(db, actor, credentials_settings):
     now = datetime.now(UTC)
     db.add(WorkerHeartbeat(worker_id="fixture-worker", started_at=now, last_seen_at=now))
@@ -234,6 +400,9 @@ def test_the_banner_clears_when_the_key_is_stored_in_the_database(db, actor, cre
             "known_hosts_present": True,
             "vault_password_present": False,
             "inventory_token_present": False,
+            "ssh_key_file_present": False,
+            "vault_password_file_present": False,
+            "inventory_token_file_present": False,
         },
     )
     db.flush()
@@ -260,6 +429,7 @@ def test_the_worker_reports_and_claims_ssh_jobs_from_a_database_credential(
     record_worker_start(same_connection_factory, credentials_settings, "fixture-worker", datetime.now(UTC))
     startup = db.scalars(select(AuditLog).where(AuditLog.action == "worker.start")).one()
     assert startup.details["ssh_key_present"] is True
+    assert startup.details["ssh_key_file_present"] is False  # the database held it, not a file
 
 
 def test_resolved_credentials_are_still_resolved_per_job(db, actor, credentials_settings, same_connection_factory):
