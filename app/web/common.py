@@ -25,6 +25,7 @@ from app.jobs.worker import worker_capabilities
 from app.models.enums import JobType
 from app.services.audit import Actor
 from app.services.settings import get_setting
+from app.services.worker_credentials import SSH_PRIVATE_KEY, credential_configured
 
 # While must_change_password is set, only these (method, path) pairs pass require_user.
 _PASSWORD_CHANGE_ALLOWED = frozenset(
@@ -191,11 +192,13 @@ def ansible_unavailable_reason(db: Session, now: datetime) -> str:
 
     A worker that has not reported (none alive, or one that started before it wrote its start row) is a
     hint rather than a reason: a dead worker already raises its own banner, and the jobs simply wait.
+    The key counts when it is stored in the database too: it is then resolved for the next job even if
+    the worker started before an operator saved it.
     """
     capabilities = worker_capabilities(db, now)
     if capabilities is None:
         return ""
-    if not capabilities.ssh_key_present:
+    if not capabilities.ssh_key_present and not credential_configured(db, SSH_PRIVATE_KEY):
         return NO_SSH_KEY
     if not capabilities.known_hosts_present:
         return NO_KNOWN_HOSTS

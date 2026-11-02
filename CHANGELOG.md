@@ -224,6 +224,20 @@ with the pull request that delivered each group of changes.
   `python -m scripts.render_previews`; `tests/test_ui_previews.py` fails when they drift from the
   templates (PRs #70–#75).
 
+**Worker credentials as encrypted settings (PR #87)**
+
+- The SSH private key, the Ansible Vault password and the inventory Git token become first-class
+  settings in `encrypted_setting`: one AES-256-GCM row per credential, sealed with the certificate
+  keyring and bound to its own setting name through the AAD. They are write-only — the interface
+  reads presence, who set them, when, and, for the key, its type and public fingerprint.
+- Credentials are resolved when a job runs — database first, then the mounted file of the same name,
+  then absent — so a change applies without restarting the worker and an installation that only has
+  the files behaves exactly as before. The worker also claims `discover`/`deploy` and clears the
+  capability banner from a key stored in the database.
+- Every set, replacement and removal writes one `credential.*` audit event with the metadata and
+  never the value; `rotate-master-key` rewraps the stored credentials with the private keys and TOTP
+  seeds.
+
 ### Changed
 
 - `README.md` rewritten around the product, the interface and the operator path, with screenshots

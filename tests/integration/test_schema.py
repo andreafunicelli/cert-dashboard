@@ -22,6 +22,7 @@ COLUMNS = {
     "user": "id:bigint! username:citext! email:citext! display_name:text auth_backend:auth_backend! password_hash:text totp_secret_ciphertext:bytea totp_secret_nonce:bytea totp_secret_version:integer totp_enabled:boolean! totp_confirmed_at:timestamptz totp_last_used_step:bigint recovery_codes:text[]! is_active:boolean! failed_attempts:integer! locked_until:timestamptz last_login_at:timestamptz must_change_password:boolean!",
     "user_session": "id:char(64)! user_id:bigint! csrf_token:char(64)! last_seen_at:timestamptz! expires_at:timestamptz! ip:text user_agent:text revoked_at:timestamptz authenticated_at:timestamptz",
     "app_setting": "key:text! value:jsonb! updated_by:bigint",
+    "encrypted_setting": "name:text! ciphertext:bytea! nonce:bytea! keyring_version:integer! updated_by:bigint",
     "notification_log": "id:bigint! certificate_id:bigint kind:text! threshold_days:integer recipients:text[]! status:notification_status! error:text sent_at:timestamptz dedupe_key:text! attempts:integer! next_attempt_at:timestamptz last_attempt_at:timestamptz",
     "audit_log": "id:uuid! actor_user_id:bigint actor_label:text! action:text! target_type:text! target_id:text details:jsonb! ip:inet user_agent:text",
     "worker_heartbeat": "worker_id:text! started_at:timestamptz! last_seen_at:timestamptz! current_job_id:uuid",
@@ -123,6 +124,7 @@ FK = {
     "job_host": {"job_id": ("job", "id"), "server_id": ("server", "id"), "binding_id": ("binding", "id")},
     "user_session": {"user_id": ("user", "id")},
     "app_setting": {"updated_by": ("user", "id")},
+    "encrypted_setting": {"updated_by": ("user", "id")},
     "notification_log": {"certificate_id": ("certificate", "id")},
     "audit_log": {"actor_user_id": ("user", "id")},
     "worker_heartbeat": {"current_job_id": ("job", "id")},
@@ -181,6 +183,7 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
     assert actual == expected
     pk = {
         "app_setting": ["key"],
+        "encrypted_setting": ["name"],
         "worker_heartbeat": ["worker_id"],
         "scheduler_state": ["key"],
         "login_rate_limit": ["ip", "window_start"],
@@ -208,6 +211,11 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
             "ck_private_key_origin",
         },
         "renewal": {"ck_renewal_required_key"},
+        "encrypted_setting": {
+            "ck_encrypted_setting_nonce_length",
+            "ck_encrypted_setting_keyring_version",
+            "ck_encrypted_setting_known_name",
+        },
     }
     assert {c["name"] for c in inspect(engine).get_check_constraints(table)} == expected_checks.get(
         table, set()
