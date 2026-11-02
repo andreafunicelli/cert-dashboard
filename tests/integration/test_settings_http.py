@@ -399,19 +399,24 @@ def test_default_tab_is_smtp_and_unknown_tab_is_404(signed_in):
     assert signed_in.get("/settings?tab=nope").status_code == 404
 
 
-def test_worker_key_save_replace_remove_updates_banner_without_restart(signed_in, csrf, web_factory, clock):
+@pytest.mark.parametrize("restart_after_save", [False, True])
+def test_worker_key_save_replace_remove_updates_banner(
+    signed_in, csrf, web_factory, web_settings, clock, tmp_path, restart_after_save
+):
+    from dataclasses import replace
+
     from cryptography.hazmat.primitives.asymmetric import ed25519
 
-    from app.services.audit import record
+    from app.jobs.worker import record_worker_start
     from app.services.worker_credentials import SSH_PRIVATE_KEY, validate_credential
 
     worker_id = "worker-credentials-ui"
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("fixture-host-key\n")
+    worker_settings = replace(web_settings, secrets_dir=tmp_path, known_hosts_file=known_hosts)
     with web_factory.begin() as db:
         db.add(WorkerHeartbeat(worker_id=worker_id, last_seen_at=clock()))
-        record(db, Actor(None, "worker:" + worker_id), "worker.start", "worker", worker_id, {
-            "worker_id": worker_id, "ssh_key_present": False, "known_hosts_present": True,
-            "vault_password_present": False, "inventory_token_present": False,
-        })
+    record_worker_start(web_factory, worker_settings, worker_id, clock())
     page = signed_in.get("/settings?tab=worker")
     assert page.status_code == 200 and "Discovery and deploy are unavailable" in page.text
     assert 'href="/settings?tab=worker">Configure it in Settings' in page.text
@@ -431,13 +436,37 @@ def test_worker_key_save_replace_remove_updates_banner_without_restart(signed_in
         assert pem.decode() not in saved.text and 'BEGIN OPENSSH PRIVATE KEY' not in saved.text
         assert pem.decode() not in repr(response.headers)
         assert 'SSH private key saved.' in saved.text and 'Notes on the last action' in saved.text
+    startup = None
+    if restart_after_save:
+        clock.advance(seconds=1)
+        record_worker_start(web_factory, worker_settings, worker_id, clock())
+        with web_factory() as db:
+            startup = db.scalars(select(AuditLog.details).where(AuditLog.action == 'worker.start')
+                                 .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())).first()
+            assert startup['ssh_key_present'] is True
+            assert startup['ssh_key_file_present'] is False
+        restarted = signed_in.get('/settings?tab=worker')
+        assert 'Discovery and deploy are unavailable' not in restarted.text
+        assert fingerprint in restarted.text and 'Source: encrypted database.' in restarted.text
     refused = signed_in.post('/settings/worker/ssh/remove', data={'csrf_token': csrf, 'confirm': 'no'})
     assert refused.status_code == 422
     assert 'Discovery and deploy are unavailable' not in signed_in.get('/settings?tab=worker').text
     removed = signed_in.post('/settings/worker/ssh/remove', data={'csrf_token': csrf, 'confirm': 'REMOVE'},
                              follow_redirects=False)
     assert removed.status_code == 303
-    assert 'Discovery and deploy are unavailable' in signed_in.get('/settings?tab=worker').text
+    empty = signed_in.get('/settings?tab=worker')
+    assert 'Discovery and deploy are unavailable' in empty.text
+    assert 'Source: mounted worker secret.' not in empty.text
+    assert 'Source: encrypted database.' not in empty.text
+    assert fingerprint not in empty.text and 'BEGIN OPENSSH PRIVATE KEY' not in empty.text
+    with web_factory() as db:
+        from app.services.worker_credentials import resolve_worker_settings
+
+        assert resolve_worker_settings(db, worker_settings).ansible_ssh_key is None
+        if restart_after_save:
+            latest = db.scalars(select(AuditLog.details).where(AuditLog.action == 'worker.start')
+                                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())).first()
+            assert latest == startup  # removal must not rewrite the append-only startup evidence
 
 
 @pytest.mark.parametrize('htmx', [False, True])
