@@ -1,11 +1,11 @@
 {# Presentation-only grouping. Original navigation entries remain capability authority. #}
 {% set path = request.url.path if request is defined else '' %}
-{% set area = 'Certificates' if path.startswith(('/certificates', '/imports', '/renewals')) else 'Infrastructure' if path.startswith(('/servers', '/bindings')) else 'Operations' if path.startswith(('/scans', '/deploy')) else 'Administration' if path.startswith(('/users', '/audit', '/settings', '/account')) else '' %}
+{% set area = 'Certificates' if path.startswith(('/certificates', '/imports', '/renewals')) else 'Infrastructure' if path.startswith(('/servers', '/bindings')) else 'Operations' if path.startswith(('/scans', '/deploy')) else 'Administration' if path.startswith(('/administration', '/users', '/audit', '/settings', '/account')) else '' %}
 {% set groups = [
   ('Certificates', '/certificates', [('Certificates', '/certificates'), ('Import', '/certificates/import'), ('Renewals', '/renewals')]),
   ('Infrastructure', '/servers', [('Servers', '/servers'), ('Bindings', '/bindings'), ('Discovery', '/servers#discovery-actions')]),
   ('Operations', '/scans', [('Scans', '/scans'), ('Deploy', '/deploy'), ('Jobs', '/deploy/jobs')]),
-  ('Administration', '/settings', [('Users', '/users'), ('Audit', '/audit'), ('Settings', '/settings'), ('Account', '/account')])
+  ('Administration', '/administration', [('Users', '/users'), ('Audit', '/audit'), ('Settings', '/settings'), ('My account', '/account')])
 ] %}
 {% macro page_link(label, url) -%}
   {% set base = url.split('#')[0] %}
@@ -26,7 +26,7 @@
     {{ page_link('Overview', '/') }}
     {% for label, url, pages in groups %}
     <section{% if area == label %} class="active-area"{% endif %}>
-      <h2>{{ label }}</h2>
+      <h2>{% if label == 'Administration' %}{{ page_link(label, url) }}{% else %}{{ label }}{% endif %}</h2>
       <div class="navigation-pages">{% for label, url in pages %}{{ page_link(label, url) }}{% endfor %}</div>
     </section>
     {% endfor %}
