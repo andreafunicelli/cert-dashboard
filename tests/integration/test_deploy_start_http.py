@@ -41,7 +41,7 @@ BLOCKED_HOST = "blocked.example.internal"
 # What reconciliation records on a binding whose separate certificate file could not be verified as the
 # chain of the leaf (D1 / operator decision 4): it stays a certificate of its own and carries the diagnostic.
 CHAIN_DIAGNOSTIC = "incomplete chain: no configured file holds this leaf's issuer"
-NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 ACTIVE = (JobStatus.QUEUED, JobStatus.RUNNING, JobStatus.PAUSED)
 _WORLD: SimpleNamespace | None = None
 

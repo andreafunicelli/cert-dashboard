@@ -1,0 +1,259 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Settings · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/settings.css"><meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+
+
+
+
+
+<div class="desktop-navigation">
+  <nav aria-label="Main">
+
+
+
+  <span><a href="/">Overview</a></span>
+    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/administration">Administration</a></span>
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu · Administration</summary>
+  <nav aria-label="All pages">
+
+
+
+  <span><a href="/">Overview</a></span>
+
+    <section>
+      <h2>Certificates</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/certificates">Certificates</a></span>
+
+
+  <span><a href="/certificates/import">Import</a></span>
+
+
+  <span><a href="/renewals">Renewals</a></span></div>
+    </section>
+
+    <section>
+      <h2>Infrastructure</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/servers">Servers</a></span>
+
+
+  <span><a href="/bindings">Bindings</a></span>
+
+
+  <span><a href="/servers#discovery-actions">Discovery</a></span></div>
+    </section>
+
+    <section>
+      <h2>Operations</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span><a href="/deploy/jobs">Jobs</a></span></div>
+    </section>
+
+    <section class="active-area">
+      <h2>
+
+
+  <span><a href="/administration">Administration</a></span></h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/account">My account</a></span></div>
+    </section>
+
+  </nav>
+</details>
+
+<nav class="area-navigation" aria-label="Administration pages">
+
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/account">My account</a></span>
+</nav>
+
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+<header class="page-header">
+  <div><h1>Settings</h1><p class="page-subtitle">Configure discovery, scans and delivery; save each configuration section explicitly.</p></div>
+  <div class="page-actions">
+  <a class="button button-secondary" href="#worker-ssh">Configure SSH key</a>
+
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/settings?tab=status">System status</a><a href="/audit?target_type=settings">Settings audit history</a><a href="/settings?tab=scanning">Scanning section</a><a href="/settings?tab=general">General section</a></div></details>
+</div>
+</header>
+<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
+<nav class="tabs" aria-label="Settings sections">
+  <ul>
+
+    <li><a href="/settings?tab=smtp">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (smtp unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (alerts unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=inventory">Inventory<span class="field-change" data-settings-tab-draft="inventory" hidden> (inventory unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=deployment">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (deployment unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=schedule">Schedule and scans<span class="field-change" data-settings-tab-draft="schedule" hidden> (schedule unsaved draft)</span><span class="field-change" data-settings-tab-draft="scanning" hidden> (scanning unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (trust unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=status">Status<span class="field-change" data-settings-tab-draft="status" hidden> (status unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=maintenance">System and maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (maintenance unsaved draft)</span><span class="field-change" data-settings-tab-draft="general" hidden> (general unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=worker" aria-current="page">Worker<span class="field-change" data-settings-tab-draft="worker" hidden> (worker unsaved draft)</span></a></li>
+
+  </ul>
+</nav>
+
+
+
+
+<section class="panel wide" id="settings-panel" data-tab="worker" data-settings-saved="false" data-settings-errors="false" aria-labelledby="tab-heading">
+
+  <h2 id="tab-heading">Worker</h2>
+  <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
+
+
+
+
+<p class="help" id="worker-secret-help">Credentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.</p>
+<p class="help">A database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. <a href="/audit?target_type=credential">Credential audit history</a></p>
+
+
+<section class="settings-subsection" id="worker-ssh" aria-labelledby="worker-heading-ssh">
+  <h3 id="worker-heading-ssh">SSH private key</h3>
+  <p><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> Configured</span></p>
+  <p class="help">Discovery and deploy stop working without an SSH private key.</p>
+  <p>Source: mounted worker secret. Key metadata, setter and time are not available from the worker report. To remove this value, an administrator must remove the mounted secret.</p>
+
+
+
+  <details class="credential-replace">
+    <summary>Replace key</summary>
+    <form method="post" action="/settings/worker/ssh" enctype="multipart/form-data" autocomplete="off" aria-describedby="worker-secret-help">
+      <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+      <label for="f-worker-ssh">Paste a new private key (PEM or OpenSSH)</label>
+
+      <textarea id="f-worker-ssh" name="private_key" rows="7" autocomplete="off" spellcheck="false" data-settings-secret aria-describedby="worker-ssh-input-help"></textarea>
+      <label for="f-worker-ssh-file">Or choose a private key file</label>
+      <input type="file" id="f-worker-ssh-file" name="private_key_file" autocomplete="off" data-settings-secret aria-describedby="worker-ssh-input-help">
+      <p class="hint" id="worker-ssh-input-help">Choose a file or paste a key, not both. Unencrypted private key only; at most 16384 bytes. Pasted text is visible while entering it, but is never returned after submission.</p>
+
+      <button type="submit">Save SSH key</button>
+    </form>
+  </details>
+
+</section>
+
+
+<section class="settings-subsection" id="worker-vault" aria-labelledby="worker-heading-vault">
+  <h3 id="worker-heading-vault">Ansible vault password</h3>
+  <p><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> Configured</span></p>
+  <p class="help">Needed when inventory files use Ansible Vault.</p>
+  <p>Source: mounted worker secret. Key metadata, setter and time are not available from the worker report. To remove this value, an administrator must remove the mounted secret.</p>
+
+  <details class="credential-replace">
+    <summary>Replace password</summary>
+    <form method="post" action="/settings/worker/vault" autocomplete="off" aria-describedby="worker-secret-help">
+      <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+      <label for="f-worker-vault">New ansible vault password</label>
+
+      <input type="password" id="f-worker-vault" name="vault_password" autocomplete="off" required data-settings-secret>
+
+      <button type="submit">Save password</button>
+    </form>
+  </details>
+
+</section>
+
+
+<section class="settings-subsection" id="worker-inventory-token" aria-labelledby="worker-heading-inventory-token">
+  <h3 id="worker-heading-inventory-token">Inventory repository token</h3>
+  <p><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> Configured</span></p>
+  <p class="help">HTTPS token, needed only when the inventory repository is private.</p>
+  <p>Source: mounted worker secret. Key metadata, setter and time are not available from the worker report. To remove this value, an administrator must remove the mounted secret.</p>
+
+  <details class="credential-replace">
+    <summary>Replace token</summary>
+    <form method="post" action="/settings/worker/inventory-token" autocomplete="off" aria-describedby="worker-secret-help">
+      <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+      <label for="f-worker-inventory-token">New inventory repository token</label>
+
+      <input type="password" id="f-worker-inventory-token" name="inventory_token" autocomplete="off" required data-settings-secret>
+
+      <button type="submit">Save token</button>
+    </form>
+  </details>
+
+</section>
+
+
+</section>
+
+</main>
+
+<script src="../../../app/static/settings.js" defer></script>
+
+</body>
+</html>
