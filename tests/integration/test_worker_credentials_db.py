@@ -101,6 +101,30 @@ def test_set_replace_remove_is_one_audited_change_per_action(db, actor, credenti
     assert state.configured is False and state.source is None
     assert db.get(EncryptedSetting, SSH) is None
     removed = db.scalars(select(AuditLog).where(AuditLog.action == "credential.removed")).one()
+    # Removing the key says which key it was, and never what it was: the public fingerprint only.
+    assert removed.details == {
+        "name": SSH,
+        "action": "removed",
+        "key_type": "Ed25519",
+        "fingerprint_sha256": replacement_fingerprint,
+    }
+    payload = json.dumps(removed.details, default=str)
+    assert "PRIVATE KEY" not in payload
+    assert replacement.decode().splitlines()[1] not in payload
+
+
+def test_an_undecryptable_row_can_still_be_removed_without_a_fingerprint(db, actor, credentials_settings):
+    """Explicit removal is the recovery path for a broken row: it must not raise, and it says less."""
+    pem, _ = ssh_key()
+    credentials.set_credential(db, credentials_settings, SSH, pem, actor)
+    row = db.get(EncryptedSetting, SSH)
+    row.ciphertext = b"not a wrapped secret"
+    db.flush()
+
+    state = credentials.remove_credential(db, credentials_settings, SSH, actor)
+    assert state.configured is False
+    assert db.get(EncryptedSetting, SSH) is None
+    removed = db.scalars(select(AuditLog).where(AuditLog.action == "credential.removed")).one()
     assert removed.details == {"name": SSH, "action": "removed"}
 
 

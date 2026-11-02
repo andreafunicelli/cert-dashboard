@@ -104,14 +104,6 @@ WORKER_CREDENTIALS: tuple[CredentialSpec, ...] = (
 )
 _SPECS = {spec.name: spec for spec in WORKER_CREDENTIALS}
 
-# Which startup snapshot field holds the value of each mounted file: the worker loaded those files at
-# start, so that value is the "file level" even when the file is no longer readable at job time.
-_STARTUP_VALUE = {
-    SSH_PRIVATE_KEY: "ansible_ssh_key",
-    VAULT_PASSWORD: "ansible_vault_password",
-    INVENTORY_GIT_TOKEN: "inventory_git_token",
-}
-
 # Which startup report field proves a worker holds the credential as a mounted file: the web process
 # does not mount these files, so its own view of ``secrets_dir`` is empty by design.
 _FILE_FLAGS = {
@@ -364,13 +356,19 @@ def set_credential(
 
 
 def remove_credential(db: Session, settings: Settings, name: str, actor: Actor) -> CredentialState:
-    """Delete the database value so the file (or absence) takes over; no row means no change, no event."""
+    """Delete the database value so the file (or absence) takes over; no row means no change, no event.
+
+    The removal event names the key being removed through its public fingerprint, derived from the row
+    before it is deleted, so an audit trail says *which* key the operator dropped. A row that cannot be
+    decrypted is still removable — it is the recovery path — and then there is no metadata to report.
+    """
     spec = _spec(name)
     row = db.get(EncryptedSetting, name, with_for_update=True)
     if row is not None:
+        metadata = _stored_metadata(settings, row)
         db.delete(row)
         db.flush()
-        _audit(db, actor, spec.name, "removed", CredentialMetadata())
+        _audit(db, actor, spec.name, "removed", metadata)
     return credential_state(db, settings, name)
 
 
@@ -414,7 +412,7 @@ def resolve_worker_settings(db: Session, settings: Settings) -> Settings:
 def _mounted_value(settings: Settings, spec: CredentialSpec) -> bytes | None:
     """The mounted file, read live, or the bytes the startup snapshot loaded from that same file."""
     value = _file_value(settings.secrets_dir, spec.file_name)
-    return value if value is not None else getattr(settings, _STARTUP_VALUE[spec.name])
+    return value if value is not None else getattr(settings, spec.file_name)
 
 
 def _file_value(directory: Path, file_name: str) -> bytes | None:
