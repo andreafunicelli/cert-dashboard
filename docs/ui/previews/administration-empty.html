@@ -1,0 +1,150 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Administration · Cert Dashboard</title>
+  <link rel="stylesheet" href="../../../app/static/app.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+
+
+
+
+
+<div class="desktop-navigation">
+  <nav aria-label="Main">
+
+
+
+  <span><a href="/">Overview</a></span>
+    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/administration">Administration</a></span>
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu · Administration</summary>
+  <nav aria-label="All pages">
+
+
+
+  <span><a href="/">Overview</a></span>
+
+    <section>
+      <h2>Certificates</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/certificates">Certificates</a></span>
+
+
+  <span><a href="/certificates/import">Import</a></span>
+
+
+  <span><a href="/renewals">Renewals</a></span></div>
+    </section>
+
+    <section>
+      <h2>Infrastructure</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/servers">Servers</a></span>
+
+
+  <span><a href="/bindings">Bindings</a></span>
+
+
+  <span><a href="/servers#discovery-actions">Discovery</a></span></div>
+    </section>
+
+    <section>
+      <h2>Operations</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span><a href="/deploy/jobs">Jobs</a></span></div>
+    </section>
+
+    <section class="active-area">
+      <h2>
+
+
+  <span aria-current="page"><a href="/administration">Administration</a></span></h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/account">My account</a></span></div>
+    </section>
+
+  </nav>
+</details>
+
+<nav class="area-navigation" aria-label="Administration pages">
+
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/account">My account</a></span>
+</nav>
+
+  <details class="user-menu"><summary>Fixture operator</summary>
+    <div class="user-menu-links">
+      <a href="/account">My account</a>
+      <a href="/users">Users</a>
+    </div>
+  </details>
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+<header class="page-header">
+  <div><h1>Administration</h1><p class="page-subtitle">Manage sign-in access, review actions and configure this installation.</p></div>
+
+</header>
+<dl class="fields">
+  <dt><a href="/users">Users</a></dt>
+  <dd><span class="mono">0</span> users can sign in. <a href="/users?create=1#create-heading">Create user</a>.</dd>
+  <dt><a href="/audit">Audit</a></dt>
+  <dd>The append-only record of actions.</dd>
+  <dt><a href="/settings">Settings</a></dt>
+  <dd>SMTP, inventory, discovery, deploy guardrails and trust anchors.</dd>
+  <dt><a href="/account">My account</a></dt>
+  <dd>Your password, two-factor authentication and sessions.</dd>
+</dl>
+<p class="hint">The user count includes active local and directory users already known to this installation. Temporary sign-in lockouts still apply.</p>
+</main>
+
+</body>
+</html>

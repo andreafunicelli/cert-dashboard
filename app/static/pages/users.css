@@ -1,5 +1,6 @@
 /* User inventory retains the shared table and security disclosures. */
-.user-create { padding: var(--space-4) var(--space-5); }
+.page-actions:has(.user-create[open]), .user-create[open] { width: 100%; }
+.user-create .panel { margin-block: var(--space-3) var(--space-0); }
 .user-create > summary { font-weight: var(--weight-medium); }
 .users td { overflow-wrap: break-word; }
 .users .badge { white-space: nowrap; }

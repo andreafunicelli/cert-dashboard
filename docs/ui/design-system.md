@@ -263,7 +263,37 @@ Discovery is the existing `/servers#discovery-actions` section, not a new route
 or an automatic discovery trigger. The server page remains the current page
 because URL fragments are not available to the server. Import-progress URLs
 belong to Import, renewal screens to Renewals, and deployment job lists to Jobs.
-Account/Users remain in the existing utility disclosure as well as Administration.
+My account/Users remain in the existing utility disclosure as well as Administration.
+
+### Administration entry and naming
+
+Administration opens `/administration`, not Settings, on desktop and in the
+native mobile Menu. Its sub-navigation is always Users · Audit · Settings ·
+My account, including on the index itself. The index reuses `page_header` and
+`.fields` for a plain list of destinations: no new component or page palette.
+The live user count is a database aggregate of active local and already-known
+directory users, not all rows including deactivated users; temporary lockouts
+still apply and are explained next to the index. No authentication material is
+loaded for the count. Settings capability availability is independent of this
+new index and still gates the Settings leaf.
+
+Users manages who can sign in and which second factor they use. My account is
+strictly the signed-in operator's password, two-factor authentication and
+sessions; both its heading and every navigation label use that name.
+
+Create user is the primary native disclosure in the Users page header. Its
+single existing form appears in normal flow, ahead of the list, and keeps all
+field names, IDs, CSRF input and POST destinations. `/users?create=1#create-heading`
+opens it from the index in one click without JavaScript; create validation
+responses also keep it open and never refill passwords. Existing `/users` and
+`#create-heading` links continue to resolve. The shared `button`, `panel` and
+focus tokens apply in both themes. No extra script or dependencies are added.
+
+Regenerate previews with `uv run python scripts/render_previews.py`; the shared
+shell affects every HTML page. New fixtures include Administration populated/
+empty and Users creation open/validation error. Structural checks passed;
+visual verification pending on the deployed instance. The static artifacts do
+not prove a database-backed or visually inspected deployment.
 
 The overview reuses `.page-header`, the shared table/status-row/icon/badge
 components and native `.filter-disclosure` instead of a second card system.
