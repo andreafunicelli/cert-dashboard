@@ -265,7 +265,7 @@ with the pull request that delivered each group of changes.
 
 ### Fixed
 
-- **Worker credential provenance (this PR).** `worker.start` recorded the effective startup presence
+- **Worker credential provenance (PR #88).** `worker.start` recorded the effective startup presence
   of the three credentials (database row *or* mounted file) and the interface read those flags as proof
   of a mounted file, so a credential saved only in the database and later removed kept being reported
   as `Configured`/`source=file` and kept the missing-SSH-key banner away while the next job resolved no
