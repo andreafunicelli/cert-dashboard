@@ -688,6 +688,21 @@ worker: the database value wins, then the mounted file of the same name, then ab
 that only has the files therefore behaves exactly as before, and removing a stored value falls back to
 the file (or to absent).
 
+The worker's `worker.start` audit row records, next to the four effective presence booleans, whether
+each credential was supplied by the *file level* of that resolution (`ssh_key_file_present`,
+`vault_password_file_present`, `inventory_token_file_present`; values are never recorded). The
+interface needs that provenance because the web process mounts none of these files: it combines the
+worker's file report with a **live** read of `encrypted_setting`, so a stored value removed after
+startup is reported absent on the next page load and a mounted file keeps being reported as the
+fallback it is. The effective booleans are not proof of a file (they are true for a database-held value
+too) and no longer used for that.
+
+After upgrading, restart the worker once. A `worker.start` row written by an older release has no
+provenance, and those unknown flags are never read as "mounted": until the new worker writes its first
+row, a file-only installation reports its credentials as not configured and shows the missing-SSH-key
+banner. Nothing is lost in that window — jobs still resolve the mounted files and `discover`/`deploy`
+still run — and the display corrects itself as soon as the worker restarts (a normal deployment does).
+
 The files, mounted with `docker-compose.credentials.yml` (section 2.3) after provisioning them under
 `/etc/cert-dashboard/secrets/`:
 

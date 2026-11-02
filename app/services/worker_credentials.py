@@ -13,6 +13,12 @@ restarting the worker:
    has files behaves exactly as before;
 3. absent.
 
+The two levels are reported separately, and the difference matters: **presence** is resolved per job
+and per read (the row is read live), while **provenance** is what the worker said at startup.
+:func:`file_presence` is the file level alone — the fact ``worker.start`` records — so the interface
+can say "a mounted file supplies this" without mistaking a database value the worker merely *had*
+when it started for a file it never had.
+
 Nothing here returns a stored value to the interface: :func:`credential_states` is the read path the
 web layer uses and it exposes presence, provenance, who set it, when, and — for the SSH key, which is
 a public fact — the key type and the public fingerprint. The value itself never leaves the worker.
@@ -53,6 +59,7 @@ __all__ = [
     "credential_configured",
     "credential_state",
     "credential_states",
+    "file_presence",
     "remove_credential",
     "resolve_worker_settings",
     "rotate_credential_row",
@@ -104,12 +111,13 @@ WORKER_CREDENTIALS: tuple[CredentialSpec, ...] = (
 )
 _SPECS = {spec.name: spec for spec in WORKER_CREDENTIALS}
 
-# Which startup report field proves a worker holds the credential as a mounted file: the web process
-# does not mount these files, so its own view of ``secrets_dir`` is empty by design.
+# Which startup report field proves a worker holds the credential as a **mounted file**. The
+# effective ``*_present`` flags are deliberately not used: they are true for a database-held value
+# too, so after a removal they would keep claiming a file the worker never had.
 _FILE_FLAGS = {
-    SSH_PRIVATE_KEY: "ssh_key_present",
-    VAULT_PASSWORD: "vault_password_present",
-    INVENTORY_GIT_TOKEN: "inventory_token_present",
+    SSH_PRIVATE_KEY: "ssh_key_file_present",
+    VAULT_PASSWORD: "vault_password_file_present",
+    INVENTORY_GIT_TOKEN: "inventory_token_file_present",
 }
 
 
@@ -271,8 +279,9 @@ def credential_state(
 ) -> CredentialState:
     """Presence, provenance and safe metadata for one credential; never decrypts for the caller.
 
-    ``worker`` is the newest live worker's startup report: it is how the web process learns that a
-    credential is still supplied by a mounted file it cannot see.
+    The database row is read live on every call, so a value removed after the worker started is absent
+    on the next page load. ``worker`` is the newest live worker's startup report: only its explicit
+    ``*_file_present`` provenance may claim a mounted file the web process cannot see.
     """
     spec = _spec(name)
     row = db.get(EncryptedSetting, name)
@@ -310,9 +319,25 @@ def _stored_metadata(settings: Settings, row: EncryptedSetting) -> CredentialMet
 
 
 def _reported_by_the_worker(worker: WorkerCapabilities | None, name: str) -> bool:
+    """True only when the live worker explicitly reported a *file* for this credential.
+
+    ``None`` is a report from a release that did not record provenance: unknown is not a file. The
+    effective startup flags say nothing here — see :data:`_FILE_FLAGS`.
+    """
     if worker is None:
         return False
-    return getattr(worker, _FILE_FLAGS[name], False) is True
+    return getattr(worker, _FILE_FLAGS[name], None) is True
+
+
+def file_presence(settings: Settings) -> dict[str, bool]:
+    """Which credentials the file level of resolution supplies, by setting name, database aside.
+
+    This is what ``worker.start`` records as provenance: the mounted file read now, or the value the
+    startup snapshot already read from it (the resolver keeps using that snapshot at job time, so it
+    stays true until restart). A mounted file that disappears after startup therefore keeps counting
+    exactly as long as a job would still resolve it. Never a value, never a length.
+    """
+    return {spec.name: _mounted_value(settings, spec) is not None for spec in WORKER_CREDENTIALS}
 
 
 def _username(db: Session, user_id: int | None) -> str | None:

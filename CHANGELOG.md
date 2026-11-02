@@ -263,6 +263,18 @@ with the pull request that delivered each group of changes.
 - `docs/operations.md` §11.1 now states the seeded `discovery.nightly_at` default (03:00 UTC) that
   `app/services/settings.py` and the migration actually use.
 
+### Fixed
+
+- **Worker credential provenance (this PR).** `worker.start` recorded the effective startup presence
+  of the three credentials (database row *or* mounted file) and the interface read those flags as proof
+  of a mounted file, so a credential saved only in the database and later removed kept being reported
+  as `Configured`/`source=file` and kept the missing-SSH-key banner away while the next job resolved no
+  key. The report now also records file-only provenance (`ssh_key_file_present`,
+  `vault_password_file_present`, `inventory_token_file_present`); `credential_states` and the
+  banner/Inventory availability reads use that provenance plus a live database read, and a report that
+  predates the fields is treated as unknown, never as a file. The effective flags keep their meaning
+  for compatibility. See `docs/operations.md` §11.2 for the one worker restart after an upgrade.
+
 ### Security
 
 - No plaintext secret is stored in the database or rendered in the web interface: private

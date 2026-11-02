@@ -243,9 +243,13 @@ Discovery shares the two-job `MAX_PARALLEL_JOBS` cap with scans; a deploy job ta
 slot and is serialized instead by `deploy:global` (one deploy at a time) and `deploy.concurrency`
 (hosts per batch). A deploy job also holds `inventory:pull`; a paused deploy holds no claim, no slot,
 no lock and no `timeout_at`, so it is never reaped. At startup the worker writes one `worker.start`
-audit row with the worker id and four presence booleans (`ssh_key_present`, `known_hosts_present`,
-`vault_password_present`, `inventory_token_present`) and never a value; the web enables or disables
-the discovery/deploy controls from the newest row of a worker with a fresh heartbeat.
+audit row with the worker id and never a value: four effective presence booleans (`ssh_key_present`,
+`known_hosts_present`, `vault_password_present`, `inventory_token_present`) and three file-only
+provenance booleans (`ssh_key_file_present`, `vault_password_file_present`,
+`inventory_token_file_present`). The web enables or disables the discovery/deploy controls from the
+newest row of a worker with a fresh heartbeat: it reads the database side live and trusts the file
+provenance only when the worker reported it explicitly — the effective flags say what the worker had
+at startup and are never proof of a mounted file, and a row without provenance is unknown, not file.
 
 ### Shutdown and in-flight writes
 

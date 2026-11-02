@@ -15,6 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 
 from app.config import Settings
 from app.crypto.keyring import Keyring, KeyUnwrapError
+from app.jobs.worker import WorkerCapabilities
 from app.models import EncryptedSetting, User
 from app.services import worker_credentials as credentials
 
@@ -219,24 +220,95 @@ def test_a_file_backed_credential_is_reported_as_configured_by_its_file(tmp_path
 
 
 def test_worker_capabilities_can_report_a_file_credential_the_web_process_cannot_see(tmp_path):
-    class Capabilities:
-        ssh_key_present = True
-        vault_password_present = False
-        inventory_token_present = False
+    """The web process mounts nothing: only the worker's explicit file report makes a file a file."""
+    worker = WorkerCapabilities(
+        "fixture-worker",
+        ssh_key_present=True,
+        known_hosts_present=True,
+        vault_password_present=True,
+        inventory_token_present=True,
+        ssh_key_file_present=True,
+        vault_password_file_present=False,
+        inventory_token_file_present=False,
+    )
 
     state = credentials.credential_state(
-        _Session(), _settings(tmp_path), credentials.SSH_PRIVATE_KEY, worker=Capabilities()
+        _Session(), _settings(tmp_path), credentials.SSH_PRIVATE_KEY, worker=worker
     )
 
     assert state.configured is True and state.source == "file"
-    states = credentials.credential_states(_Session(), _settings(tmp_path), worker=Capabilities())
+    states = credentials.credential_states(_Session(), _settings(tmp_path), worker=worker)
     assert [spec.name for spec in credentials.WORKER_CREDENTIALS] == [
         credentials.SSH_PRIVATE_KEY,
         credentials.VAULT_PASSWORD,
         credentials.INVENTORY_GIT_TOKEN,
     ]
     assert states[credentials.SSH_PRIVATE_KEY].configured is True
+    # An effective startup flag is not provenance: the vault password was held by the database, or
+    # at least not by a file, so nothing here may claim a mounted file.
     assert states[credentials.VAULT_PASSWORD].configured is False
+    assert states[credentials.INVENTORY_GIT_TOKEN].configured is False
+
+
+def test_an_effective_startup_flag_alone_is_not_proof_of_a_mounted_file(tmp_path):
+    """The reported bug: a database-only startup kept claiming a file after the row was deleted.
+
+    A report from an older worker carries only the effective booleans (``*_file_present`` is unknown),
+    so with an empty database and an empty secrets directory every credential is absent — never
+    ``configured`` with ``source="file"``.
+    """
+    worker = WorkerCapabilities("db-only-startup", True, True, True, True)
+
+    states = credentials.credential_states(_Session(), _settings(tmp_path), worker=worker)
+
+    assert [(state.configured, state.source) for state in states.values()] == [(False, None)] * 3
+
+
+def test_a_file_provenance_false_is_not_a_mounted_file_either(tmp_path):
+    worker = WorkerCapabilities(
+        "fixture-worker",
+        ssh_key_present=True,
+        known_hosts_present=True,
+        vault_password_present=True,
+        inventory_token_present=True,
+        ssh_key_file_present=False,
+        vault_password_file_present=False,
+        inventory_token_file_present=False,
+    )
+
+    states = credentials.credential_states(_Session(), _settings(tmp_path), worker=worker)
+
+    assert [(state.configured, state.source) for state in states.values()] == [(False, None)] * 3
+
+
+def test_file_presence_reports_the_file_level_only_never_the_database(tmp_path):
+    """What ``worker.start`` records as provenance: the file resolution would find, database aside."""
+    settings = _settings(tmp_path)
+    assert credentials.file_presence(settings) == {
+        credentials.SSH_PRIVATE_KEY: False,
+        credentials.VAULT_PASSWORD: False,
+        credentials.INVENTORY_GIT_TOKEN: False,
+    }
+
+    (tmp_path / "ansible_ssh_key").write_bytes(b"mounted-file-key")
+    assert credentials.file_presence(settings) == {
+        credentials.SSH_PRIVATE_KEY: True,
+        credentials.VAULT_PASSWORD: False,
+        credentials.INVENTORY_GIT_TOKEN: False,
+    }
+
+    # An installation whose startup snapshot already read the files keeps its provenance: the
+    # resolver still falls back to that snapshot when the file is not readable at job time.
+    snapshot = Settings(
+        profile="worker",
+        keyring=KEYRING,
+        keyring_sha256="0" * 64,
+        db_password=b"fixture-db-password",
+        secrets_dir=tmp_path,
+        ansible_vault_password=b"snapshot-vault-password",
+    )
+    assert credentials.file_presence(snapshot)[credentials.VAULT_PASSWORD] is True
+    assert credentials.file_presence(snapshot)[credentials.INVENTORY_GIT_TOKEN] is False
 
 
 def test_an_undecryptable_row_is_configured_but_states_no_metadata(tmp_path):

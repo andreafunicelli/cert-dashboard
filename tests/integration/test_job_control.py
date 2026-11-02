@@ -328,6 +328,11 @@ def test_worker_start_records_capabilities_without_values(queue_factory, make_wo
         "known_hosts_present": True,
         "vault_password_present": False,
         "inventory_token_present": True,
+        # File-only provenance, recorded next to the effective flags: this harness supplies the key
+        # and the token as the startup snapshot would after reading a mounted file.
+        "ssh_key_file_present": True,
+        "vault_password_file_present": False,
+        "inventory_token_file_present": True,
     }
     assert "secret-fixture" not in json.dumps(row.details)
 
@@ -337,7 +342,16 @@ def test_worker_start_reports_a_missing_known_hosts_file(queue_factory, make_wor
     record_worker_start(queue_factory, worker.settings, worker.worker_id, clock())
     worker.tick()
     with queue_factory() as db:
-        assert worker_capabilities(db, clock()) == WorkerCapabilities(worker.worker_id, False, False, True, False)
+        assert worker_capabilities(db, clock()) == WorkerCapabilities(
+            worker.worker_id,
+            False,
+            False,
+            True,
+            False,
+            ssh_key_file_present=False,
+            vault_password_file_present=True,
+            inventory_token_file_present=False,
+        )
 
 
 def test_worker_capabilities_ignore_workers_without_a_fresh_heartbeat(queue_factory, make_worker, clock, tmp_path):
@@ -350,7 +364,16 @@ def test_worker_capabilities_ignore_workers_without_a_fresh_heartbeat(queue_fact
     clock.advance(seconds=1)
     record_worker_start(queue_factory, silent.settings, silent.worker_id, clock())
     with queue_factory() as db:
-        assert worker_capabilities(db, clock()) == WorkerCapabilities(alive.worker_id, True, False, False, False)
+        assert worker_capabilities(db, clock()) == WorkerCapabilities(
+            alive.worker_id,
+            True,
+            False,
+            False,
+            False,
+            ssh_key_file_present=True,
+            vault_password_file_present=False,
+            inventory_token_file_present=False,
+        )
     clock.advance(minutes=10)  # the heartbeat of the only recorded worker is now stale
     with queue_factory() as db:
         assert worker_capabilities(db, clock()) is None
@@ -389,3 +412,4 @@ def test_run_worker_records_capabilities_once_the_database_is_ready(queue_factor
         heartbeat = db.scalars(select(WorkerHeartbeat)).one()
     assert start.target_id == heartbeat.worker_id
     assert start.details["ssh_key_present"] is True and start.details["known_hosts_present"] is False
+    assert start.details["ssh_key_file_present"] is True  # a file-level key, not a database one
