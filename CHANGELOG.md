@@ -231,6 +231,9 @@ with the pull request that delivered each group of changes.
 - `README.md` screenshots are captures of a running instance populated with synthetic data through the
   application's own endpoints; the deploy, renewal and alert-settings images remain renders of the same
   templates with fixture data (PR #77).
+- `README.md` screenshots refreshed for the grouped-navigation interface, with `alt` text and navigation
+  wording for the four areas and the regrouped Settings sections; `alert-settings` is rendered from
+  `docs/ui/previews/settings-alerts.html` because the capture of that page returned a 404 (PR #85).
 - **Operator decisions D1–D3 (2026-10-25) are recorded and the spec is corrected.** D1: certificate
   chain roles are decided per file by signature verification, never by position or DN equality, so a
   same-CA RSA+ECDSA pair is two bindings; D2: key identity is the SHA-256 of the DER
