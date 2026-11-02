@@ -12,6 +12,11 @@
 .settings-field .is-dirty { border-color: var(--warn); outline: var(--line) solid var(--warn); }
 .field-change { color: var(--warn); font-size: var(--text-sm); font-weight: var(--weight-medium); }
 .settings-subsection + .settings-subsection { margin-top: var(--space-6); padding-top: var(--space-5); border-top: var(--line) solid var(--separator); }
+.credential-replace { margin-block: var(--space-4); }
+.credential-replace > summary { color: var(--accent); }
+.credential-replace form { padding: var(--space-4); }
+.credential-replace textarea { font-family: var(--font-mono); }
+[data-settings-secret].is-dirty { border-color: var(--warn); }
 @media (max-width: 719px) {
   .settings-form { grid-template-columns: minmax(0, 1fr); }
 }

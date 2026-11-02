@@ -14,7 +14,7 @@ from tests.integration.conftest import disable_schedules, set_setting
 PATH = "/settings/inventory/test-pull"
 HOSTS = {"web01.example.internal": {"ansible_host": "192.0.2.10"}}
 NO_REPO = "No inventory repository is configured"
-NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 
 
 @pytest.fixture(autouse=True)

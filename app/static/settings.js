@@ -35,6 +35,13 @@
         if (persistable(field)) initial[field.name] = baseline[field.name];
         if (changed && persistable(field)) draft[field.name] = valueOf(field);
       }
+      // Secret presence is only an in-memory dirty flag: never read it into a
+      // baseline, draft, storage payload or rendered message.
+      for (const field of section.secretControls) {
+        const changed = Boolean(field.value);
+        sectionDirty ||= changed;
+        field.classList.toggle('is-dirty', changed);
+      }
       dirty ||= sectionDirty;
       visibleDrafts.set(section.tab, sectionDirty);
       const key = prefix + section.tab;
@@ -48,7 +55,7 @@
     const status = panel.querySelector('#settings-draft-status');
     if (status) status.textContent = !storageAvailable
       ? 'Draft storage is unavailable. Save before switching sections; unsaved values cannot be restored.'
-      : dirty ? 'Unsaved changes. Non-secret drafts are kept in this browser tab; repository URLs are not retained. Save each changed section to apply.'
+      : dirty ? 'Unsaved changes. Non-secret drafts are kept in this browser tab; secrets, file selections and repository URLs are not retained. Save each changed section to apply.'
       : 'No unsaved changes in this tab.';
   }
   function initialize() {
@@ -59,7 +66,8 @@
     const grouped = Array.from(panel.querySelectorAll('[data-settings-section]')).filter(section => section.dataset?.settingsSection);
     sections = (grouped.length ? grouped : [panel]).map(element => ({
       element, tab: element.dataset.tab,
-      controls: Array.from(element.querySelectorAll('[data-settings-draft] input, [data-settings-draft] select, [data-settings-draft] textarea')).filter(eligible)
+      controls: Array.from(element.querySelectorAll('[data-settings-draft] input, [data-settings-draft] select, [data-settings-draft] textarea')).filter(eligible),
+      secretControls: Array.from(element.querySelectorAll('[data-settings-secret]'))
     }));
     for (const section of sections) {
       const {element, tab, controls} = section;
@@ -94,7 +102,7 @@
     }
     update();
   }
-  const changed = event => { if (sections.some(section => section.controls.includes(event.target))) update(); };
+  const changed = event => { if (sections.some(section => section.controls.includes(event.target) || section.secretControls.includes(event.target))) update(); };
   document.addEventListener('input', changed);
   document.addEventListener('change', changed);
   // Observe the completed dispatch: HTMX (or another cancelled submit) prevents native
@@ -109,7 +117,7 @@
     const link = event.target.closest('.tabs a');
     if (!link || !dirty || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
     const message = storageAvailable
-      ? 'This tab has unsaved changes. Switch sections and keep the non-secret draft? Repository URL edits will be lost.'
+      ? 'This tab has unsaved changes. Switch sections and keep the non-secret draft? Secret edits, file selections and repository URL edits will be lost. Cancel to stay and save them.'
       : 'Draft storage is unavailable. Switch sections and discard unsaved changes? Cancel to stay and save them.';
     if (!window.confirm(message)) event.preventDefault();
     else leavingForTab = true;

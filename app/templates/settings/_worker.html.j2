@@ -1,0 +1,49 @@
+{% from "_ui.html.j2" import icon %}
+<p class="help" id="worker-secret-help">Credentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.</p>
+<p class="help">A database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. <a href="/audit?target_type=credential">Credential audit history</a></p>
+{% for slug, control in credential_controls.items() %}
+{% set spec = control.spec %}{% set state = worker_credentials[spec.name] %}{% set field = control.field %}
+<section class="settings-subsection" id="worker-{{ slug }}" aria-labelledby="worker-heading-{{ slug }}">
+  <h3 id="worker-heading-{{ slug }}">{{ spec.label }}</h3>
+  <p><span class="badge {{ 'badge-ok' if state.configured else 'badge-warn' }}">{{ icon('ok' if state.configured else 'warn') }} {{ 'Configured' if state.configured else 'Not configured' }}</span></p>
+  <p class="help">{{ spec.description }}</p>
+  {% if state.source == 'database' %}
+  <p>Set by {{ state.updated_by or 'Unavailable (account no longer present)' }}, {{ time_tag(state.updated_at, timezone) }}. Source: encrypted database.</p>
+  {% elif state.source == 'file' %}<p>Source: mounted worker secret. Key metadata, setter and time are not available from the worker report. To remove this value, an administrator must remove the mounted secret.</p>{% endif %}
+  {% if slug == 'ssh' and state.configured %}
+    {% if state.key_type and state.fingerprint_sha256 %}<p>Key type: <strong>{{ state.key_type }}</strong></p><p>Public SHA-256 fingerprint (DER SPKI): <code class="identifier">{{ state.fingerprint_sha256 }}</code></p>
+    {% elif state.source == 'database' %}<p class="warning-note">Public key metadata is unavailable. Check <a href="/settings?tab=status">keyring status</a> or replace the key before relying on it.</p>{% endif %}
+  {% endif %}
+  <details class="credential-replace"{% if errors %} open{% endif %}>
+    <summary>{{ 'Replace key' if slug == 'ssh' else 'Replace password' if slug == 'vault' else 'Replace token' }}</summary>
+    <form method="post" action="/settings/worker/{{ slug }}"{% if slug == 'ssh' %} enctype="multipart/form-data"{% endif %} autocomplete="off" aria-describedby="worker-secret-help">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="f-worker-{{ slug }}">{{ 'Paste a new private key (PEM or OpenSSH)' if slug == 'ssh' else 'New ' ~ spec.label | lower }}</label>
+      {% if slug == 'ssh' %}
+      <textarea id="f-worker-{{ slug }}" name="{{ field }}" rows="7" autocomplete="off" spellcheck="false" data-settings-secret aria-describedby="worker-ssh-input-help"></textarea>
+      <label for="f-worker-ssh-file">Or choose a private key file</label>
+      <input type="file" id="f-worker-ssh-file" name="private_key_file" autocomplete="off" data-settings-secret aria-describedby="worker-ssh-input-help">
+      <p class="hint" id="worker-ssh-input-help">Choose a file or paste a key, not both. Unencrypted private key only; at most {{ spec.max_bytes }} bytes. Pasted text is visible while entering it, but is never returned after submission.</p>
+      {% else %}
+      <input type="password" id="f-worker-{{ slug }}" name="{{ field }}" autocomplete="off" required data-settings-secret>
+      {% endif %}
+      <button type="submit">{{ 'Save SSH key' if slug == 'ssh' else 'Save password' if slug == 'vault' else 'Save token' }}</button>
+    </form>
+  </details>
+  {% if state.source == 'database' %}
+  <details class="confirmation">
+    <summary>{{ 'Remove key' if slug == 'ssh' else 'Remove password' if slug == 'vault' else 'Remove token' }}</summary>
+    {% if slug == 'ssh' %}<p>Without a mounted fallback, discovery and deploy stop working until a key is set.</p>
+    {% elif slug == 'vault' %}<p>Without a mounted fallback, jobs cannot decrypt inventory files protected with Ansible Vault until a password is set.</p>
+    {% else %}<p>Without a mounted fallback, jobs cannot fetch a private HTTPS inventory repository until a token is set.</p>{% endif %}
+    <p>This removes the database value only. If the worker has a mounted secret, it will be used instead.</p>
+    <form method="post" action="/settings/worker/{{ slug }}/remove">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="f-worker-remove-{{ slug }}">Type REMOVE to confirm</label>
+      <input id="f-worker-remove-{{ slug }}" name="confirm" autocomplete="off" required>
+      <div class="actions"><button type="submit" class="button-destructive">{{ 'Remove key' if slug == 'ssh' else 'Remove password' if slug == 'vault' else 'Remove token' }}</button><a href="/settings?tab=worker">Cancel</a></div>
+    </form>
+  </details>
+  {% endif %}
+</section>
+{% endfor %}
