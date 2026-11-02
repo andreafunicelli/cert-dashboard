@@ -12,7 +12,7 @@ It is not a CA and signs nothing. There is no ACME/Let's Encrypt flow and no CA 
 never edits nginx or Apache configuration, it does not check OCSP or CRL, and it has no
 high-availability or multi-tenant mode. Every active user is an administrator: v1 has no RBAC.
 
-![Overview page: expiry counters for expired, under 7, under 30 and under 60 days plus total active, worker state and last heartbeat, TLS health counters including one mismatch, and the recent jobs table](docs/screenshots/overview.png)
+![Overview page as a work queue: Needs attention lists expired certificates, certificates expiring in under 7 days and endpoints serving a different certificate, each with a count and a next step; In flight shows renewals awaiting an issued certificate, running scans and running deployments; a System strip shows worker state, last discovery, last digest and inventory revision; Inventory and history is collapsed](docs/screenshots/overview.png)
 
 **What you get**
 
@@ -23,6 +23,10 @@ high-availability or multi-tenant mode. Every active user is an administrator: v
 - Manual-CA renewal: a resumable wizard from key and CSR to an issued certificate.
 - Deployment: discovery from an Ansible inventory, canary-first rollout, automatic per-host rollback.
 - Access and audit: local accounts with TOTP MFA, an append-only audit trail, database sessions.
+
+Navigation groups the pages into four areas: **Certificates** (the inventory, import and renewals),
+**Infrastructure** (servers, bindings and discovery), **Operations** (scans, deploy and jobs) and
+**Administration** (users, audit, settings and account). The overview is the landing page.
 
 ## Contents
 
@@ -52,9 +56,9 @@ a supplied key is encrypted before it is stored.
   JSON; the detail page adds chain status, key presence and public fingerprint, lineage, audit rows,
   the endpoints panel and the deploy panel.
 
-![Certificate list: filters, five imported certificates with expiry badges from twelve days expired to 399 days left, and the key and binding columns](docs/screenshots/certificate-list.png)
+![Certificate list: the grouped navigation with the Certificates sub-navigation, a collapsed Filters disclosure and one primary Import certificate action, then six single-line rows whose status bar and status badge carry the expiry signal (Expired, 3 days, 20 days, Valid) with issuer, expiry date and binding count](docs/screenshots/certificate-list.png)
 
-![Certificate detail: a valid certificate with 199 days left, SANs, subject, issuer, fingerprint and download actions, and the validation block that reports an incomplete chain, names the missing issuer and explains that the cached status is refreshed by the next trust re-check](docs/screenshots/certificate-detail.png)
+![Certificate detail: a valid certificate with 198 days left, SANs, subject, issuer, fingerprint and download actions, and the validation block that reports an incomplete chain, names the missing issuer and says the stored status was re-assessed against the enabled trust anchors](docs/screenshots/certificate-detail.png)
 
 ![Import screen: upload form with optional chain and key, and the pull-from-host-and-port form](docs/screenshots/certificate-import.png)
 
@@ -94,9 +98,9 @@ adds endpoints from bindings; you can also add them by hand.
 - Observed certificates are never imported, matched into inventory or trusted. `chain_status` changes
   only through an explicit trust recheck, which runs daily and after every trust-anchor change.
 
-![Scans page: the add-endpoint form, filters, and the endpoint list with expected and observed certificate, expiry, mismatch status and last check per row](docs/screenshots/scan-list.png)
+![Scans page: the endpoint list with one manual endpoint whose last observation is a mismatch, its server, status and observation time, the collapsed Filters disclosure, and the add-endpoint form below the table](docs/screenshots/scan-list.png)
 
-![Scan detail: a mismatch finding with the expected and observed SHA-256 fingerprints side by side, the chain length and TLS version, likely actions, and the endpoint history](docs/screenshots/scan-detail.png)
+![Scan detail: a mismatch finding with the expected and observed SHA-256 fingerprints, the observed common name, expiry, chain length and TLS version, the Manage endpoint form and the likely actions](docs/screenshots/scan-detail.png)
 
 ## Renewal
 
@@ -255,9 +259,9 @@ and stored in `app_setting`. Times are UTC.
 | `SECRETS_DIR` | CLI | `/run/secrets` | Where the CLI reads the file secrets |
 | `smtp.host`, `smtp.port`, `smtp.security`, `smtp.username`, `smtp.from`, `smtp.tls_verify` | Settings → SMTP | empty; port from security (`587`, `465`, `25`); empty; empty; empty; `on` | Relay |
 | `alert.thresholds_days`, `alert.recipients`, `alert.digest_enabled` | Settings → Alerts | `60, 30, 14, 7, 1, 0`; empty; `on` | Thresholds, team recipients, digest |
-| `scan.enabled`, `scan.daily_at`, `scan.timeout_seconds` | Settings → Scanning | `on`, `02:00`, `10` | Endpoint scan |
-| `discovery.enabled`, `discovery.nightly_at`, `expiry_check.enabled`, `expiry_check.daily_at`, `digest.daily_at`, `cleanup.enabled`, `cleanup.daily_at` | Settings → Schedule | `on`, `03:00`, `on`, `07:00`, `07:30`, `on`, `04:00` | Daily jobs |
-| `retention.days`, `ui.timezone` | Settings → General | `90`, `UTC` | Finished jobs kept; display time zone |
+| `scan.enabled`, `scan.daily_at`, `scan.timeout_seconds` | Settings → Schedule and scans | `on`, `02:00`, `10` | Endpoint scan |
+| `discovery.enabled`, `discovery.nightly_at`, `expiry_check.enabled`, `expiry_check.daily_at`, `digest.daily_at`, `cleanup.enabled`, `cleanup.daily_at` | Settings → Schedule and scans | `on`, `03:00`, `on`, `07:00`, `07:30`, `on`, `04:00` | Daily jobs |
+| `retention.days`, `ui.timezone` | Settings → System and maintenance | `90`, `UTC` | Finished jobs kept; display time zone |
 | `inventory.repo_url`, `inventory.ref`, `inventory.path`, `inventory.webserver_var` | Settings → Inventory | empty, empty, empty, `webserver_type` | Inventory checkout |
 | `deploy.batch_percent`, `deploy.concurrency`, `deploy.pause_after_canary`, `deploy.pause_timeout_hours`, `deploy.host_timeout_seconds`, `deploy.backup_retention_days` | Settings → Deployment | `10`, `5`, `on`, `24`, `600`, `30` | Rollout and backup retention |
 | `trust.include_public_bundle` | Settings → Trust anchors | `on` | Also validate against the pinned certifi bundle |
@@ -321,7 +325,7 @@ runs `uv run pytest -q --cov=app ... --cov-fail-under=70` with 85 % gates on `ap
 three compose renders; the application test image runs only `tests/unit`.
 
 The interface has its own documents: `docs/ui/design-system.md` for tokens and rules, and
-`docs/ui/previews/` for 69 rendered previews of every screen, regenerated with
+`docs/ui/previews/` for 77 rendered previews of every screen, regenerated with
 `python -m scripts.render_previews`. The normative design is
 `docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task history is the three plan files
 in `docs/superpowers/plans/`. The full command set is in
@@ -333,5 +337,5 @@ No licence file is present in the repository, so no licence is granted. Add one 
 reusing the code.
 
 Status: the v1 scope of the spec is implemented. Plans 1–3 are merged (inventory and renewal, TLS
-scanning and alerts, discovery and deployment) and the interface redesign merged in PRs #70–#75. The
-limits stated above are the ones a reader will hit.
+scanning and alerts, discovery and deployment) and the interface redesign merged across PRs #70–#82.
+The limits stated above are the ones a reader will hit.
