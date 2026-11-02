@@ -100,6 +100,7 @@ from app.services.trust_anchors import (
     recheck_chain_statuses,
     remove_anchor,
 )
+from app.services.worker_credentials import SSH_PRIVATE_KEY, credential_configured
 from app.web.common import (
     _render,
     _transact,
@@ -430,6 +431,13 @@ def inventory_status(db: Session, now: datetime) -> dict[str, JSONValue]:
     finished = newest[1] if newest is not None else None
     last = db.scalars(_test_pull_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1)).first()
     capabilities = worker_capabilities(db, now)
+    # A key stored in the database is held by every worker, even one that started before it was saved:
+    # the Inventory tab must not claim otherwise.
+    ssh_key_present = (
+        None
+        if capabilities is None
+        else capabilities.ssh_key_present or credential_configured(db, SSH_PRIVATE_KEY)
+    )
     return {
         "configured": bool(get_setting(db, "inventory.repo_url")),
         "current_rev": revision[0] if revision else None,
@@ -438,7 +446,7 @@ def inventory_status(db: Session, now: datetime) -> dict[str, JSONValue]:
         "last_test": None if last is None else _test_pull_view(last),
         "worker": {
             "reporting": capabilities is not None,
-            "ssh_key_present": capabilities.ssh_key_present if capabilities else None,
+            "ssh_key_present": ssh_key_present,
             "known_hosts_present": capabilities.known_hosts_present if capabilities else None,
         },
     }

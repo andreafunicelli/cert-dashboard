@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import ConfigurationError, Settings, load_settings
@@ -49,6 +50,13 @@ from app.models import AppSetting, AuditLog, Job, JSONValue, SchedulerState, Wor
 from app.models.enums import JobType
 from app.services.audit import Actor, SecretRedactionFilter, record
 from app.services.notifications import enqueue_notification_retry
+from app.services.worker_credentials import (
+    INVENTORY_GIT_TOKEN,
+    SSH_PRIVATE_KEY,
+    VAULT_PASSWORD,
+    credential_configured,
+    resolve_worker_settings,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -407,15 +415,22 @@ class WorkerCapabilities:
 
 
 def record_worker_start(factory: sessionmaker[Session], settings: Settings, worker_id: str, now: datetime) -> None:
-    """Write one ``worker.start`` audit row: the worker id and four presence booleans, never a value."""
-    details: dict[str, JSONValue] = {
-        "worker_id": worker_id,
-        "ssh_key_present": settings.ansible_ssh_key is not None,
-        "known_hosts_present": settings.known_hosts_file.is_file(),
-        "vault_password_present": settings.ansible_vault_password is not None,
-        "inventory_token_present": settings.inventory_git_token is not None,
-    }
+    """Write one ``worker.start`` audit row: the worker id and four presence booleans, never a value.
+
+    Presence includes the encrypted settings: a credential stored in the database is held by every
+    worker, so the web process can report it without mounting any file.
+    """
     with factory.begin() as db:
+        details: dict[str, JSONValue] = {
+            "worker_id": worker_id,
+            "ssh_key_present": settings.ansible_ssh_key is not None
+            or credential_configured(db, SSH_PRIVATE_KEY),
+            "known_hosts_present": settings.known_hosts_file.is_file(),
+            "vault_password_present": settings.ansible_vault_password is not None
+            or credential_configured(db, VAULT_PASSWORD),
+            "inventory_token_present": settings.inventory_git_token is not None
+            or credential_configured(db, INVENTORY_GIT_TOKEN),
+        }
         row = record(db, Actor(None, f"worker:{worker_id}"), "worker.start", "worker", worker_id, details)
         row.created_at = now  # the injected clock, like the heartbeat it is matched against
 
@@ -554,11 +569,25 @@ class Worker:
         if len(running) >= self.settings.worker_concurrency:
             return frozenset()
         types = set(self.registry.job_types())
-        if not self.settings.ssh_available:
+        if not self._ssh_available():
             types -= _SSH_TYPES
         if sum(1 for job_type in running if job_type in _CAPPED_TYPES) >= self.settings.max_parallel_jobs:
             types -= _CAPPED_TYPES
         return frozenset(types)
+
+    def _ssh_available(self) -> bool:
+        """The mounted key, or one stored in the database: a change applies without a restart.
+
+        The startup snapshot cannot know about a key an operator saves later, so the gate asks the
+        database. A database blip keeps the previous behaviour (no SSH jobs) instead of killing the loop.
+        """
+        if self.settings.ssh_available:
+            return True
+        try:
+            with self.factory() as db:
+                return credential_configured(db, SSH_PRIVATE_KEY)
+        except SQLAlchemyError:
+            return False
 
     # -- one iteration of each loop ------------------------------------------------------------
 
@@ -742,7 +771,6 @@ class Worker:
                 self._slots.notify_all()
 
     def _execute(self, job_id: UUID) -> str:
-        context = JobContext(job_id, self.worker_id, self.factory, self.settings, clock=self.clock)
         failure: JobFailure | None = None
         result: Mapping[str, JSONValue] = {}
         try:
@@ -751,6 +779,11 @@ class Worker:
                 if job is None:
                     raise StaleJobError(f"job {job_id} no longer exists")
                 db.expunge(job)
+                # Credentials are resolved for each job, never at startup: an operator's change applies
+                # to the next job without restarting the worker. A row that cannot be decrypted raises
+                # KeyUnwrapError here, which fails the job as internal without echoing anything.
+                settings = resolve_worker_settings(db, self.settings)
+            context = JobContext(job_id, self.worker_id, self.factory, settings, clock=self.clock)
             result = self.registry.dispatch(context, job)
         except JobControl as control:
             try:

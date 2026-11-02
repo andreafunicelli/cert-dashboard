@@ -5,6 +5,7 @@ from app.models.audit_log import AuditLog
 from app.models.base import Base, JSONValue
 from app.models.binding import Binding
 from app.models.certificate import Certificate
+from app.models.encrypted_setting import EncryptedSetting
 from app.models.endpoint import Endpoint
 from app.models.job import Job
 from app.models.job_host import JobHost
@@ -26,6 +27,7 @@ __all__ = [
     "Base",
     "Binding",
     "Certificate",
+    "EncryptedSetting",
     "Endpoint",
     "JSONValue",
     "Job",

@@ -45,6 +45,9 @@ class Settings(DatabaseSettings):
     trusted_proxies: tuple[str, ...] = ()
     dashboard_url: str | None = None
     known_hosts_file: Path = Path("/etc/ssh/ssh_known_hosts")
+    # Where the mounted file secrets live: the worker resolves a missing database credential from the
+    # file of the same name at job time, so the path has to survive the startup snapshot.
+    secrets_dir: Path = Path("/run/secrets")
 
     def __post_init__(self) -> None:
         try:
@@ -178,6 +181,7 @@ def load_settings(
         ),
         dashboard_url=_dashboard_url(environ) if profile == "worker" else None,
         known_hosts_file=_known_hosts_file(environ),
+        secrets_dir=secrets_dir,
     )
 
 

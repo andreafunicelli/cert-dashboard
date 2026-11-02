@@ -206,10 +206,10 @@ hard-codes that secret directory. Relevant knobs:
 | --- | --- | --- |
 | `WORKER_CONCURRENCY` | 4 | slots, i.e. maximum concurrently running jobs |
 | `MAX_PARALLEL_JOBS` | 2 | cap on `discover`/`scan` jobs among those slots; the rest stay queued |
-| `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed |
+| `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed. The setting `worker.ssh_private_key` (Settings → Worker, encrypted in the database) wins over the file |
 | `known_hosts` → `/etc/ssh/ssh_known_hosts` (`SSH_KNOWN_HOSTS`) | `/etc/ssh/ssh_known_hosts` | pinned SSH host keys; a missing file fails every `discover`/`deploy` with `config_invalid` before any connection |
-| `ansible_vault_password` (secret) | absent | optional Ansible Vault password; reaches the child as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE=app/ansible/vault_client.py` |
-| `inventory_git_token` (secret) | absent | optional HTTPS Git token; reaches `git` through `app/ansible/git_askpass.py` (username `x-access-token`), never stored in `.git/config` |
+| `ansible_vault_password` (secret) | absent | optional Ansible Vault password; reaches the child as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE=app/ansible/vault_client.py`. The setting `worker.vault_password` wins over the file |
+| `inventory_git_token` (secret) | absent | optional HTTPS Git token; reaches `git` through `app/ansible/git_askpass.py` (username `x-access-token`), never stored in `.git/config`. The setting `inventory.git_token` wins over the file |
 | `smtp_password` (secret) | absent | the SMTP password; worker-only, read from `/run/secrets` (the web profile never loads it). Absent means no AUTH is attempted |
 | `DASHBOARD_URL` (environment) | empty | optional absolute `http(s)` base URL that alert and digest e-mails put in front of dashboard paths; without it the mails carry relative paths such as `/certificates/42`. A URL with credentials, a query or a fragment refuses startup |
 
