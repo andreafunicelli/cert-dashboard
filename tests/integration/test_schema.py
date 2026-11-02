@@ -2,11 +2,24 @@
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from alembic import command
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
+
+
+def expected_head() -> str:
+    """The head of the migration scripts: a new revision must not silently pass the migrate test."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    root = Path(__file__).resolve().parents[2]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "app/migrations"))
+    return ScriptDirectory.from_config(config).get_current_head()
+
 
 # ! = NOT NULL; unspecified fields are nullable. Includes table-specific timestamps.
 COLUMNS = {
@@ -440,7 +453,7 @@ def test_database_readiness_rejects_wrong_head(owner_engine, engine):
             assert_database_ready(engine, timeout_seconds=0)
     finally:
         with owner_engine.begin() as conn:
-            conn.execute(text("UPDATE alembic_version SET version_num='0001_v1_schema'"))
+            conn.execute(text("UPDATE alembic_version SET version_num=:head"), {"head": expected_head()})
 
 
 def test_real_compose_migrate_service_reaches_head_without_app_secrets(tmp_path):
@@ -513,7 +526,7 @@ def test_real_compose_migrate_service_reaches_head_without_app_secrets(tmp_path)
             text=True,
             check=True,
         )
-        assert head.stdout.strip() == "0001_v1_schema"
+        assert head.stdout.strip() == expected_head()
         # Exercise the actual Alembic CLI, rather than only its Python API.
         checked = subprocess.run(
             compose + ["run", "--rm", "--no-deps", "migrate", "alembic", "check"],
