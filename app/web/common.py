@@ -180,7 +180,7 @@ def unsupported_reason(registry, plan: str, *required: tuple[JobType, str]) -> s
     return f"handler {', '.join(missing)} not registered ({plan})" if missing else ""
 
 
-NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 NO_KNOWN_HOSTS = "Discovery and deploy are unavailable: the worker has no known_hosts file"
 NO_INVENTORY = "No inventory repository is configured: set the repository URL first."
 # The only screens that carry the capability banner (spec 9.2): where discovery and deploy are started or configured.

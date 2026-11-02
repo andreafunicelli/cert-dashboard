@@ -376,7 +376,12 @@ changed. HTMX 422 behaviour uses the existing declarative `enhanced_forms()` mac
   The trust-bundle toggle uses its existing one-shot success flash instead of a
   `saved` URL flag; uploads/deletions do not clear an unrelated pending toggle.
 - Password controls, hidden/file inputs and any field name containing `secret`,
-  `key` or `token` are never read or stored. Repository URLs are also never stored:
+  `key` or `token` never enter draft values or baselines. Explicit Worker
+  `data-settings-secret` controls contribute only an in-memory nonempty flag to
+  dirty warnings; values, lengths and filenames are never stored or displayed by
+  the enhancement. Cancelling tab navigation preserves the entered DOM value;
+  accepting explicitly discards it, with a warning naming secrets/files. Secret
+  drafts cannot be restored across navigation. Repository URLs are also never stored:
   even an invalid URL can contain credentials. Their changes are marked but must
   be saved before switching. Trust uploads, typed destructive confirmations and
   CLI key rotation are not configuration drafts and are not persisted.
@@ -397,6 +402,18 @@ secret exclusion, navigation guard, 422/success and storage-denial tests. Node i
 a test-only tool, not a runtime dependency or a build step.
 
 Structural checks passed; visual verification pending on the deployed instance.
+The Worker tab adds write-only key/password/token forms with native replace and
+typed REMOVE confirmations. One shared partial renders the three sections using
+service-provided metadata only. A key paste area is visible while entering it;
+password/token controls are masked. All inputs start blank, including after 422.
+Success flashes contain only state and the public SHA-256 DER-SPKI fingerprint.
+File-backed credentials are labelled with unavailable setter/time/metadata, not
+invented provenance; web removal deletes only a database override, and its
+confirmation explains mounted-file fallback. The existing capability banner keeps
+its severity/condition/location; only the missing-SSH message links to Worker.
+`worker_fixtures()` supplies configured, absent, mounted, rejected and saved states
+without private material. No palette, dependency or extra script was added.
+
 Static preview inspection is not deployed application, email-client, inbox-delivery
 or complete WCAG proof. On deployment, verify no-HTMX saves/422s, actual SMTP
 results, keyboard focus, both themes, narrow layouts, slow live swaps and canary

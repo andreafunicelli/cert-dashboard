@@ -15,7 +15,7 @@ function field(name, value, type = 'text') {
 function panel(tab, fields, saved = false, errors = false) {
   const status = {textContent: ''};
   return {dataset: {tab, settingsSaved: String(saved), settingsErrors: String(errors)},
-    querySelectorAll: () => fields, querySelector: () => status, status};
+    querySelectorAll: selector => selector === '[data-settings-secret]' ? [] : fields, querySelector: () => status, status};
 }
 function harness(initialPanel, stored = new Map(), unavailable = false, tabMarkers = []) {
   let current = initialPanel;
@@ -48,6 +48,30 @@ function groupedPanel(tab, children) {
   outer.querySelectorAll = selector => selector === '[data-settings-section]' ? children : [];
   return outer;
 }
+
+test('Worker secret edits warn and cancel tab exits without storing secrets or filenames', () => {
+  for (const type of ['textarea', 'password', 'file']) {
+    const secret = field(type === 'password' ? 'vault_password' : 'private_key', '', type);
+    const p = panel('worker', []);
+    p.querySelectorAll = selector => selector === '[data-settings-secret]' ? [secret] : [];
+    const h = harness(p);
+    h.edit(secret, 'DO-NOT-STORE-SECRET-OR-FILENAME');
+    let prevented = false;
+    h.events.click({target: {closest: () => ({})}, button: 0, preventDefault: () => { prevented = true; }});
+    assert.equal(prevented, true);
+    assert.match(h.prompts.at(-1), /Secret edits, file selections.*will be lost/);
+    assert.equal(secret.value, 'DO-NOT-STORE-SECRET-OR-FILENAME');
+    assert.equal(h.stored.size, 0);
+    assert.doesNotMatch(p.status.textContent, /DO-NOT-STORE/);
+    prevented = false;
+    h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
+    assert.equal(prevented, true);
+    h.edit(secret, '');
+    prevented = false;
+    h.windowEvents.beforeunload({preventDefault: () => { prevented = true; }});
+    assert.equal(prevented, false);
+  }
+});
 
 test('grouped sections keep separate baselines, drafts and tab markers through native save', () => {
   const schedule = field('discovery_nightly_at', '03:00');
