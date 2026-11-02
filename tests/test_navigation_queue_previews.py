@@ -63,7 +63,12 @@ def test_disabled_capability_keeps_reason_and_cannot_be_activated(url, area, lea
     if active:
         subnav = re.search(r'<nav class="area-navigation".*?</nav>', html, re.DOTALL)[0]
         assert f'href="{url}"' not in subnav
-    assert f'aria-disabled="true" title="{reason}">{area}</span>' in main
+    if area == "Administration":
+        # Settings is no longer the area's landing page; its failure must not
+        # hide the independent Administration index or the other sections.
+        assert '<a href="/administration">Administration</a>' in main
+    else:
+        assert f'aria-disabled="true" title="{reason}">{area}</span>' in main
     assert f'<span aria-disabled="true" title="{reason}">{leaf}</span>' in html
     # A disabled area landing page does not hide its other supported subpages.
     assert 'href="/deploy"' in html

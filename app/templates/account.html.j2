@@ -1,12 +1,12 @@
 {% extends "base.html.j2" %}
 {% from "_ui.html.j2" import icon %}
-{% block title %}Account · Cert Dashboard{% endblock %}
+{% block title %}My account · Cert Dashboard{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/account.css">{% endblock %}
 {% macro errors(message) %}{% if message %}<p class="form-error" role="alert">{{ message }}</p>{% endif %}{% endmacro %}
 {% block content %}
-<h1>Account</h1>
+{% from "_operations_ui.html.j2" import page_header %}
+{{ page_header('My account', 'Your password, your two-factor authentication and your sessions.') }}
 <p>Signed in as <strong>{{ username }}</strong>.</p>
-<p class="help">Manage your password, sign-in protection and current session.</p>
 {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 {% if must_change %}<p class="form-error" role="alert">You must change your password before you can use the rest of the application.</p>{% endif %}
 

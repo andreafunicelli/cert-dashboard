@@ -9,7 +9,7 @@ not even on a validation error. There is deliberately no delete or reactivation 
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.auth.local import (
     UserAdminError,
@@ -106,6 +106,7 @@ def _page(request: Request, status: int = 200, error: str | None = None, values:
         notice=_NOTICES.get(request.query_params.get("notice", "")),
         error=error,
         values={name: "" for name in _FORM_FIELDS} | (values or {}),
+        create_open=request.query_params.get("create") == "1" or values is not None,
         tz=timezone_name,
     )
 
@@ -145,6 +146,12 @@ def _reauthenticated(request: Request, current_password: str, work):
 
 def register_user_routes(app: FastAPI) -> None:
     install_template_helpers(app)
+
+    @app.get("/administration")
+    def administration_page(request: Request):
+        with request.app.state.factory() as db:
+            active_user_count = db.scalar(select(func.count()).select_from(User).where(User.is_active.is_(True)))
+        return _render(request, "administration.html.j2", active_user_count=active_user_count)
 
     @app.get("/users")
     def users_page(request: Request):
