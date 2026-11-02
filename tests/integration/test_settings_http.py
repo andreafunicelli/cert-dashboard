@@ -415,7 +415,7 @@ def test_worker_key_save_replace_remove_updates_banner(
     known_hosts.write_text("fixture-host-key\n")
     worker_settings = replace(web_settings, secrets_dir=tmp_path, known_hosts_file=known_hosts)
     with web_factory.begin() as db:
-        db.add(WorkerHeartbeat(worker_id=worker_id, last_seen_at=clock()))
+        db.add(WorkerHeartbeat(worker_id=worker_id, started_at=clock(), last_seen_at=clock()))
     record_worker_start(web_factory, worker_settings, worker_id, clock())
     page = signed_in.get("/settings?tab=worker")
     assert page.status_code == 200 and "Discovery and deploy are unavailable" in page.text
