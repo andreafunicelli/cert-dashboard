@@ -325,7 +325,7 @@ runs `uv run pytest -q --cov=app ... --cov-fail-under=70` with 85 % gates on `ap
 three compose renders; the application test image runs only `tests/unit`.
 
 The interface has its own documents: `docs/ui/design-system.md` for tokens and rules, and
-`docs/ui/previews/` for 69 rendered previews of every screen, regenerated with
+`docs/ui/previews/` for 77 rendered previews of every screen, regenerated with
 `python -m scripts.render_previews`. The normative design is
 `docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task history is the three plan files
 in `docs/superpowers/plans/`. The full command set is in
