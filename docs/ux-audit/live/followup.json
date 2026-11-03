@@ -1,0 +1,1134 @@
+[
+  {
+    "step": "Run disposable endpoint scan",
+    "result": "/scans/2"
+  },
+  {
+    "step": "Stored endpoint result",
+    "result": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nadmin\n\n\u2190 All scans\n\nuxaudit-tls.example.test:18443\n\nCompare the last observed certificate with the inventory expectation, then review scan history.\n\nManage endpoint\nMore actions\n\nFindings: mismatch\n\nAction required: the served certificate differs from the inventory expectation.\n\nSNI\nuxaudit-served.example.test\nSource\nmanual\nServer\n\u2014\nExpected certificate\nuxaudit-expected.example.test 1880ce4c906a3453ce34ed6b88d2ed6c6e497c741f8608a0afcced246b53b03f\nLast checked\n2026-11-04 00:04 CET\nObserved common name\nuxaudit-served.example.test\nObserved issuer\nuxaudit-root.example.test\nObserved expiry\n2027-02-12 00:01 CET\nObserved fingerprint\ne068f6e79386765193c74dfe82bc4029c7060a30a899a61b1abb45155b4b9744\nChain length / TLS\n1 / TLSv1.3\nScan now\nManage\nExpected certificate\n\nUpdate the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.\n\nActive certificate\nChoose\u2026\napi.example.test (#2, expires 2026-11-05)\n*.apps.example.test (#5, expires 2027-12-05)\nlegacy.example.test (#4, expires 2026-10-19)\nportal.example.test (#3, expires 2026-11-22)\nportal.example.test (#6, expires 2027-05-28)\nuxaudit-expected.example.test (#7, expires 2027-05-22)\nuxaudit-expired.example.test (#9, expires 2026-10-22)\nuxaudit-expiring.example.test (#8, expires 2026-11-08)\nweb.example.test (#1, expires 2027-05-19)\nSet expectation\n\nThe observed certificate is not in the inventory: import the served certificate first.\n\nScheduled scans\nDeactivate\nEndpoints are never deleted; deactivating keeps the history.\nThis endpoint serves a different certificate than expected\n\nExpected: uxaudit-expected.example.test 1880ce4c906a3453ce34ed6b88d2ed6c6e497c741f8608a0afcced246b53b03f\n\nServed: uxaudit-served.example.test (not in the inventory) e068f6e79386765193c74dfe82bc4029c7060a30a899a61b1abb45155b4b9744\n\nLikely actions\nThe old certificate is still being served: Renew and deploy the expected certificate.\nImport the served certificate from this endpoint (host, port and SNI are prefilled); if the virtual host changed on purpose, you can then use it as the expectation.\nHistory\n\nThe last 1 result (newest first) for uxaudit-tls.example.test:18443.\n\nChecked\tStatus\tObserved fingerprint\tCommon name\tSource\tError\n2026-11-04 00:04 CET\t\nFindings: mismatch\te068f6e79386765193c74dfe82bc4029c7060a30a899a61b1abb45155b4b9744\tuxaudit-served.example.test\tmanual\t"
+  },
+  {
+    "step": "Edit endpoint expectation",
+    "result": "Changed only audit endpoint to audit certificate #8"
+  },
+  {
+    "step": "Deactivate endpoint",
+    "result": "No confirmation interstitial: immediate POST; Manage\nExpected certificate\n\nUpdate the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.\n\nActive certificate\nChoose\u2026\napi.example.test (#2, expires 2026-11-05)\n*.apps.example.test (#5, expires 2027-12-05)\nlegacy.example.test (#4, expires 2026-10-19)\nportal.example.test (#3, expires 2026-11-22)\nportal.example.test (#6, expires 2027-05-28)\nuxaudit-expected.example.test (#7, expires 2027-05-22)\nuxaudit-expired.example.test (#9, expires 2026-10-22)\nuxaudit-expiring.example.test (#8, expires 2026-11-08)\nweb.example.test (#1, expires 2027-05-19)\nSet expectation\n\nThe observed certificate is not in the inventory: import the served certificate first.\n\nScheduled scans\nActivate\nEndpoints are never deleted; deactivating keeps the history."
+  },
+  {
+    "step": "Link GitHub URL",
+    "result": "Saved generic repository settings, stayed on dashboard"
+  },
+  {
+    "step": "Test pull result",
+    "result": "Last test pull\n\nFailed, 2026-11-04 00:04 CET / 2026-11-03 23:04 UTC\n\nconfig_invalid: SSH known_hosts file is missing"
+  },
+  {
+    "step": "Repository cleanup",
+    "result": "Original empty repository URL restored and reload verified"
+  },
+  {
+    "step": "Invalid SSH upload",
+    "result": [
+      " Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details",
+      "SSH private key: this is not a private key: expected an unencrypted PEM or OpenSSH private key"
+    ]
+  },
+  {
+    "step": "Invalid CSRF",
+    "result": "Returned Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nadmin\nScans\n\nRead the latest endpoint verdict and observation age; open an endpoint for evidence and history.\n\nScan all\nMore actions\nSearch\nSearch\nFilters\n1 endpoint \u00b7 Stored results, not live probes.\nEndpoint / SNI\tServer\tStatus\tLast observation\tActions\n\nmismatch.example.test:8443\nDefault SNI\n\t\nManual endpoint\n\t\nFindings: mismatch\t14 h ago\n2026-11-03 10:02 CET\n\t\nActions\nPage 1 of 1\nAdd endpoint\n\nEndpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.\n\nHost name or IP address\nPort\nSNI server name (optional)\nExpected certificate (optional)\nNone\napi.example.test (#2, expires 2026-11-05)\n*.apps.example.test (#5, expires 2027-12-05)\nlegacy.example.test (#4, expires 2026-10-19)\nportal.example.test (#3, expires 2026-11-22)\nportal.example.test (#6, expires 2027-05-28)\nuxaudit-expected.example.test (#7, expires 2027-05-22)\nuxaudit-expired.example.test (#9, expires 2026-10-22)\nuxaudit-expiring.example.test (#8, expires 2026-11-08)\nweb.example.test (#1, expires 2027-05-19)\nAdd endpoint"
+  },
+  {
+    "step": "deploy",
+    "result": {
+      "status": 200,
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "Cert Dashboard",
+          "href": "/"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Infrastructure",
+          "href": "/servers"
+        },
+        {
+          "text": "Operations",
+          "href": "/scans"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "Servers",
+          "href": "/servers"
+        },
+        {
+          "text": "Bindings",
+          "href": "/bindings"
+        },
+        {
+          "text": "Discovery",
+          "href": "/servers#discovery-actions"
+        },
+        {
+          "text": "Scans",
+          "href": "/scans"
+        },
+        {
+          "text": "Deploy",
+          "href": "/deploy"
+        },
+        {
+          "text": "Jobs",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Users",
+          "href": "/users"
+        },
+        {
+          "text": "Audit",
+          "href": "/audit"
+        },
+        {
+          "text": "Settings",
+          "href": "/settings"
+        },
+        {
+          "text": "My account",
+          "href": "/account"
+        },
+        {
+          "text": "Scans",
+          "href": "/scans"
+        },
+        {
+          "text": "Deploy",
+          "href": "/deploy"
+        },
+        {
+          "text": "Jobs",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "",
+          "href": "/account"
+        },
+        {
+          "text": "",
+          "href": "/users"
+        },
+        {
+          "text": "Details",
+          "href": "/settings?tab=status"
+        },
+        {
+          "text": "Review plan",
+          "href": "#deploy-preview"
+        },
+        {
+          "text": "",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "",
+          "href": "/settings?tab=deployment"
+        },
+        {
+          "text": "Review certificate and chain",
+          "href": "/certificates"
+        },
+        {
+          "text": "review discovery and target bindings",
+          "href": "/servers"
+        },
+        {
+          "text": "api.example.test",
+          "href": "/certificates/2"
+        }
+      ]
+    }
+  },
+  {
+    "step": "renewal-new",
+    "result": {
+      "status": 200,
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "Cert Dashboard",
+          "href": "/"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Infrastructure",
+          "href": "/servers"
+        },
+        {
+          "text": "Operations",
+          "href": "/scans"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "Servers",
+          "href": "/servers"
+        },
+        {
+          "text": "Bindings",
+          "href": "/bindings"
+        },
+        {
+          "text": "Discovery",
+          "href": "/servers#discovery-actions"
+        },
+        {
+          "text": "Scans",
+          "href": "/scans"
+        },
+        {
+          "text": "Deploy",
+          "href": "/deploy"
+        },
+        {
+          "text": "Jobs",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Users",
+          "href": "/users"
+        },
+        {
+          "text": "Audit",
+          "href": "/audit"
+        },
+        {
+          "text": "Settings",
+          "href": "/settings"
+        },
+        {
+          "text": "My account",
+          "href": "/account"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "",
+          "href": "/account"
+        },
+        {
+          "text": "",
+          "href": "/users"
+        },
+        {
+          "text": "Back to inventory",
+          "href": "/certificates"
+        }
+      ]
+    }
+  },
+  {
+    "step": "certificate-export",
+    "result": {
+      "status": 404,
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "Cert Dashboard",
+          "href": "/"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Infrastructure",
+          "href": "/servers"
+        },
+        {
+          "text": "Operations",
+          "href": "/scans"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "Servers",
+          "href": "/servers"
+        },
+        {
+          "text": "Bindings",
+          "href": "/bindings"
+        },
+        {
+          "text": "Discovery",
+          "href": "/servers#discovery-actions"
+        },
+        {
+          "text": "Scans",
+          "href": "/scans"
+        },
+        {
+          "text": "Deploy",
+          "href": "/deploy"
+        },
+        {
+          "text": "Jobs",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Users",
+          "href": "/users"
+        },
+        {
+          "text": "Audit",
+          "href": "/audit"
+        },
+        {
+          "text": "Settings",
+          "href": "/settings"
+        },
+        {
+          "text": "My account",
+          "href": "/account"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "",
+          "href": "/account"
+        },
+        {
+          "text": "",
+          "href": "/users"
+        },
+        {
+          "text": "Return to dashboard",
+          "href": "/"
+        }
+      ]
+    }
+  },
+  {
+    "step": "inventory-scanned-empty",
+    "result": {
+      "status": 200,
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "Cert Dashboard",
+          "href": "/"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Infrastructure",
+          "href": "/servers"
+        },
+        {
+          "text": "Operations",
+          "href": "/scans"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "Servers",
+          "href": "/servers"
+        },
+        {
+          "text": "Bindings",
+          "href": "/bindings"
+        },
+        {
+          "text": "Discovery",
+          "href": "/servers#discovery-actions"
+        },
+        {
+          "text": "Scans",
+          "href": "/scans"
+        },
+        {
+          "text": "Deploy",
+          "href": "/deploy"
+        },
+        {
+          "text": "Jobs",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Users",
+          "href": "/users"
+        },
+        {
+          "text": "Audit",
+          "href": "/audit"
+        },
+        {
+          "text": "Settings",
+          "href": "/settings"
+        },
+        {
+          "text": "My account",
+          "href": "/account"
+        },
+        {
+          "text": "Servers",
+          "href": "/servers"
+        },
+        {
+          "text": "Bindings",
+          "href": "/bindings"
+        },
+        {
+          "text": "Discovery",
+          "href": "/servers#discovery-actions"
+        },
+        {
+          "text": "",
+          "href": "/account"
+        },
+        {
+          "text": "",
+          "href": "/users"
+        },
+        {
+          "text": "Details",
+          "href": "/settings?tab=status"
+        },
+        {
+          "text": "",
+          "href": "/servers/export.json"
+        },
+        {
+          "text": "",
+          "href": "/bindings"
+        },
+        {
+          "text": "Clear the filters",
+          "href": "/servers"
+        }
+      ]
+    }
+  },
+  {
+    "step": "overview-after-import",
+    "result": {
+      "status": 200,
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "Cert Dashboard",
+          "href": "/"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Infrastructure",
+          "href": "/servers"
+        },
+        {
+          "text": "Operations",
+          "href": "/scans"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "Servers",
+          "href": "/servers"
+        },
+        {
+          "text": "Bindings",
+          "href": "/bindings"
+        },
+        {
+          "text": "Discovery",
+          "href": "/servers#discovery-actions"
+        },
+        {
+          "text": "Scans",
+          "href": "/scans"
+        },
+        {
+          "text": "Deploy",
+          "href": "/deploy"
+        },
+        {
+          "text": "Jobs",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Users",
+          "href": "/users"
+        },
+        {
+          "text": "Audit",
+          "href": "/audit"
+        },
+        {
+          "text": "Settings",
+          "href": "/settings"
+        },
+        {
+          "text": "My account",
+          "href": "/account"
+        },
+        {
+          "text": "",
+          "href": "/account"
+        },
+        {
+          "text": "",
+          "href": "/users"
+        },
+        {
+          "text": "Review expired certificates",
+          "href": "/certificates?expiry=expired&status=active"
+        },
+        {
+          "text": "Prepare renewals",
+          "href": "/certificates?expiry=lt7&status=active"
+        },
+        {
+          "text": "Review mismatched endpoints",
+          "href": "/scans?status=mismatch"
+        },
+        {
+          "text": "0 renewals awaiting an issued certificate",
+          "href": "/renewals?state=awaiting_certificate"
+        },
+        {
+          "text": "0 running scans",
+          "href": "/deploy/jobs?type=scan&outcome=running"
+        },
+        {
+          "text": "0 deployments in progress",
+          "href": "/deploy/jobs?type=deploy&outcome=running"
+        },
+        {
+          "text": "Review all renewal stages",
+          "href": "/renewals"
+        },
+        {
+          "text": "Status details",
+          "href": "/settings?tab=status"
+        },
+        {
+          "text": "",
+          "href": "/settings?tab=status"
+        },
+        {
+          "text": "",
+          "href": "/certificates?expiry=expired&status=active"
+        },
+        {
+          "text": "",
+          "href": "/certificates?expiry=lt7&status=active"
+        },
+        {
+          "text": "",
+          "href": "/certificates?expiry=lt30&status=active"
+        },
+        {
+          "text": "",
+          "href": "/certificates?expiry=lt60&status=active"
+        },
+        {
+          "text": "",
+          "href": "/certificates?status=active"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=172aa291-18e8-4007-9bba-66d6a1146c0e"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=0794c94a-00df-4c83-a64d-6341beb6d61b"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=1008672b-d7b2-4d39-aa75-58863376d20a"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=14b39ebb-5530-485e-b7d6-e9fc4fd18da1"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=ebbbb65a-c0fa-48fd-9336-e22913f086b5"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=d57e8efb-6412-4d1b-a127-1424389ba663"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=8c96d6e6-597f-4ca3-aaf9-702094b9ba54"
+        },
+        {
+          "text": "",
+          "href": "/scans?status=ok"
+        },
+        {
+          "text": "",
+          "href": "/scans?status=mismatch"
+        },
+        {
+          "text": "",
+          "href": "/scans?status=expired"
+        },
+        {
+          "text": "",
+          "href": "/scans?status=unreachable"
+        },
+        {
+          "text": "",
+          "href": "/scans?status=error"
+        },
+        {
+          "text": "",
+          "href": "/scans"
+        },
+        {
+          "text": "",
+          "href": "/bindings?match_state=unknown"
+        },
+        {
+          "text": "",
+          "href": "/bindings?match_state=key_mismatch"
+        },
+        {
+          "text": "",
+          "href": "/scans"
+        },
+        {
+          "text": "",
+          "href": "/certificates"
+        },
+        {
+          "text": "",
+          "href": "/scans"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=172aa291-18e8-4007-9bba-66d6a1146c0e"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=69af2870-fe6c-405a-a108-5565eeb3e689"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=0794c94a-00df-4c83-a64d-6341beb6d61b"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=1008672b-d7b2-4d39-aa75-58863376d20a"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=14b39ebb-5530-485e-b7d6-e9fc4fd18da1"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=ebbbb65a-c0fa-48fd-9336-e22913f086b5"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=d57e8efb-6412-4d1b-a127-1424389ba663"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=6691efd3-6ba7-4230-ab3c-64052113aa96"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=abff82de-7ea4-45b7-b322-3bde95e382a5"
+        },
+        {
+          "text": "",
+          "href": "/audit?target_type=job&target_id=8c96d6e6-597f-4ca3-aaf9-702094b9ba54"
+        },
+        {
+          "text": "",
+          "href": "/certificates"
+        }
+      ]
+    }
+  },
+  {
+    "step": "certificates-after-import",
+    "result": {
+      "status": 200,
+      "links": [
+        {
+          "text": "Skip to content",
+          "href": "#main-content"
+        },
+        {
+          "text": "Cert Dashboard",
+          "href": "/"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Infrastructure",
+          "href": "/servers"
+        },
+        {
+          "text": "Operations",
+          "href": "/scans"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Overview",
+          "href": "/"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "Servers",
+          "href": "/servers"
+        },
+        {
+          "text": "Bindings",
+          "href": "/bindings"
+        },
+        {
+          "text": "Discovery",
+          "href": "/servers#discovery-actions"
+        },
+        {
+          "text": "Scans",
+          "href": "/scans"
+        },
+        {
+          "text": "Deploy",
+          "href": "/deploy"
+        },
+        {
+          "text": "Jobs",
+          "href": "/deploy/jobs"
+        },
+        {
+          "text": "Administration",
+          "href": "/administration"
+        },
+        {
+          "text": "Users",
+          "href": "/users"
+        },
+        {
+          "text": "Audit",
+          "href": "/audit"
+        },
+        {
+          "text": "Settings",
+          "href": "/settings"
+        },
+        {
+          "text": "My account",
+          "href": "/account"
+        },
+        {
+          "text": "Certificates",
+          "href": "/certificates"
+        },
+        {
+          "text": "Import",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "Renewals",
+          "href": "/renewals"
+        },
+        {
+          "text": "",
+          "href": "/account"
+        },
+        {
+          "text": "",
+          "href": "/users"
+        },
+        {
+          "text": "Import certificate",
+          "href": "/certificates/import"
+        },
+        {
+          "text": "",
+          "href": "/certificates/export.json"
+        },
+        {
+          "text": "Common name",
+          "href": "/certificates?sort=common_name"
+        },
+        {
+          "text": "Issuer",
+          "href": "/certificates?sort=issuer_cn"
+        },
+        {
+          "text": "Expires",
+          "href": "/certificates?sort=-not_after"
+        },
+        {
+          "text": "Status",
+          "href": "/certificates?sort=status"
+        },
+        {
+          "text": "legacy.example.test",
+          "href": "/certificates/4"
+        },
+        {
+          "text": "",
+          "href": "/certificates/4"
+        },
+        {
+          "text": "",
+          "href": "/certificates/4/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/4#status-panel"
+        },
+        {
+          "text": "uxaudit-expired.example.test",
+          "href": "/certificates/9"
+        },
+        {
+          "text": "",
+          "href": "/certificates/9"
+        },
+        {
+          "text": "",
+          "href": "/certificates/9/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/9#status-panel"
+        },
+        {
+          "text": "api.example.test",
+          "href": "/certificates/2"
+        },
+        {
+          "text": "",
+          "href": "/certificates/2"
+        },
+        {
+          "text": "",
+          "href": "/certificates/2/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/2#status-panel"
+        },
+        {
+          "text": "uxaudit-expiring.example.test",
+          "href": "/certificates/8"
+        },
+        {
+          "text": "",
+          "href": "/certificates/8"
+        },
+        {
+          "text": "",
+          "href": "/certificates/8/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/8#status-panel"
+        },
+        {
+          "text": "portal.example.test",
+          "href": "/certificates/3"
+        },
+        {
+          "text": "",
+          "href": "/certificates/3"
+        },
+        {
+          "text": "",
+          "href": "/certificates/3/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/3#status-panel"
+        },
+        {
+          "text": "web.example.test",
+          "href": "/certificates/1"
+        },
+        {
+          "text": "",
+          "href": "/certificates/1"
+        },
+        {
+          "text": "",
+          "href": "/certificates/1/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/1#status-panel"
+        },
+        {
+          "text": "uxaudit-expected.example.test",
+          "href": "/certificates/7"
+        },
+        {
+          "text": "",
+          "href": "/certificates/7"
+        },
+        {
+          "text": "",
+          "href": "/certificates/7/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/7#status-panel"
+        },
+        {
+          "text": "portal.example.test",
+          "href": "/certificates/6"
+        },
+        {
+          "text": "",
+          "href": "/certificates/6"
+        },
+        {
+          "text": "",
+          "href": "/certificates/6/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/6#status-panel"
+        },
+        {
+          "text": "*.apps.example.test",
+          "href": "/certificates/5"
+        },
+        {
+          "text": "",
+          "href": "/certificates/5"
+        },
+        {
+          "text": "",
+          "href": "/certificates/5/leaf.pem"
+        },
+        {
+          "text": "",
+          "href": "/certificates/5#status-panel"
+        }
+      ]
+    }
+  },
+  {
+    "step": "User table geometry",
+    "result": {
+      "width": 1230,
+      "scroll": 1271,
+      "height": 574,
+      "scrollHeight": 1153
+    }
+  },
+  {
+    "step": "No JavaScript",
+    "result": "Native login and scans detail navigation succeeded; mutations above use native forms except expectation/active HTMX"
+  }
+]

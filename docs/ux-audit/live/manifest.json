@@ -1,0 +1,522 @@
+[
+  {
+    "name": "login",
+    "url": "/login",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 30778,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nSign in\nUsername\nPassword\nSign in\n\nThere is no password reset. If you cannot sign in, contact another admin.",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "overview",
+    "url": "/",
+    "http_status": null,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 93087,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nadmin\nOverview\n\nTrack TLS certificates, reconcile endpoints and follow renewals and deployments.\n\nNeeds attention\nWork to review\tCount\tNext step\n\nExpired certificates\t1\tReview expired certificates\n\nCertificates expiring in < 7 days\t1\tPrepare renewals\n\nObserved certificate differs from stored certificate\t1\tReview mismatched endpoints\n\nRecorded results, not live probes. Other TLS findings are in Inventory and history below.\n\nIn flight\n0 renewals awaiting an issued certificate\n0 running scans\n0 deployments in progress\n\nAwaiting includes draft, CSR generated and submitted. Review all renewal stages.\n\nSystem\nStatus details\nWorker\nok\nLast discovery\nnever\nLast digest\nnever\nInventory revision\nno inventory revision recorded yet\nInventory and history \u00b7 all counters and recent work",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "certificates",
+    "url": "/certificates",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 99612,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nadmin\nCertificates\n\n6 certificates\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters\nCommon name\tIssuer\tExpires\tStatus\tBindings\tActions\nlegacy.example.test\tExample Internal Issuing CA\t2026-10-19 12:10 CEST\t\nExpired\t0\t\nActions\n\napi.example.test\tExample Internal Issuing CA\t2026-11-05 11:10 CET\t\n1 days\n\t0\t\nActions\n\nportal.example.test\tExample Internal Issuing CA\t2026-11-22 11:10 CET\t\n18 days\n\t0\t\nActions\n\nweb.example.test\tExample Internal Issuing CA\t2027-05-19 12:10 CEST\t\nValid\t0\t\nActions\n\nportal.example.test\tExample Platform Issuing CA\t2027-05-28 12:16 CEST\t\nValid\t0\t\nActions\n\n*.apps.example.test\tExample Internal Issuing CA\t2027-12-05 11:10 CET\t\nValid\t0\t\nActions\nPage 1 of 1",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "certificate-detail",
+    "url": "/certificates/1",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 98272,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nadmin\n\nAll certificates\n\nNo previous certificate\n\u2192\nweb.example.test\n\u2192\nNo later certificate\nweb.example.test\n\nValid\n196 days\nIncomplete chain\nInventory: active\n\nSubject alternative names\nweb.example.test\nwww.example.test\nSubject\nCN=web.example.test,C=IT,O=Example Internal\nIssuer\nExample Internal Issuing CA\nCN=Example Internal Issuing CA,C=IT,O=Example Internal\nSerial number\n5297a19e10d5c757b9cff4bcf95cdf8375b6ef06\nValid from\n2026-10-31 11:10 CET\nValid until\n2027-05-19 12:10 CEST\nSHA-256 fingerprint\n847a3124441115b8c0a48ae20ee50b1278d0c58655de3193655c1748a4cc5a5f\n\nSelect the full fingerprint to copy. The exact value is preserved.\n\nSource\nupload_pem\nOwner\nWeb frontend <web-ops@example.test>\nTeam\nPlatform\nNotes\nPublic frontend, replaced by the manual CA each year.\nAdded\n2026-10-31 11:11 CET\nLast changed\n2026-10-31 11:16 CET\nActions\nEdit details\nDownload certificate\nDownload chain\nDownload full chain\nExport PFX\nStart renewal\nDeploy\nScan now\n\nPublic downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployments and scans are audited too.\n\nDeployments\n\nno active binding is a deploy target for this certificate\n\nNo deploy has run for this certificate yet.\n\nValidation\n\nIncomplete chain\n\nStored chain status: \nincomplete \u00b7 intermediate chain stored\n\nRe-assessed just now against the enabled trust anchors: incomplete.\n\nThe issuer certificate is missing from the chain.\nMissing issuer: CN=Example Internal Root CA,C=IT,O=Example Internal\n\nThis does not block use of the certificate, but deployment requires a trusted chain. Review trust anchors in Settings, or import the missing chain below.\n\nLeaf certificate\nDownload certificate \u2014 stored public certificate\nIntermediate chain\nDownload stored chain\nTrust anchors\nReview enabled trust anchors\nPrivate key\nKey present\nyes\nType\nRSA 2048-bit\nPublic key SHA-256\n7355b8984f5384367c2d80edc91f3be21620028370f9fa53d7131b465874a1d4\nCreated\n2026-10-31 11:11 CET\nOrigin\nimported_pem\nMaster key version\n1\n\nThe key is stored encrypted and is never displayed.\n\nBindings\n\nNo bindings recorded for this certificate. Bindings appear once server discovery is available (a later plan).\n\nEndpoints\nEndpoint\tSNI\tExpected certificate\tObserved certificate\tLast scan\tActive\tActions\nmismatch.example.test:8443\t\u2014\tExpected web.example.test\n847a3124441115b8c0a48ae20ee50b1278d0c58655de3193655c1748a4cc5a5f\tObserved other.example.test \u00b7 issued by Example Internal Issuing CA \u00b7 expires 2027-10-31 11:10 CET\n023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\nDiffers from the expected certificate\tmismatch 2026-11-03 10:02 CET\tyes\tHistory Scan now\n\nAdd endpoint\n\nHistory\nRenewals\n\nEvery renewal awaiting an issued certificate \u00b7 All renewals\n\nNo renewals recorded.\n\nRecent activity\nWhen\tWho\tAction\tDetail\n2026-10-31 11:16 CET\tsystem\tcertificate.chain_check\t\n2026-10-31 11:11 CET\tadmin\tcertificate.import\t\nEdit owner, team and notes\nOwner name\nOwner email\nTeam\nNotes\n\nNotes are shown to every administrator; do not store secrets here.\n\nSave details\nStatus\nChange the status of web.example.test (#1)\nImport chain\nReplace the stored chain for web.example.test (#1)",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "certificate-edit",
+    "url": "/certificates/1/edit",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 60419,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nadmin\nEdit web.example.test\n\nBack to certificate\n\nEdit owner, team and notes\nOwner name\nOwner email\nTeam\nNotes\n\nNotes are shown to every administrator; do not store secrets here.\n\nSave details",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "certificate-import",
+    "url": "/certificates/import",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 95211,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nadmin\nAll certificates\nUpload a file\nPull from host and port\nImport certificate\n\nUpload a certificate you already have. Chain and private key material are optional; ownership details can be edited later.\n\nFormat\nPEM\nCRT (PEM or DER certificate)\nPFX / PKCS#12\nCertificate file\n\u2026or paste it (PEM text; base64 for PFX)\nPFX password\nIntermediate chain (optional)\nPrivate key (optional, encrypted at rest)\nInventory details (optional)\nImport\nPull from server\n\nThe worker connects to the host and port, records the certificate chain it serves (without verifying trust) and keeps it as the expected certificate for that endpoint.\n\nHost name or IP address\nPort\nSNI server name (optional)\n\nDefaults to the host name; no SNI is sent when the host is an IP address.\n\nInventory details\nOwner name\nOwner email\nTeam\nNotes\nPull and import",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "servers-empty",
+    "url": "/servers",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 78300,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nServers\n\nFind hosts, stored bindings and discovery failures before checking live TLS drift.\n\nRun discovery\nMore actions\nSearch\nSearch\nFilters\n0 servers \u00b7 Last seen means the recorded discovery time, not a live reachability check.\nNo servers match these filters\n\nClear the filters. Servers appear once discovery has run: use \u201cDiscover all\u201d below.\n\nPage 1 of 1\nDiscovery\n\nRun across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.\n\nDiscover all Discover group\n\nDiscovery and deploy are unavailable: the worker has no known_hosts file",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "bindings-empty",
+    "url": "/bindings",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 89989,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nBindings\n\nFollow each certificate to its host, configured files, port and SNI names.\n\nRun discovery\nMore actions\n\nDesired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nVirtual host\nSearch\nFilters\n0 bindings \u00b7 Stored discovery evidence, not live TLS checks.\nNo bindings match these filters\n\nClear the filters or check discovery on the server. An empty filtered list does not mean discovery found no changes.\n\nPage 1 of 1",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "scans",
+    "url": "/scans",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 82123,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nadmin\nScans\n\nRead the latest endpoint verdict and observation age; open an endpoint for evidence and history.\n\nScan all\nMore actions\nSearch\nSearch\nFilters\n1 endpoint \u00b7 Stored results, not live probes.\nEndpoint / SNI\tServer\tStatus\tLast observation\tActions\n\nmismatch.example.test:8443\nDefault SNI\n\t\nManual endpoint\n\t\nFindings: mismatch\t13 h ago\n2026-11-03 10:02 CET\n\t\nActions\nPage 1 of 1\nAdd endpoint\n\nEndpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.\n\nHost name or IP address\nPort\nSNI server name (optional)\nExpected certificate (optional)\nNone\napi.example.test (#2, expires 2026-11-05)\n*.apps.example.test (#5, expires 2027-12-05)\nlegacy.example.test (#4, expires 2026-10-19)\nportal.example.test (#3, expires 2026-11-22)\nportal.example.test (#6, expires 2027-05-28)\nweb.example.test (#1, expires 2027-05-19)\nAdd endpoint",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "scan-detail",
+    "url": "/scans/1",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 95002,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nadmin\n\n\u2190 All scans\n\nmismatch.example.test:8443\n\nCompare the last observed certificate with the inventory expectation, then review scan history.\n\nManage endpoint\nMore actions\n\nFindings: mismatch\n\nAction required: the served certificate differs from the inventory expectation.\n\nSNI\n\u2014 (the host name is sent)\nSource\nmanual\nServer\n\u2014\nExpected certificate\nweb.example.test 847a3124441115b8c0a48ae20ee50b1278d0c58655de3193655c1748a4cc5a5f\nLast checked\n2026-11-03 10:02 CET\nObserved common name\nother.example.test\nObserved issuer\nExample Internal Issuing CA\nObserved expiry\n2027-10-31 11:10 CET\nObserved fingerprint\n023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\nChain length / TLS\n1 / TLSv1.3\nScan now\nManage\nExpected certificate\n\nUpdate the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.\n\nActive certificate\nChoose\u2026\napi.example.test (#2, expires 2026-11-05)\n*.apps.example.test (#5, expires 2027-12-05)\nlegacy.example.test (#4, expires 2026-10-19)\nportal.example.test (#3, expires 2026-11-22)\nportal.example.test (#6, expires 2027-05-28)\nweb.example.test (#1, expires 2027-05-19)\nSet expectation\n\nThe observed certificate is not in the inventory: import the served certificate first.\n\nScheduled scans\nDeactivate\nEndpoints are never deleted; deactivating keeps the history.\nThis endpoint serves a different certificate than expected\n\nExpected: web.example.test 847a3124441115b8c0a48ae20ee50b1278d0c58655de3193655c1748a4cc5a5f\n\nServed: other.example.test (not in the inventory) 023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\n\nLikely actions\nThe old certificate is still being served: Renew and deploy the expected certificate.\nImport the served certificate from this endpoint (host, port and SNI are prefilled); if the virtual host changed on purpose, you can then use it as the expectation.\nHistory\n\nThe last 5 results (newest first) for mismatch.example.test:8443.\n\nChecked\tStatus\tObserved fingerprint\tCommon name\tSource\tError\n2026-11-03 10:02 CET\t\nFindings: mismatch\t023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\tother.example.test\tmanual\t\n2026-11-03 03:00 CET\t\nFindings: mismatch\t023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\tother.example.test\tscheduled\t\n2026-11-02 03:00 CET\t\nFindings: mismatch\t023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\tother.example.test\tscheduled\t\n2026-11-01 03:00 CET\t\nFindings: mismatch\t023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\tother.example.test\tscheduled\t\n2026-10-31 11:12 CET\t\nFindings: mismatch\t023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\tother.example.test\tmanual\t",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "users",
+    "url": "/users",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 73503,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\nUsers\n\nWho can sign in, and with which second factor.\n\nCreate user\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nUsername\tDisplay name\tEmail\tBackend\tActive\t2FA\tMust change password\tLast login\tLocked until\tActions\nadmin (you)\tadmin\tadmin@certlab.lan\tlocal\t\nYes\t\nOff\tNo\t2026-11-03 23:59 CET\t\u2014\t\nManage\nadmin\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "administration",
+    "url": "/administration",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 66619,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\nAdministration\n\nManage sign-in access, review actions and configure this installation.\n\nUsers\n1 user can sign in. Create user.\nAudit\nThe append-only record of actions.\nSettings\nSMTP, inventory, discovery, deploy guardrails and trust anchors.\nMy account\nYour password, two-factor authentication and sessions.\n\nThe user count includes active local and directory users already known to this installation. Temporary sign-in lockouts still apply.",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "audit",
+    "url": "/audit",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 66912,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\nAudit log\n\nRead append-only history, newest first; this view only reads recorded events.\n\nExport list as JSON\nFilters\n\n131 events \u00b7 Export includes metadata only, newest 5,000.\n\nTime\tActor\tAction\tTarget\tIP\n2026-11-03 23:59 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 23:59 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 23:58 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 23:57 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 23:53 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 23:53 CET\t\nadmin\n\t\nauth.login_failed\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 22:54 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 16:37 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.failed\n\t\njob\n0794c94a-00df-4c83-a64d-6341beb6d61b\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 16:37 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.failed\n\t\njob\n1008672b-d7b2-4d39-aa75-58863376d20a\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 16:37 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.failed\n\t\njob\n14b39ebb-5530-485e-b7d6-e9fc4fd18da1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 16:37 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.failed\n\t\njob\nebbbb65a-c0fa-48fd-9336-e22913f086b5\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 16:37 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.failed\n\t\njob\nd57e8efb-6412-4d1b-a127-1424389ba663\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 16:37 CET\t\nadmin\n\t\ncredential.set\n\t\ncredential\nworker.ssh_private_key\n\t\n192.168.1.40\n\n\nShow event\n\n2026-11-03 16:37 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 10:02 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.succeeded\n\t\njob\n6691efd3-6ba7-4230-ab3c-64052113aa96\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 10:02 CET\t\nadmin\n\t\nscan.run\n\t\njob\n6691efd3-6ba7-4230-ab3c-64052113aa96\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 10:02 CET\t\nadmin\n\t\njob.enqueue\n\t\njob\n6691efd3-6ba7-4230-ab3c-64052113aa96\n\t\n192.168.1.40\n\n\nShow event\n\n2026-11-03 09:39 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 08:30 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.succeeded\n\t\njob\nabff82de-7ea4-45b7-b322-3bde95e382a5\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 08:30 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\nabff82de-7ea4-45b7-b322-3bde95e382a5\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 08:00 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.failed\n\t\njob\n8c96d6e6-597f-4ca3-aaf9-702094b9ba54\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 08:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\n8c96d6e6-597f-4ca3-aaf9-702094b9ba54\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 05:00 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.succeeded\n\t\njob\nac9e1b18-7783-4a94-93af-9cddba03c260\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 05:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\nac9e1b18-7783-4a94-93af-9cddba03c260\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 04:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\n0794c94a-00df-4c83-a64d-6341beb6d61b\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 03:00 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.succeeded\n\t\njob\ncf8a990e-c780-4da6-8229-fc84f4e00f2a\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 03:00 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\njob.succeeded\n\t\njob\nc48a0a72-070e-4c8e-aa2a-0205d78f9415\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 03:00 CET\t\nsystem\n\t\nscan.run\n\t\njob\ncf8a990e-c780-4da6-8229-fc84f4e00f2a\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 03:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\nc48a0a72-070e-4c8e-aa2a-0205d78f9415\n\t\n\u2014\n\n\nShow event\n\n2026-11-03 03:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\ncf8a990e-c780-4da6-8229-fc84f4e00f2a\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 21:27 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 21:27 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 21:27 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 21:27 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 21:26 CET\t\nworker:3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\nworker.start\n\t\nworker\n3eca87564d9f:1:7610b031-ff19-461b-ba5f-98f6eae491c0\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 09:49 CET\t\nadmin\n\t\nsettings.update\n\t\nsettings\n\t\n192.168.1.40\n\n\nShow event\n\n2026-11-02 09:46 CET\t\nadmin\n\t\nauth.totp_enroll\n\t\nuser\n1\n\t\n192.168.1.40\n\n\nShow event\n\n2026-11-02 09:41 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 09:40 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 09:37 CET\t\nworker:c64d1e886f1a:1:461a3859-9e28-47c4-8b36-1b12db183bf2\n\t\nworker.start\n\t\nworker\nc64d1e886f1a:1:461a3859-9e28-47c4-8b36-1b12db183bf2\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 09:34 CET\t\nadmin\n\t\nauth.login_success\n\t\nuser\n1\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 08:30 CET\t\nworker:74319781412f:1:fb78890a-8996-4234-bfed-bf15ae398ae8\n\t\njob.succeeded\n\t\njob\na04d8050-2afc-4676-89cd-84fcb3f65ecf\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 08:30 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\na04d8050-2afc-4676-89cd-84fcb3f65ecf\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 08:00 CET\t\nworker:74319781412f:1:fb78890a-8996-4234-bfed-bf15ae398ae8\n\t\njob.failed\n\t\njob\na2de101a-76fb-4b19-a591-7a113ba988d0\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 08:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\na2de101a-76fb-4b19-a591-7a113ba988d0\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 05:00 CET\t\nworker:74319781412f:1:fb78890a-8996-4234-bfed-bf15ae398ae8\n\t\njob.succeeded\n\t\njob\n1fe54b6f-229e-4b3e-ba77-d1e2df885240\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 05:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\n1fe54b6f-229e-4b3e-ba77-d1e2df885240\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 04:00 CET\t\nsystem\n\t\njob.enqueue\n\t\njob\n1008672b-d7b2-4d39-aa75-58863376d20a\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 03:00 CET\t\nworker:74319781412f:1:fb78890a-8996-4234-bfed-bf15ae398ae8\n\t\njob.succeeded\n\t\njob\n2316b91e-7b3e-4054-b64a-5b9fb2c3bc88\n\t\n\u2014\n\n\nShow event\n\n2026-11-02 03:00 CET\t\nworker:74319781412f:1:fb78890a-8996-4234-bfed-bf15ae398ae8\n\t\njob.succeeded\n\t\njob\n4d66589d-116f-49ed-8392-884ea47d58b2\n\t\n\u2014\n\n\nShow event\nPage 1 of 3\nNext",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "account",
+    "url": "/account",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 63981,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\nMy account\n\nYour password, your two-factor authentication and your sessions.\n\nSigned in as admin.\n\nChange password\nCurrent password\nNew password (at least 12 characters)\nRepeat new password\nChange password\n\nChanging your password signs out every other session.\n\nTwo-factor authentication\n\nEnrollment is pending: enter a code from your authenticator app to finish.\n\nConfirming enables two-factor authentication and signs out every other session.\n\n6-digit code\nConfirm and enable\n\nLost the key or codes? Start again below; the pending enrollment is replaced.\n\nRestart enrollment\nCurrent session\n\nSign out of this browser only. Other sessions stay signed in.\n\nSign out",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "renewals-empty",
+    "url": "/renewals",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 67992,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nadmin\nRenewals\n\nEvery renewal, oldest state change first, so a stalled order stays at the top until it moves. The next action is the one step that moves the renewal on; open it to see the CSR, the order or the issued certificate.\n\nState\nAny\nAwaiting an issued certificate\ndraft\ncsr_generated\nsubmitted\nissued\ndeployed\ndone\ncancelled\nApply filters\nReset\n0 renewals \u00b7 Start a renewal\nNo renewals match these filters\n\nA renewal starts from a certificate or from the renewal form.\n\nClear the filters\nPage 1 of 1",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "deploy-jobs",
+    "url": "/deploy/jobs",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 90531,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nJobs\n\nTrack queued, running and finished operations, newest first.\n\nPlan a deployment\nMore actions\n\nA rollout that rolled a host back is listed as rolled_back \u2014 a host state, not a job status \u2014 so it is never counted twice as a failure. Open a deployment for the full record; other jobs open their audit entries.\n\nFilters\n33 jobs \u00b7 Finished jobs keep their per-host record.\nType\tTarget\tOutcome\tHosts\tActor\tCreated\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tadmin\t2026-11-03 10:02 CET\tDetails\ndigest\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-03 08:30 CET\tDetails\nalert_expiry\t\u2014\t\nfailed\t\u2014\tsystem\t2026-11-03 08:00 CET\tDetails\ncleanup\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-03 05:00 CET\tDetails\ndiscover\t\u2014\t\nfailed\t\u2014\tsystem\t2026-11-03 04:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-03 03:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-03 03:00 CET\tDetails\ndigest\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-02 08:30 CET\tDetails\nalert_expiry\t\u2014\t\nfailed\t\u2014\tsystem\t2026-11-02 08:00 CET\tDetails\ncleanup\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-02 05:00 CET\tDetails\ndiscover\t\u2014\t\nfailed\t\u2014\tsystem\t2026-11-02 04:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-02 03:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-02 03:00 CET\tDetails\ndigest\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-01 08:30 CET\tDetails\nalert_expiry\t\u2014\t\nfailed\t\u2014\tsystem\t2026-11-01 08:00 CET\tDetails\ncleanup\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-01 05:00 CET\tDetails\ndiscover\t\u2014\t\nfailed\t\u2014\tsystem\t2026-11-01 04:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-01 03:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-11-01 03:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tadmin\t2026-10-31 11:16 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tadmin\t2026-10-31 11:12 CET\tDetails\ndigest\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-31 08:30 CET\tDetails\nalert_expiry\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-31 08:00 CET\tDetails\ncleanup\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-31 05:00 CET\tDetails\ndiscover\t\u2014\t\nfailed\t\u2014\tsystem\t2026-10-31 04:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-31 03:00 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-31 03:00 CET\tDetails\ndiscover\t\u2014\t\nfailed\t\u2014\tsystem\t2026-10-30 14:18 CET\tDetails\ndigest\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-30 14:18 CET\tDetails\nalert_expiry\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-30 14:18 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-30 14:18 CET\tDetails\nscan\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-30 14:18 CET\tDetails\ncleanup\t\u2014\t\nsucceeded\t\u2014\tsystem\t2026-10-30 14:18 CET\tDetails\nPage 1 of 1",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "jobs",
+    "url": "/jobs",
+    "http_status": 404,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 31532,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nadmin\nPage not found.\n\n Error 404\n\nRequest ID: 9cb0ac19f2ecdc25359bb92b0c6f9fbb\n\nReturn to dashboard",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "discovery",
+    "url": "/discovery",
+    "http_status": 404,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 31772,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nadmin\nPage not found.\n\n Error 404\n\nRequest ID: 3f808dc160c6e394239f3ed5c85f53d9\n\nReturn to dashboard",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "not-found",
+    "url": "/uxaudit-no-such-page",
+    "http_status": 404,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 32005,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nadmin\nPage not found.\n\n Error 404\n\nRequest ID: 75826964a5bc2f6370f99e7561264935\n\nReturn to dashboard",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "certificate-filter-empty",
+    "url": "/certificates?search=uxaudit-no-such-certificate",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 62380,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nadmin\nCertificates\n\n0 certificates\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters\nReset\nSearch: uxaudit-no-such-certificate\nNo matching certificates\n\nNo certificates match these filters. Import a certificate or clear the filters.\n\nPage 1 of 1",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-smtp",
+    "url": "/settings?tab=smtp",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 109126,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave SMTP settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nSMTP\n\nNo unsaved changes in this tab.\n\nDelivery outcome: not tested. Test send uses saved SMTP settings, not unsaved edits.\n\nHost\n\nEmpty = SMTP not configured.\n\nPort\n\n1\u201365535; empty = unset.\n\nSecurity\n(not configured)\nSTARTTLS\nSSL/TLS\nNone\n\nEmpty = SMTP not configured.\n\nFrom address\nUsername\nVerify the SMTP server's TLS certificate\n\nDisabling verification lets an impersonated SMTP server intercept mail credentials and content.\n\nSave SMTP settings\n\nSMTP password: provided only via the worker secret file smtp_password; not settable or visible here.\n\nSend test email\n\nNo test e-mail has been sent yet.",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-alerts",
+    "url": "/settings?tab=alerts",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 104941,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Alerts settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nAlerts\n\nNo unsaved changes in this tab.\n\nAlert thresholds (days before expiry)\n\n1\u201310 distinct whole numbers, 0\u2013365, comma separated.\n\nRecipients\n\nOne email address per line (at most 50).\n\nSend the daily digest\nRun the daily expiry check\nSave Alerts settings\nRecent delivery failures\nKind\tCertificate\tRecipients\tAttempts\tLast attempt\tError\ndigest\t\u2014\tnone\tattempt 1 of 3; no further attempts\t2026-11-03 08:30 CET\tno_recipients: no recipients\nexpiry (30 days)\tCertificate #3\tportal@example.test\tattempt 1 of 3; no further attempts\t2026-11-03 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\nexpiry (7 days)\tCertificate #2\tpayments@example.test\tattempt 1 of 3; no further attempts\t2026-11-03 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\nexpiry (0 days)\tCertificate #4\tinfra@example.test\tattempt 1 of 3; no further attempts\t2026-11-03 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\ndigest\t\u2014\tnone\tattempt 1 of 3; no further attempts\t2026-11-02 08:30 CET\tno_recipients: no recipients\nexpiry (30 days)\tCertificate #3\tportal@example.test\tattempt 1 of 3; no further attempts\t2026-11-02 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\nexpiry (7 days)\tCertificate #2\tpayments@example.test\tattempt 1 of 3; no further attempts\t2026-11-02 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\nexpiry (0 days)\tCertificate #4\tinfra@example.test\tattempt 1 of 3; no further attempts\t2026-11-02 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\ndigest\t\u2014\tnone\tattempt 1 of 3; no further attempts\t2026-11-01 08:30 CET\tno_recipients: no recipients\nexpiry (30 days)\tCertificate #3\tportal@example.test\tattempt 1 of 3; no further attempts\t2026-11-01 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\nexpiry (7 days)\tCertificate #2\tpayments@example.test\tattempt 1 of 3; no further attempts\t2026-11-01 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\nexpiry (0 days)\tCertificate #4\tinfra@example.test\tattempt 1 of 3; no further attempts\t2026-11-01 08:00 CET\tsmtp_not_configured: smtp.host, smtp.from or smtp.security is not set\ndigest\t\u2014\tnone\tattempt 1 of 3; no further attempts\t2026-10-31 08:30 CET\tno_recipients: no recipients\ndigest\t\u2014\tnone\tattempt 1 of 3; no further attempts\t2026-10-30 14:18 CET\tno_recipients: no recipients",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-inventory",
+    "url": "/settings?tab=inventory",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 113160,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Inventory settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nInventory\n\nNo unsaved changes in this tab.\n\nRepository URL\n\nhttps://host/path, ssh://[user@]host/path or user@host:path. No passwords or tokens.\n\nRef (branch, tag or commit)\n\nEmpty = the remote default.\n\nPath inside the repository\n\nRelative, no '..'; empty = the root.\n\nWeb server variable name\nSave Inventory settings\n\nCurrent revision: unknown (no discovery, deploy or test pull has succeeded yet).\n\nTest pull No inventory repository is configured: set the repository URL first.\n\nTest pull fetches the repository and lists the hosts and groups on the worker; it does not connect to any server.\n\nNo test pull has run yet.",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-deployment",
+    "url": "/settings?tab=deployment",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 110593,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Deployment settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nDeployment\n\nNo unsaved changes in this tab.\n\nBatch size (%)\n\n1\u2013100.\n\nConcurrency\n\n1\u201350 hosts at a time.\n\nPause after the canary host\n\nIf disabled, a successful canary proceeds without waiting for operator approval.\n\nPause timeout (hours)\n\n1\u2013168.\n\nTarget backup retention (days)\n\n0\u20133650. 0 keeps backups on the targets forever.\n\nPer-host timeout (seconds)\n\n60\u20137200.\n\nSave Deployment settings",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-schedule",
+    "url": "/settings?tab=schedule",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 110560,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Schedule settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nSchedule and scans\n\nNo unsaved changes in this tab.\n\nRelated settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.\n\nSchedule\nNightly discovery\n\nUTC, HH:MM (00:00\u201323:59)\n\nRun nightly discovery\nExpiry check\n\nUTC, HH:MM (00:00\u201323:59)\n\nDaily digest\n\nUTC, HH:MM (00:00\u201323:59)\n\nRetention cleanup\n\nUTC, HH:MM (00:00\u201323:59)\n\nRun the retention cleanup\n\nIf disabled, old jobs, sessions and artifacts are not pruned by the scheduled cleanup.\n\nSave Schedule settings\nScanning\nConnection timeout (seconds)\n\n1\u201360.\n\nDaily scan time\n\nUTC, HH:MM (00:00\u201323:59)\n\nRun the daily scan\nSave Scanning settings",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-trust",
+    "url": "/settings?tab=trust",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 120396,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave and recheck\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nTrust anchors\n\nNo unsaved changes in this tab.\n\nPublic bundle: certifi 2026.10.19, 120 roots, include-public-bundle = true\n\nThe public roots are read-only, in-memory entries of the pinned certifi bundle; they are never listed or stored as rows.\n\nTrust the public CA bundle\n\nDisabling this removes public CA roots from chain verification. Certificates relying on those roots may become untrusted.\n\nSaving rechecks the stored chain statuses immediately.\n\nSave and recheck\nUploaded trust anchors\n\nAlso runs daily with the scan. Chain statuses are rechecked against the current time in the background.\n\nRecheck now\nSubject\tSHA-256 fingerprint\tSource\tNotes\tAdded\tAdded by\tRemove\nCN=Example Platform Root CA,C=IT,O=Example Platform\t164e4aa31f32e3714a86e375c2bda97aab8078415a44e6433fe72b8ab8f0dfe5\tuploaded\tExample Platform Root CA (demo data)\t2026-10-31 11:16 CET\tadmin\t\nType DELETE to confirm\n\nRemoves this root and rechecks stored chains. Certificates that depend on it may become untrusted.\n\nDelete\nAdd an internal root\n\nTrust-anchor upload fields are not kept as drafts. Add the anchor before leaving this page; file selections, pasted PEM and notes are lost on navigation.\n\nPEM file\nor paste one PEM certificate\n\nOne self-signed CA root (CA:TRUE, certificate-signing key usage), at most 1,048,576 bytes. Saving rechecks the stored chain statuses immediately.\n\nNotes\nAdd trust anchor",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-status",
+    "url": "/settings?tab=status",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 113076,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nRefresh status\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nStatus\n\nNo unsaved changes in this tab.\n\nWarnings\nSMTP is not configured: alert and digest e-mails cannot be sent.\nRecent alert or digest mail could not be delivered.\nNo inventory repository is configured: discovery cannot run.\nWorker\nState: ok\nLast heartbeat: 2026-11-03 23:59 CET\nHeartbeat every 30 seconds; stale after 5 minutes\nLive workers: 1\nQueue\nQueued 0\nRunning 0\nPaused 0\nFailed in the last 24 hours 6\nSMTP delivery\n14 consecutive delivery failures; last error: no_recipients: no recipients\nLast successful delivery: never\nLast test e-mail: none yet\n\nSend a test email from the SMTP tab to check the connection.\n\nKeyring\nActive version 1\nLoaded versions: 1\nFile SHA-256: 4f8cfec4121e200bda74258c992dfa73f99f3de63481eaf6a94731fe122a8633\nVersions referenced by stored keys but missing from the keyring: none\nRows not yet on the active version: 0\nDatabase\n\nDatabase size: 9.2 MiB\n\nLast runs\nSchedule\tLast run\ncleanup\t2026-11-03 05:00 CET\ndigest\t2026-11-03 08:30 CET\ndiscovery\t2026-11-03 04:00 CET\nexpiry_check\t2026-11-03 08:00 CET\nscan\t2026-11-03 03:00 CET\ntrust_recheck\t2026-11-03 03:00 CET\nJob type\tLast finished job\tFinished\ndiscover\tfailed\t2026-11-03 16:37 CET\nscan\tsucceeded\t2026-11-03 10:02 CET\nalert_expiry\tfailed\t2026-11-03 08:00 CET\ndigest\tsucceeded\t2026-11-03 08:30 CET\ncleanup\tsucceeded\t2026-11-03 05:00 CET",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-general",
+    "url": "/settings?tab=general",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 117770,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave General settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nSystem and maintenance\n\nNo unsaved changes in this tab.\n\nRelated settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.\n\nGeneral\nDisplay time zone\n\nAn IANA name such as Europe/Rome. Stored times stay UTC.\n\nJob retention (days)\n\n1\u20133650. Audit rows are never removed.\n\nSave General settings\nMaintenance\nMaster key rotation\n\nRotation is a command-line operation; this page never edits the keyring or rotates keys. Current state:\n\nActive version 1; loaded versions: 1\nRows not yet on the active version: 0\nVersions referenced by stored keys but missing from the keyring: none\n\nRun these on the dashboard host as root (full procedure: docs/operations.md, section 6). Take a database backup first.\n\nGenerate the next version into a new file in a temporary 0700 directory owned by the container user, merging the current keyring (live limit: two versions). The current master_key is mounted read-only at /secrets and the new file is written to /out; both paths exist only inside this one docker run:\nset -eu\ntmp=\"$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)\"\ninstall -d -m 0700 -o 10001 -g 10001 \"$tmp\"\ndocker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v \"$tmp\":/out cert-dashboard:local \\\n  python -m app.cli generate-master-key --version 2 --merge /secrets/master_key --output /out/master_key.v2.new\nsha256sum \"$tmp/master_key.v2.new\"\nThe command prints only sha256=<digest> path=<file>; the digest must equal the sha256sum output.\nKeep a copy of the old file in the backup location, install the verified file as the master_key secret and restart so new writes use it:\ninstall -m 0400 -o 10001 -g 10001 \"$tmp/master_key.v2.new\" /etc/cert-dashboard/secrets/master_key\nshred -u -- \"$tmp/master_key.v2.new\" && rmdir -- \"$tmp\"\ndocker compose up -d --force-recreate web worker\nRe-encrypt every key and TOTP seed (batched, idempotent, resumable):\ndocker compose run --rm web python -m app.cli rotate-master-key\nVerify a keyed certificate (metadata only is printed):\ndocker compose run --rm web python -m app.cli verify-key --certificate-id ID\n\nSecret files are read once at startup: replace the file, rerun scripts/install-secrets.sh and restart the service.\n\nPrune old jobs\n\nQueues the retention cleanup now: finished jobs older than the retention period, old scan results, expired sessions and old artifacts are removed. Audit rows are never removed.\n\nType PRUNE OLD JOBS to confirm\nQueue retention cleanup",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "settings-worker",
+    "url": "/settings?tab=worker",
+    "http_status": 200,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 124829,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nConfigure SSH key\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nWorker\n\nNo unsaved changes in this tab.\n\nCredentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.\n\nA database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. Credential audit history\n\nSSH private key\n\nConfigured\n\nThe key Ansible, git and ssh use: discovery and deploy stop working without it.\n\nSet by admin, 2026-11-03 16:37 CET. Source: encrypted database.\n\nKey type: Ed25519\n\nPublic SHA-256 fingerprint (DER SPKI): fef9e5c987ce911dcc02fa325859f096d5644b6ae6e24947836a215fbd73c691\n\nReplace key\nRemove key\nAnsible vault password\n\nNot configured\n\nPassword of the inventory's vaulted files, when the inventory uses Ansible Vault.\n\nReplace password\nInventory repository token\n\nNot configured\n\nHTTPS token, needed only when the inventory repository is private.\n\nReplace token",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "users-create-open",
+    "url": "/users",
+    "http_status": null,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 54562,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\nUsers\n\nWho can sign in, and with which second factor.\n\nCreate user\nCreate user\n\nCreate a local user with administrator access.\n\nUsername\nEmail\nDisplay name (optional)\nTemporary password (at least 12 characters)\nRepeat temporary password\nCreate user\n\nThe user must change this password at first sign-in. The password is never shown again.\n\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nUsername\tDisplay name\tEmail\tBackend\tActive\t2FA\tMust change password\tLast login\tLocked until\tActions\nadmin (you)\tadmin\tadmin@certlab.lan\tlocal\t\nYes\t\nOff\tNo\t2026-11-03 23:59 CET\t\u2014\t\nManage\nadmin\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "ssh-replace-open",
+    "url": "/settings?tab=worker",
+    "http_status": null,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 84448,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nConfigure SSH key\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nWorker\n\nNo unsaved changes in this tab.\n\nCredentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.\n\nA database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. Credential audit history\n\nSSH private key\n\nConfigured\n\nThe key Ansible, git and ssh use: discovery and deploy stop working without it.\n\nSet by admin, 2026-11-03 16:37 CET. Source: encrypted database.\n\nKey type: Ed25519\n\nPublic SHA-256 fingerprint (DER SPKI): fef9e5c987ce911dcc02fa325859f096d5644b6ae6e24947836a215fbd73c691\n\nReplace key\nPaste a new private key (PEM or OpenSSH)\nOr choose a private key file\n\nChoose a file or paste a key, not both. Unencrypted private key only; at most 16384 bytes. Pasted text is visible while entering it, but is never returned after submission.\n\nSave SSH key\nRemove key\nAnsible vault password\n\nNot configured\n\nPassword of the inventory's vaulted files, when the inventory uses Ansible Vault.\n\nReplace password\nInventory repository token\n\nNot configured\n\nHTTPS token, needed only when the inventory repository is private.\n\nReplace token",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "ssh-remove-confirm",
+    "url": "/settings?tab=worker",
+    "http_status": null,
+    "viewport": {
+      "width": 1440,
+      "height": 900
+    },
+    "bytes": 59314,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nConfigure SSH key\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nWorker\n\nNo unsaved changes in this tab.\n\nCredentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.\n\nA database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. Credential audit history\n\nSSH private key\n\nConfigured\n\nThe key Ansible, git and ssh use: discovery and deploy stop working without it.\n\nSet by admin, 2026-11-03 16:37 CET. Source: encrypted database.\n\nKey type: Ed25519\n\nPublic SHA-256 fingerprint (DER SPKI): fef9e5c987ce911dcc02fa325859f096d5644b6ae6e24947836a215fbd73c691\n\nReplace key\nPaste a new private key (PEM or OpenSSH)\nOr choose a private key file\n\nChoose a file or paste a key, not both. Unencrypted private key only; at most 16384 bytes. Pasted text is visible while entering it, but is never returned after submission.\n\nSave SSH key\nRemove key\n\nWithout a mounted fallback, discovery and deploy stop working until a key is set.\n\nThis removes the database value only. If the worker has a mounted secret, it will be used instead.\n\nType REMOVE to confirm\nRemove key\nCancel\nAnsible vault password\n\nNot configured\n\nPassword of the inventory's vaulted files, when the inventory uses Ansible Vault.\n\nReplace password\nInventory repository token\n\nNot configured\n\nHTTPS token, needed only when the inventory repository is private.\n\nReplace token",
+    "page_errors": [],
+    "document_width": 1440
+  },
+  {
+    "name": "overview-mobile",
+    "url": "/",
+    "http_status": 200,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 54812,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Overview\nadmin\nOverview\n\nTrack TLS certificates, reconcile endpoints and follow renewals and deployments.\n\nNeeds attention\nWork to review\tCount\tNext step\n\nExpired certificates\t1\tReview expired certificates\n\nCertificates expiring in < 7 days\t1\tPrepare renewals\n\nObserved certificate differs from stored certificate\t1\tReview mismatched endpoints\n\nRecorded results, not live probes. Other TLS findings are in Inventory and history below.\n\nIn flight\n0 renewals awaiting an issued certificate\n0 running scans\n0 deployments in progress\n\nAwaiting includes draft, CSR generated and submitted. Review all renewal stages.\n\nSystem\nStatus details\nWorker\nok\nLast discovery\nnever\nLast digest\nnever\nInventory revision\nno inventory revision recorded yet\nInventory and history \u00b7 all counters and recent work",
+    "page_errors": [],
+    "document_width": 390
+  },
+  {
+    "name": "certificates-mobile",
+    "url": "/certificates",
+    "http_status": 200,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 38479,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Certificates\nadmin\nCertificates\n\n6 certificates\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters\nCommon name\tIssuer\tExpires\tStatus\tBindings\tActions\nlegacy.example.test\tExample Internal Issuing CA\t2026-10-19 12:10 CEST\t\nExpired\t0\t\nActions\n\napi.example.test\tExample Internal Issuing CA\t2026-11-05 11:10 CET\t\n1 days\n\t0\t\nActions\n\nportal.example.test\tExample Internal Issuing CA\t2026-11-22 11:10 CET\t\n18 days\n\t0\t\nActions\n\nweb.example.test\tExample Internal Issuing CA\t2027-05-19 12:10 CEST\t\nValid\t0\t\nActions\n\nportal.example.test\tExample Platform Issuing CA\t2027-05-28 12:16 CEST\t\nValid\t0\t\nActions\n\n*.apps.example.test\tExample Internal Issuing CA\t2027-12-05 11:10 CET\t\nValid\t0\t\nActions\nPage 1 of 1",
+    "page_errors": [],
+    "document_width": 390
+  },
+  {
+    "name": "certificate-detail-mobile",
+    "url": "/certificates/1",
+    "http_status": 200,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 46728,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Certificates\nadmin\n\nAll certificates\n\nNo previous certificate\n\u2192\nweb.example.test\n\u2192\nNo later certificate\nweb.example.test\n\nValid\n196 days\nIncomplete chain\nInventory: active\n\nSubject alternative names\nweb.example.test\nwww.example.test\nSubject\nCN=web.example.test,C=IT,O=Example Internal\nIssuer\nExample Internal Issuing CA\nCN=Example Internal Issuing CA,C=IT,O=Example Internal\nSerial number\n5297a19e10d5c757b9cff4bcf95cdf8375b6ef06\nValid from\n2026-10-31 11:10 CET\nValid until\n2027-05-19 12:10 CEST\nSHA-256 fingerprint\n847a3124441115b8c0a48ae20ee50b1278d0c58655de3193655c1748a4cc5a5f\n\nSelect the full fingerprint to copy. The exact value is preserved.\n\nSource\nupload_pem\nOwner\nWeb frontend <web-ops@example.test>\nTeam\nPlatform\nNotes\nPublic frontend, replaced by the manual CA each year.\nAdded\n2026-10-31 11:11 CET\nLast changed\n2026-10-31 11:16 CET\nActions\nEdit details\nDownload certificate\nDownload chain\nDownload full chain\nExport PFX\nStart renewal\nDeploy\nScan now\n\nPublic downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployments and scans are audited too.\n\nDeployments\n\nno active binding is a deploy target for this certificate\n\nNo deploy has run for this certificate yet.\n\nValidation\n\nIncomplete chain\n\nStored chain status: \nincomplete \u00b7 intermediate chain stored\n\nRe-assessed just now against the enabled trust anchors: incomplete.\n\nThe issuer certificate is missing from the chain.\nMissing issuer: CN=Example Internal Root CA,C=IT,O=Example Internal\n\nThis does not block use of the certificate, but deployment requires a trusted chain. Review trust anchors in Settings, or import the missing chain below.\n\nLeaf certificate\nDownload certificate \u2014 stored public certificate\nIntermediate chain\nDownload stored chain\nTrust anchors\nReview enabled trust anchors\nPrivate key\nKey present\nyes\nType\nRSA 2048-bit\nPublic key SHA-256\n7355b8984f5384367c2d80edc91f3be21620028370f9fa53d7131b465874a1d4\nCreated\n2026-10-31 11:11 CET\nOrigin\nimported_pem\nMaster key version\n1\n\nThe key is stored encrypted and is never displayed.\n\nBindings\n\nNo bindings recorded for this certificate. Bindings appear once server discovery is available (a later plan).\n\nEndpoints\nEndpoint\tSNI\tExpected certificate\tObserved certificate\tLast scan\tActive\tActions\nmismatch.example.test:8443\t\u2014\tExpected web.example.test\n847a3124441115b8c0a48ae20ee50b1278d0c58655de3193655c1748a4cc5a5f\tObserved other.example.test \u00b7 issued by Example Internal Issuing CA \u00b7 expires 2027-10-31 11:10 CET\n023a920e78ed7aec2e6dcab2327875ae6f1c70a38e42b4b5e3b6ad12972b0629\nDiffers from the expected certificate\tmismatch 2026-11-03 10:02 CET\tyes\tHistory Scan now\n\nAdd endpoint\n\nHistory\nRenewals\n\nEvery renewal awaiting an issued certificate \u00b7 All renewals\n\nNo renewals recorded.\n\nRecent activity\nWhen\tWho\tAction\tDetail\n2026-10-31 11:16 CET\tsystem\tcertificate.chain_check\t\n2026-10-31 11:11 CET\tadmin\tcertificate.import\t\nEdit owner, team and notes\nOwner name\nOwner email\nTeam\nNotes\n\nNotes are shown to every administrator; do not store secrets here.\n\nSave details\nStatus\nChange the status of web.example.test (#1)\nImport chain\nReplace the stored chain for web.example.test (#1)",
+    "page_errors": [],
+    "document_width": 390
+  },
+  {
+    "name": "servers-empty-mobile",
+    "url": "/servers",
+    "http_status": 200,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 44062,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Infrastructure\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nServers\n\nFind hosts, stored bindings and discovery failures before checking live TLS drift.\n\nRun discovery\nMore actions\nSearch\nSearch\nFilters\n0 servers \u00b7 Last seen means the recorded discovery time, not a live reachability check.\nNo servers match these filters\n\nClear the filters. Servers appear once discovery has run: use \u201cDiscover all\u201d below.\n\nPage 1 of 1\nDiscovery\n\nRun across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.\n\nDiscover all Discover group\n\nDiscovery and deploy are unavailable: the worker has no known_hosts file",
+    "page_errors": [],
+    "document_width": 390
+  },
+  {
+    "name": "users-mobile",
+    "url": "/users",
+    "http_status": 200,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 45769,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nadmin\nUsers\n\nWho can sign in, and with which second factor.\n\nCreate user\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nUsername\tDisplay name\tEmail\tBackend\tActive\t2FA\tMust change password\tLast login\tLocked until\tActions\nadmin (you)\tadmin\tadmin@certlab.lan\tlocal\t\nYes\t\nOff\tNo\t2026-11-03 23:59 CET\t\u2014\t\nManage\nadmin\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.",
+    "page_errors": [],
+    "document_width": 390
+  },
+  {
+    "name": "settings-inventory-mobile",
+    "url": "/settings?tab=inventory",
+    "http_status": 200,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 69399,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Inventory settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nInventory\n\nNo unsaved changes in this tab.\n\nRepository URL\n\nhttps://host/path, ssh://[user@]host/path or user@host:path. No passwords or tokens.\n\nRef (branch, tag or commit)\n\nEmpty = the remote default.\n\nPath inside the repository\n\nRelative, no '..'; empty = the root.\n\nWeb server variable name\nSave Inventory settings\n\nCurrent revision: unknown (no discovery, deploy or test pull has succeeded yet).\n\nTest pull No inventory repository is configured: set the repository URL first.\n\nTest pull fetches the repository and lists the hosts and groups on the worker; it does not connect to any server.\n\nNo test pull has run yet.",
+    "page_errors": [],
+    "document_width": 390
+  },
+  {
+    "name": "settings-worker-mobile",
+    "url": "/settings?tab=worker",
+    "http_status": 200,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 69037,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nConfigure SSH key\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nWorker\n\nNo unsaved changes in this tab.\n\nCredentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.\n\nA database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. Credential audit history\n\nSSH private key\n\nConfigured\n\nThe key Ansible, git and ssh use: discovery and deploy stop working without it.\n\nSet by admin, 2026-11-03 16:37 CET. Source: encrypted database.\n\nKey type: Ed25519\n\nPublic SHA-256 fingerprint (DER SPKI): fef9e5c987ce911dcc02fa325859f096d5644b6ae6e24947836a215fbd73c691\n\nReplace key\nRemove key\nAnsible vault password\n\nNot configured\n\nPassword of the inventory's vaulted files, when the inventory uses Ansible Vault.\n\nReplace password\nInventory repository token\n\nNot configured\n\nHTTPS token, needed only when the inventory repository is private.\n\nReplace token",
+    "page_errors": [],
+    "document_width": 390
+  },
+  {
+    "name": "navigation-mobile-open",
+    "url": "/settings?tab=worker",
+    "http_status": null,
+    "viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "bytes": 41208,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nOverview\nCertificates\nCertificates\nImport\nRenewals\nInfrastructure\nServers\nBindings\nDiscovery\nOperations\nScans\nDeploy\nJobs\nAdministration\nUsers\nAudit\nSettings\nMy account\nadmin\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file Details\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nConfigure SSH key\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nWorker\nWorker\n\nNo unsaved changes in this tab.\n\nCredentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.\n\nA database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. Credential audit history\n\nSSH private key\n\nConfigured\n\nThe key Ansible, git and ssh use: discovery and deploy stop working without it.\n\nSet by admin, 2026-11-03 16:37 CET. Source: encrypted database.\n\nKey type: Ed25519\n\nPublic SHA-256 fingerprint (DER SPKI): fef9e5c987ce911dcc02fa325859f096d5644b6ae6e24947836a215fbd73c691\n\nReplace key\nRemove key\nAnsible vault password\n\nNot configured\n\nPassword of the inventory's vaulted files, when the inventory uses Ansible Vault.\n\nReplace password\nInventory repository token\n\nNot configured\n\nHTTPS token, needed only when the inventory repository is private.\n\nReplace token",
+    "page_errors": [],
+    "document_width": 390
+  }
+]

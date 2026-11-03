@@ -1,0 +1,594 @@
+[
+  {
+    "file": "account.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 63981,
+    "sha256": "ec333380bf2dfe9b056ce44063012b307df9166977813bd1d073755a89f88eee",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "administration.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 66619,
+    "sha256": "706bc22fd2d2b13550a85ce7c3318dc13dcff7a87dce00e316c1b0520f325f0c",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "audit.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 66912,
+    "sha256": "534ee3ec457eea0652a2fb06a9ba8c33302bff92044e4f4b7a8aac36e505449f",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "bindings-empty.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 89989,
+    "sha256": "3584c6fbb0bdd0bd17fe0809400e8c8efcf6420805c9c3ab36fa6dfc58665fda",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-detail-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 46728,
+    "sha256": "e017c10190e882395668892fd937a4ef6f8abb6745d96de303774b7af6ceb6c4",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-detail.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 98272,
+    "sha256": "16be424ffe00f8a3ecab9b3fe609e23a270b79b166f36a7d6abb5b44c7e92cae",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-edit.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 60419,
+    "sha256": "36cc03a41ffc2dafc5c2af3f49c50bf0a6417cf3006b8cb4abd2d91aad7c1b4d",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-filter-empty.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 62380,
+    "sha256": "e84ddbb7d40e4152ae5d61a0490527365efcc66759bd27ca63f6831c1d529f80",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-import.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 95211,
+    "sha256": "2f6b367eb4ef62e3d18b791b542490b2f11d1d0b20df7d8b6bd4cb9924c4457e",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-imported-expected.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 93040,
+    "sha256": "fc76e8c8d2d0f5d8f5a227cf5678df5cc25a848f7b90d093e1addec4222a6364",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-imported-expired.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 93723,
+    "sha256": "24cfcdbf8a8adb6a1891797ed3556c0fd0b6f77441ff9ddab54639b1d9ca1a32",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-imported-expiring.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 94861,
+    "sha256": "b79ecc62be75d9ff2427239e5e85e31c4dcc6df1ef25653e2c03612c4cfbd12a",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificate-metadata-edited.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 94582,
+    "sha256": "e074828adf5c6a94829948486eb9107b32718008e48e7de524fc937d8018f334",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificates-after-import.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 126931,
+    "sha256": "a164ffb771dad29560d0d1712b45fa8ff599f80ea667b5dfe05ecaa3556581d4",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificates-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 38479,
+    "sha256": "18982fad9907a216811eda681058eb702024bd50d27206854d8e2c79a6f752b2",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "certificates.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 99612,
+    "sha256": "d93ed916d774defa295a1d84c9e7619bad736737a17700a5ed71fa7c72477958",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "csrf-forbidden.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 42849,
+    "sha256": "472365c5b913fe94c52bbf99f1f46527bf9e30bad261cdfe97037eab351e7e43",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "csrf-htmx.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 65352,
+    "sha256": "e4b349d486c93d752db92d254f01ed19e1dc19fb28760279f1bcd200bac8fae3",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "deploy-jobs.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 90531,
+    "sha256": "6d589cb6b7d8705ab100d01f337643db83d1ad4e1e75aa580921508c878284c6",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "deploy.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 105074,
+    "sha256": "142c064af0e86fa564975ff6e7c9bff59a6e3bafc39031ea8718ea5217ee8683",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "endpoint-created.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 88014,
+    "sha256": "dbdc9a7f835debddf40c5d0c9dd7ae17d3c03c86eb5057eb1143dda3a6c2a778",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "endpoint-deactivated.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 105530,
+    "sha256": "520446bbfa9920b61c4fe95bfa8f4adda37cb45c5b63fbc4d03361247d9893a7",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "endpoint-expectation-edited.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 71656,
+    "sha256": "56423b5ca2e1323257d27cabe04622824e7c59824cde591a96c0672f8b2ff0a8",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "endpoint-mismatch.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 98040,
+    "sha256": "d0db4c0dc24b7adefef2a3b3071ddc35514a7a1938725b3c04421cf520fa0bbe",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "endpoint-native-deactivated.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 105530,
+    "sha256": "520446bbfa9920b61c4fe95bfa8f4adda37cb45c5b63fbc4d03361247d9893a7",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "endpoint-scan-queued.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 91749,
+    "sha256": "63b0e22ff8bfdce43ac9caf04c38a9772574490ebf61b6607b6f4bf17f714d00",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "github-repository-saved.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 81993,
+    "sha256": "2c989d029e8269a8357623a2b986732110b145da15ad1272680ecba823535e72",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "github-test-pull-queued.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 117194,
+    "sha256": "bf533570f7aafa1682a2daf2ee56f7de91c190473de25e726dc911b11cd83214",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "github-test-pull-result.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 74740,
+    "sha256": "bd2096f05284649a8027fffa873bd001095e06c8fad677ad8b3a01a72739dd71",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "inventory-scanned-empty.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 75280,
+    "sha256": "24443968ad70e52d47f7ce78f1e12e943acadf238c2489ba54c19da95f6e0f22",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "login-deactivated-user.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 35750,
+    "sha256": "53d1bf16338b9cbe604eac5cea9c2983e8e013c8549588f92e8c267c03864685",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "login.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 30778,
+    "sha256": "7220cffcbf96e5bf3f2849ea48825c8f7cb094b5c4a6a26da4c81bae7a55fef2",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "navigation-mobile-open.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 41208,
+    "sha256": "40c94e695bf55e17c7887e2e7a0d1b150e75cf705d34808f0241aad29ecb8db7",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "not-found.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 32005,
+    "sha256": "ddf7b382998796d6df61ff57c8af6c5d170518ab3c70e23a7c130506fc90e6af",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "overview-after-import.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 93323,
+    "sha256": "0f4a63c26f471c7bd80e88ad07036415d017655b0a8e793b0a12f4ab69be4182",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "overview-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 54812,
+    "sha256": "e97b5920d275ffece7ef9cbf103f213b31b8d8c4c0d0eebd1867ba27724c7fd8",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "overview.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 93087,
+    "sha256": "38a9dffbe0e50dbc114df71e8317b2f3d541f1730caab8627551675988a235f7",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "renewal-new.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 60116,
+    "sha256": "3b63f562aa42f8971b5afe9d07cad163ab0c2616e14896b0c807a6c786655634",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "renewals-empty.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 67992,
+    "sha256": "41246abc4fc7a1c7dabc9b84e6b331fd3e9606764397c8d75a1f5a530b168c34",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "scan-detail.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 95002,
+    "sha256": "045e15bd217ad1c0d5a95b9adf12f7b095549e0227658ed9fc22251230f405b3",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "scan-no-javascript.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 102529,
+    "sha256": "6142c6a0cb49ccf3bd0a35611d312c31762f5b28f8c86749b5d486320834450c",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "scans.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 82123,
+    "sha256": "c42180bcac5d30ef00c7d2157486c42c201cca33c157cf8f304ddb512690b099",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "servers-empty-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 44062,
+    "sha256": "8fc5b3596a680418bc35b364a22f7704245eb95462c8eb2553f3fadb369cc6f4",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "servers-empty.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 78300,
+    "sha256": "e380a904cc67e86078cf2f80077958b7332623787e2a16659db7da8e9e3128c4",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-alerts.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 104941,
+    "sha256": "9417fcb664bebc6b1382e9b7b2c93a29ff8412bf68abd5aec3e0ad1bb6fe5797",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-deployment.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 110593,
+    "sha256": "8e28f60636289ed3d8b3ae35f7de1b441e925c675527edd65d7d9b39c9d544d3",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-general.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 117770,
+    "sha256": "e82169c6ceb4460c1cfa04f5b80c082448d8b64564d0a6cb4c88d331688362b4",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-inventory-fields-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 55688,
+    "sha256": "a3d64f27ff9406d74199d410132eec8c9a536417d6763442da528e09dc01bc31",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-inventory-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 69399,
+    "sha256": "8c6e7d091537b45a82e1b93c6ac0f1077c419cb87f73e6f815cafb87029a37e5",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-inventory.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 113160,
+    "sha256": "66ee9fefb626c80c11f456e77462359dbd2aa93679449b9f824b8f6fa18effa1",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-schedule.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 110560,
+    "sha256": "3608ca5f6a4dfe86bfd4612368826c3430efe9642e3cef296d280a2671b3e16e",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-smtp.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 109126,
+    "sha256": "29bf3a6547fd2f3529788c0a131a3d0a4d97d6871d1a313b680b605f9a920dd9",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-status-details.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 110571,
+    "sha256": "5ac69e10b66a9a2015f654e2f594d6803529e6eeb4279df2a2bcd6f3a7ae7dec",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-status.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 113076,
+    "sha256": "e705570b0be13fd46d39aabcddc67324833490641eba92607bd1dda16a89dd9e",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-trust.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 120396,
+    "sha256": "8a6312bcec8fda42df3131bcc500835aad86c9386879942261feaede625b4332",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-worker-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 69037,
+    "sha256": "6a10ec95e1d36fb69aebadd26b854d1afb58c68094c53252c0c24c8edad5ed9d",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "settings-worker.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 124829,
+    "sha256": "d231811bf9ce841396d2aca9ea780d7162af13c0df1699907ae69e9cf01f1de1",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "ssh-controls.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 76547,
+    "sha256": "a63c57335c2a51b37a4e8ae563ecc43539a2296c4b2a48c4ef015c9f4d351b5c",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "ssh-remove-confirm.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 59314,
+    "sha256": "ba3c07d144b3eef8156527a5b4eb175213e71258aec01ed3c4f1f8cd04c374a1",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "ssh-replace-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 52695,
+    "sha256": "493bb1de7fafc2261a42a294c51a77a5f37acf26f45993723fee31ba3e45d78f",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "ssh-replace-open.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 84448,
+    "sha256": "9715206c9f3c5995e116c6ced1417c1dbfd9ded3e172517a8eceaf6a3d23adc4",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "ssh-validation-error.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 127628,
+    "sha256": "fc783c7a774b3d19fe59c6a7571347cdd1ace304fa0347401e17a7c4f0c1617e",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "user-forced-password-change.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 70164,
+    "sha256": "efe8a682ed4debef6e66a5ac1210937de62f606764f438c6d0c7082995e36733",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-create-open.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 54562,
+    "sha256": "96456f3c8ad907ddf10308ae3f356bd8817f86f29ab4ceef73c0ae7eccd8fbec",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-created.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 94595,
+    "sha256": "8b549414c7559569bb47eb6c6c3c5f93ff83a18194cbc5e7c7c1f57a470f86fa",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-deactivate-confirm.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 74035,
+    "sha256": "7747caad79811f216aa5889bee0fe5db162f24479982572b90da7f8dc5450b74",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-deactivated.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 92801,
+    "sha256": "88633cc703eecded7723c40c179757670fa2c7f3f6539a73efe6fa3c357f99d4",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-edited.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 88857,
+    "sha256": "8eca06566aa918a23a8f8fcbf9fd3eb122cf41c9f9e715761f0a1050cf3f91ec",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-manage-live.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 88219,
+    "sha256": "58b3b904c94110e6a69a374a4a29362e6d03b0bda59ab1c5edcc762f046485fc",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-manage-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 38238,
+    "sha256": "ef2827ab0591d8e82474640b8cb7a969c1c55c0f93d74193df90f8103cfbd9ba",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-mobile.png",
+    "width": 390,
+    "height": 844,
+    "bytes": 45769,
+    "sha256": "f3f63e88b5a6a5a3d16e6973d02321fd1169f6d111c59133bde84ec469281b3c",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-reset-confirm.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 86466,
+    "sha256": "5406efb0ce0e2429f572795173343f41605d86bf48cff6a50580714cc63ac43a",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users-reset-done.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 94783,
+    "sha256": "02b098429aac6bb14d9394433e88a1ee265413e93c42eee592b961cec50362b9",
+    "evidence": "live Chromium viewport capture"
+  },
+  {
+    "file": "users.png",
+    "width": 1440,
+    "height": 900,
+    "bytes": 73503,
+    "sha256": "e4fd02c21dcece75ffd307d772e09b4b57688c97c6cbdbce262a8d53180992ef",
+    "evidence": "live Chromium viewport capture"
+  }
+]

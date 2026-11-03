@@ -1,0 +1,42 @@
+[
+  {
+    "step": "Create local user",
+    "result": "Persisted row after POST and reload; all users are administrators"
+  },
+  {
+    "step": "Edit local user",
+    "result": "Edited name/email visible after native POST"
+  },
+  {
+    "step": "Reset password",
+    "result": "UI response: Password reset. The user is signed out and must choose a new password at next sign-in."
+  },
+  {
+    "step": "Disposable-user login",
+    "result": "Redirected to /account"
+  },
+  {
+    "step": "Deactivate user",
+    "result": "UI response: User deactivated and signed out."
+  },
+  {
+    "step": "Deactivated sign-in",
+    "result": "Refused, login error shown"
+  },
+  {
+    "step": "Import expected",
+    "result": "Result /certificates/7"
+  },
+  {
+    "step": "Import expiring",
+    "result": "Result /certificates/8"
+  },
+  {
+    "step": "Import expired",
+    "result": "Result /certificates/9"
+  },
+  {
+    "step": "Add endpoint",
+    "result": "Result /scans/2"
+  }
+]
