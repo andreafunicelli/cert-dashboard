@@ -18,7 +18,7 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / "app/static/branding"
-OUTPUT = ROOT / "docs/ui/previews/branding.html"
+OUTPUT = ROOT / "docs/ui/branding/branding.html"
 # One 24-unit drawing shared by all variants; seal intentionally has no checkmark.
 LINES = (
     "12,22 4,22 4,2 14,2 20,8 20,12",

@@ -34,7 +34,9 @@ contain these literal colors. Do not add parallel application tokens. The contac
 sheet's fixed light/dark swatches are documentation fixtures, not new UI colors.
 
 Rebuild with `uv run python scripts/render_branding.py`. This generates all assets
-and `docs/ui/previews/branding.html` from its Jinja fixture. The PNG is rasterized
+and `docs/ui/branding/branding.html` from its Jinja fixture. This separate contact-sheet
+directory keeps `docs/ui/previews/` exclusive to `scripts/render_previews.py`.
+The PNG is rasterized
 from the exact authored favicon segments, with 4× supersampling, using the Python
 standard library only. Its source is embedded in a PNG text chunk. No image package,
 browser or build step is added to the app. The offline rasterizer only understands

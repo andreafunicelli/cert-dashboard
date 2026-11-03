@@ -6,17 +6,21 @@ from html.parser import HTMLParser
 from xml.etree import ElementTree as ET
 
 from scripts.render_branding import ASSETS, OUTPUT, png_from_mark, render
+from scripts.render_previews import OUTPUT as PAGE_PREVIEWS
 
 
 class Images(HTMLParser):
     def __init__(self, html):
         super().__init__()
         self.images = []
+        self.stylesheets = []
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
         if tag == 'img':
             self.images.append(dict(attrs))
+        if tag == 'link' and dict(attrs).get('rel') == 'stylesheet':
+            self.stylesheets.append(dict(attrs)['href'])
 
 
 def test_original_assets_and_regeneration_are_deterministic(tmp_path):
@@ -75,10 +79,14 @@ def test_png_is_32px_rgba_crc_valid_and_matches_svg_source():
 
 
 def test_contact_sheet_sizes_relative_assets_and_no_active_ui():
+    assert OUTPUT.parent != PAGE_PREVIEWS
     html = OUTPUT.read_text()
     assert 'style="' not in html and '<script' not in html
     assert '<form' not in html and '<button' not in html
-    images = Images(html).images
+    parsed = Images(html)
+    assert len(parsed.stylesheets) == 2
+    assert all((OUTPUT.parent / href).resolve().is_file() for href in parsed.stylesheets)
+    images = parsed.images
     assert len(images) == 12
     for image in images:
         path = (OUTPUT.parent / image['src']).resolve()

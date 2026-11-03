@@ -1,5 +1,10 @@
 # Branding proof provenance
 
+The contact sheet, stylesheet and captures live together in `docs/ui/branding/`.
+They were moved from `docs/ui/previews/` without changing their bytes; relative
+asset paths retain the same directory depth. Existing captures remain applicable
+to the unchanged contact sheet. The page-preview renderer owns `docs/ui/previews/`.
+
 - `branding-proof-desktop.png`: actual Chromium screenshot of the committed static
   contact sheet, 1280 × 1440 CSS pixels, device scale factor 1.
 - `branding-proof-mobile.png`: same fixture, 390 × 1440, device scale factor 1.
