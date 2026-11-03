@@ -1,0 +1,1276 @@
+[
+  {
+    "preview": "account-directory.html",
+    "screenshot": "account-directory-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nAccount\n\nSigned in as operator.\n\nManage your password, sign-in protection and current session.\n\nChange password\n\nYour password is managed by your directory.\n\nTwo-factor authentication\n\nTwo-factor authentication is not enabled.\n\nPassword-only sign-in\n\nCurrent password\nSet up two-factor authentication\nCurrent session\n\nSign out of this browser only. Other sessions stay signed in.\n\nSign out",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "account-enrollment.html",
+    "screenshot": "account-enrollment-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nAccount\n\nSigned in as operator.\n\nManage your password, sign-in protection and current session.\n\nChange password\nCurrent password\nNew password (at least 12 characters)\nRepeat new password\nChange password\n\nChanging your password signs out every other session.\n\nTwo-factor authentication\n\nSave this now. It is shown once and cannot be displayed again.\n\nAdd the account to your authenticator app using this key (SHA-1, 6 digits, 30 seconds):\n\nPREVIEW-KEY-NOT-A-REAL-SECRET\n\nOr open this provisioning link: otpauth://totp/preview-only\n\nRecovery codes (each works once):\n\nPREVIEW-ONLY-CODE-0001\nPREVIEW-ONLY-CODE-0002\n\nEnrollment is pending: enter a code from your authenticator app to finish.\n\nConfirming enables two-factor authentication and signs out every other session.\n\n6-digit code\nConfirm and enable\n\nLost the key or codes? Start again below; the pending enrollment is replaced.\n\nRestart enrollment\nCurrent session\n\nSign out of this browser only. Other sessions stay signed in.\n\nSign out",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "account-error.html",
+    "screenshot": "account-error-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nAccount\n\nSigned in as operator.\n\nManage your password, sign-in protection and current session.\n\nChange password\nCurrent password\nNew password (at least 12 characters)\nRepeat new password\nChange password\n\nChanging your password signs out every other session.\n\nTwo-factor authentication\n\nTwo-factor authentication is enabled. Recovery codes remaining: 8.\n\nProtected by two-factor authentication\n\nEach recovery code works once. Keep the codes in a secure place separate from your password.\n\nCurrent password is incorrect.\n\nDisable two-factor authentication\n\nThis removes your authenticator and recovery codes. Future sign-ins will require only your password. Every other session will be signed out.\n\nCurrent password\nDisable two-factor authentication\nCancel\nCurrent session\n\nSign out of this browser only. Other sessions stay signed in.\n\nSign out",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "account-required.html",
+    "screenshot": "account-required-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nAccount\n\nSigned in as operator.\n\nManage your password, sign-in protection and current session.\n\nYou must change your password before you can use the rest of the application.\n\nChange password\n\nNew passwords do not match.\n\nCurrent password\nNew password (at least 12 characters)\nRepeat new password\nChange password\n\nChanging your password signs out every other session.\n\nCurrent session\n\nSign out of this browser only. Other sessions stay signed in.\n\nSign out",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "account.html",
+    "screenshot": "account-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nAccount\n\nSigned in as operator.\n\nManage your password, sign-in protection and current session.\n\nChange password\nCurrent password\nNew password (at least 12 characters)\nRepeat new password\nChange password\n\nChanging your password signs out every other session.\n\nTwo-factor authentication\n\nTwo-factor authentication is enabled. Recovery codes remaining: 8.\n\nProtected by two-factor authentication\n\nEach recovery code works once. Keep the codes in a secure place separate from your password.\n\nDisable two-factor authentication\nCurrent session\n\nSign out of this browser only. Other sessions stay signed in.\n\nSign out",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "audit-empty.html",
+    "screenshot": "audit-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nAudit log\n\nRead append-only history, newest first; this view only reads recorded events.\n\nExport list as JSON\nFilters\n\n0 events \u00b7 Export includes metadata only, newest 5,000.\n\nNo audit events match these filters\n\nTry a wider date range or a different actor. Events appear here as operations are recorded.\n\nClear the filters\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "audit.html",
+    "screenshot": "audit-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nAudit log\n\nRead append-only history, newest first; this view only reads recorded events.\n\nExport list as JSON\nFilters\n\n2 events \u00b7 Export includes metadata only, newest 5,000.\n\nTime\tActor\tAction\tTarget\tIP\n2026-10-19 12:00 UTC\t\noperator\n\t\ncertificate.import\n\t\ncertificate\n42\n\t\n2001:db8::1\n\n\nShow event\n\n2026-10-19 12:00 UTC\t\nworker:edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-edge-\n\t\njob.failed\n\t\ncertificate\n42\n\t\n2001:db8::1\n\n\nShow event\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "binding-drift.html",
+    "screenshot": "binding-drift-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\nBindings\n\nFollow each certificate to its host, configured files, port and SNI names.\n\nRun discovery\nMore actions\n\nDesired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nVirtual host\nSearch\nFilters\n1 binding \u00b7 Stored discovery evidence, not live TLS checks.\nRelationship \u00b7 Server / Virtual host\tObserved on disk\tInventory / expectation\tMatch / Last seen\ngateway.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: gateway.ops.example.test, api.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.\n\nExpected: a private key belonging to this certificate.\n\n\t\nDrift\n\nkey_mismatch \u2014 the key does not belong to this certificate.\n\nLast seen 2026-10-30 12:00 UTC\n\nConfigured key differs from certificate.\n\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "binding-empty.html",
+    "screenshot": "binding-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\nBindings\n\nFollow each certificate to its host, configured files, port and SNI names.\n\nRun discovery\nMore actions\n\nDesired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nVirtual host\nSearch\nFilters\n0 bindings \u00b7 Stored discovery evidence, not live TLS checks.\nNo bindings match these filters\n\nClear the filters or check discovery on the server. An empty filtered list does not mean discovery found no changes.\n\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "binding-help.html",
+    "screenshot": "binding-help-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 All bindings\n\nBinding match states\n\nUnderstand disk evidence, inventory matches and the actions a finding needs.\n\nReview bindings\nMore actions\n\nA binding is one certificate/key pair that a virtual host is configured to use on a server. Discovery compares what is on disk with the certificate inventory and records a match state. The dashboard only reports these states: it does not fix them, because correcting a server's files is your decision.\n\nThese are stored observations, not desired-deployment or live TLS verdicts. A matched certificate need not be the certificate you intend to deploy. Stale means the latest discovery did not succeed, not that this certificate changed.\n\nmatched\nThe certificate file on disk is a certificate in the inventory and the key at the configured path belongs to it.\nunknown\nThe certificate file on disk is not in the inventory. Import it to track it.\n Drift: key_mismatch\n\nThe private key at the configured path does not belong to the certificate at the configured path. The web server would fail to start or reload with this pair.\n\nThe dashboard does not fix this. Check the virtual host's ssl_certificate_key (nginx) or SSLCertificateKeyFile (Apache) setting and the files on the server, put the right key in place, then run discovery again.\n\nWhile a binding is in this state, the dashboard blocks deploys of that virtual host so a new certificate is never written next to a key that does not match.\n\n File failure: missing_file\n\nThe certificate file named in the configuration is missing or could not be read when the server was last discovered.\n\nThe dashboard does not fix this. Check the path in the configuration and the file's owner and mode on the server, restore the file or correct the path, then run discovery again.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "binding-list.html",
+    "screenshot": "binding-list-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\nBindings\n\nFollow each certificate to its host, configured files, port and SNI names.\n\nRun discovery\nMore actions\n\nDesired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nVirtual host\nSearch\nFilters\n4 bindings \u00b7 Stored discovery evidence, not live TLS checks.\nRelationship \u00b7 Server / Virtual host\tObserved on disk\tInventory / expectation\tMatch / Last seen\ngateway.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: gateway.ops.example.test, api.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.\n\nExpected: a private key belonging to this certificate.\n\n\t\nDrift\n\nkey_mismatch \u2014 the key does not belong to this certificate.\n\nLast seen 2026-10-30 12:00 UTC\n\nConfigured key differs from certificate.\n\n\nmatched.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: matched.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the on-disk certificate is in inventory and the configured key belongs to it.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nInventory match\n\nLast seen 2026-10-30 12:00 UTC\n\n\nmissing_file.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: missing_file.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the certificate file is missing or unreadable.\n\nExpected: a readable certificate at the configured path.\n\n\t\nFile failure\n\nmissing_file \u2014 the configured certificate cannot be read.\n\nLast seen 2026-10-30 12:00 UTC\n\n\nunknown.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: unknown.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\t\n\nNo inventory match recorded.\n\nObserved: the on-disk certificate is not in the inventory.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nUnknown certificate\n\nLast seen 2026-10-30 12:00 UTC\n\nstale since 2026-10-30 12:00 UTC \u2014 the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.\n\n<script>fixture escaping check</script>\n\nImport as certificate\n\nPage 1 of 1",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "bootstrap.html",
+    "screenshot": "bootstrap-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nNo administrator exists yet\n\nThe web interface never creates the first administrator. An operator must run this command on the host:\n\ndocker compose run --rm web python -m app.cli bootstrap-admin --username admin --email admin@example.internal\n\nThe command prompts for the password twice (minimum 12 characters). Reload this page afterwards to sign in.",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-detail.html",
+    "screenshot": "certificate-detail-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\n\nAll certificates\n\nNo previous certificate\n\u2192\ngateway.ops.example.test\n\u2192\nNo later certificate\ngateway.ops.example.test\n\nExpiring\n20 days\nIncomplete chain\nInventory: active\n\nSubject alternative names\nDNS:gateway-0.ops.example.test\nDNS:gateway-1.ops.example.test\nDNS:gateway-2.ops.example.test\nDNS:gateway-3.ops.example.test\nDNS:gateway-4.ops.example.test\nDNS:gateway-5.ops.example.test\nDNS:gateway-6.ops.example.test\nDNS:gateway-7.ops.example.test\nDNS:gateway-8.ops.example.test\nDNS:gateway-9.ops.example.test\nDNS:gateway-10.ops.example.test\nDNS:gateway-11.ops.example.test\nDNS:gateway-12.ops.example.test\nDNS:gateway-13.ops.example.test\nDNS:gateway-14.ops.example.test\nDNS:gateway-15.ops.example.test\nDNS:gateway-16.ops.example.test\nDNS:gateway-17.ops.example.test\nDNS:gateway-18.ops.example.test\nDNS:gateway-19.ops.example.test\nDNS:gateway-20.ops.example.test\nDNS:gateway-21.ops.example.test\nDNS:gateway-22.ops.example.test\nDNS:gateway-23.ops.example.test\nDNS:gateway-24.ops.example.test\nDNS:gateway-25.ops.example.test\nDNS:gateway-26.ops.example.test\nDNS:gateway-27.ops.example.test\nDNS:gateway-28.ops.example.test\nDNS:gateway-29.ops.example.test\nDNS:gateway-30.ops.example.test\nDNS:gateway-31.ops.example.test\nDNS:gateway-32.ops.example.test\nDNS:gateway-33.ops.example.test\nDNS:gateway-34.ops.example.test\nDNS:gateway-35.ops.example.test\nDNS:gateway-36.ops.example.test\nDNS:gateway-37.ops.example.test\nDNS:gateway-38.ops.example.test\nDNS:gateway-39.ops.example.test\nSubject\nCN=gateway.ops.example.test,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,\nIssuer\nOperations Intermediate CA\nCN=Operations Intermediate CA,O=Example Operations\nSerial number\n1234567890abcdef1234567890abcdef\nValid from\n2026-01-03 12:00 UTC\nValid until\n2026-11-19 12:00 UTC\nSHA-256 fingerprint\n0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n\nSelect the full fingerprint to copy. The exact value is preserved.\n\nSource\nupload\nOwner\nOperations team <ops@example.test>\nTeam\nInfrastructure\nNotes\nFixture only. Review chain before deployment.\nAdded\n2026-01-03 12:00 UTC\nLast changed\n2026-10-30 12:00 UTC\nActions\nEdit details\nDownload certificate\nDownload chain\nDownload full chain\nExport PFX\nStart renewal\nDeploy\nScan now\n\nPublic downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployments and scans are audited too.\n\nDeployments\n\nA trusted chain is required.\n\nNo deploy has run for this certificate yet.\n\nValidation\n\nIncomplete chain\n\nStored chain status: \nincomplete \u00b7 no intermediate chain stored\n\nRe-assessed just now against the enabled trust anchors: incomplete.\n\nThe issuer certificate is missing from the chain.\n\nThis does not block use of the certificate, but deployment requires a trusted chain. Review trust anchors in Settings, or import the missing chain below.\n\nLeaf certificate\nDownload certificate \u2014 stored public certificate\nIntermediate chain\nNo intermediate chain stored. Import missing intermediates.\nTrust anchors\nReview enabled trust anchors\nPrivate key\nKey present\nyes\nType\nRSA 2048-bit\nPublic key SHA-256\nabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\nCreated\n2026-10-30 12:00 UTC\nOrigin\ngenerated\nMaster key version\n1\n\nThe key is stored encrypted and is never displayed.\n\nBindings\n\nNo bindings recorded for this certificate. Bindings appear once server discovery is available (a later plan).\n\nEndpoints\n\nNo endpoints expect this certificate yet. Add one to watch where this certificate is served.\n\nAdd endpoint\n\nHistory\nRenewals\n\nEvery renewal awaiting an issued certificate \u00b7 All renewals\n\nNo renewals recorded.\n\nRecent activity\n\nNo activity recorded.\n\nEdit owner, team and notes\nOwner name\nOwner email\nTeam\nNotes\n\nNotes are shown to every administrator; do not store secrets here.\n\nSave details\nStatus\nChange the status of gateway.ops.example.test (#42)\nImport chain\nReplace the stored chain for gateway.ops.example.test (#42)",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-edit.html",
+    "screenshot": "certificate-edit-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nEdit gateway.ops.example.test\n\nBack to certificate\n\nEdit owner, team and notes\nOwner name\nOwner email\nTeam\nNotes\n\nNotes are shown to every administrator; do not store secrets here.\n\nSave details",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-export.html",
+    "screenshot": "certificate-export-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nExport gateway.ops.example.test as PFX\n\nBack to certificate\n\nThe PFX contains the private key, the certificate and its stored intermediate chain. It is built in memory, encrypted with the password you choose below, and sent once; nothing is written to disk. The export is recorded in the audit log (without any password).\n\nYour current password (to confirm it is you)\nPFX password (12 to 1,024 characters)\nRepeat the PFX password\n\nKeep the PFX password safe: it cannot be recovered. Passwords are never shown again, so re-enter them after any error.\n\nDownload PFX",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-list-dense.html",
+    "screenshot": "certificate-list-dense-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nCertificates\n\n20 certificates\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters\nCommon name\tIssuer\tExpires\tStatus\tBindings\tActions\ngateway.ops.example.test\tOperations Intermediate CA\t2026-11-19 12:00 UTC\t\n20 days\n\t0\t\nActions\n\nactive-0.ops.example.test\tOperations Intermediate CA\t2027-04-28 12:00 UTC\t\nValid\t0\t\nActions\n\nactive-1.ops.example.test\tOperations Intermediate CA\t2026-10-27 12:00 UTC\t\nExpired\t0\t\nActions\n\nrevoked-2.ops.example.test\tOperations Intermediate CA\t2026-11-09 12:00 UTC\t\nRevoked\t0\t\nActions\n\nunknown-3.ops.example.test\tOperations Intermediate CA\t2026-11-09 12:00 UTC\t\nUnknown\t0\t\nActions\n\n*.apps.example.test\tOperations Intermediate CA\t2026-11-03 12:00 UTC\t\n4 days\n\t0\t\nActions\n\nedge-01.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t1\t\nActions\n\nedge-02.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t2\t\nActions\n\nedge-03.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t3\t\nActions\n\nedge-04.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t4\t\nActions\n\nedge-05.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t5\t\nActions\n\nedge-06.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t6\t\nActions\n\nedge-07.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t7\t\nActions\n\nedge-08.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t8\t\nActions\n\nedge-09.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t9\t\nActions\n\nedge-10.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t10\t\nActions\n\nedge-11.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t11\t\nActions\n\nedge-12.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t12\t\nActions\n\nedge-13.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t13\t\nActions\n\nedge-14.example.test\tOperations Intermediate CA\t2027-01-28 12:00 UTC\t\nValid\t14\t\nActions\nPage 1 of 1",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-list-empty.html",
+    "screenshot": "certificate-list-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nCertificates\n\n0 certificates\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters\nReset\nSearch: no-match\nNo matching certificates\n\nNo certificates match these filters. Import a certificate or clear the filters.\n\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-list-filtered.html",
+    "screenshot": "certificate-list-filtered-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nCertificates\n\n1 certificate\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters \u00b7 2\nReset\nStatus: active\nExpires: In less than 7 days\nCommon name\tIssuer\tExpires\tStatus\tBindings\tActions\n*.apps.example.test\tOperations Intermediate CA\t2026-11-03 12:00 UTC\t\n4 days\n\t0\t\nActions\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-list.html",
+    "screenshot": "certificate-list-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nCertificates\n\n5 certificates\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters\nCommon name\tIssuer\tExpires\tStatus\tBindings\tActions\ngateway.ops.example.test\tOperations Intermediate CA\t2026-11-19 12:00 UTC\t\n20 days\n\t0\t\nActions\n\nactive-0.ops.example.test\tOperations Intermediate CA\t2027-04-28 12:00 UTC\t\nValid\t0\t\nActions\n\nactive-1.ops.example.test\tOperations Intermediate CA\t2026-10-27 12:00 UTC\t\nExpired\t0\t\nActions\n\nrevoked-2.ops.example.test\tOperations Intermediate CA\t2026-11-09 12:00 UTC\t\nRevoked\t0\t\nActions\n\nunknown-3.ops.example.test\tOperations Intermediate CA\t2026-11-09 12:00 UTC\t\nUnknown\t0\t\nActions\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "deploy-allowed.html",
+    "screenshot": "deploy-allowed-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\nDeploy\n\nReview guardrails and the exact replacement plan before starting a rollout.\n\nReview plan\nMore actions\n\nThe preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.\n\nChange certificate, targets and rollout options\nGuardrails passed \u2014 review before deploying\nCertificate and rollout scope\nCertificate\ngateway.ops.example.test (#42) \u00b7 chain trusted \u00b7 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \u00b7 expires 2027-04-28 12:00 UTC\nHosts\n1\nBindings\n1\nFiles\n1\nGroups\n1\nBatches\nbatch 0 (canary): 1 host\nWhat will change\nHost\tBatch\tBindings\tFiles\nedge-01.example.test\nedge\t1 \u2014 canary\t\ngateway.ops.example.test:443 \u2014 matched\ncurrent: gateway.ops.example.test (#41) \u00b7 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \u00b7 expires 2026-11-01 12:00 UTC\nnew: gateway.ops.example.test (#42) \u00b7 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \u00b7 expires 2027-04-28 12:00 UTC\n\t\n/etc/tls/gateway.pem replace root:root 0640\nConfirm replacement on the target hosts\n\nStarting this deploy replaces the listed certificate files and may reload the web service. Automatic rollback restores backups if the canary fails after writing files.\n\nDeploy to 1 host, starting with canary edge-01.example.test first.\n\nThe plan hash is echoed back, so a plan that changes between this preview and the start is refused instead of started.\n\nI confirm this plan.\nStart deploy",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "deploy-blocked.html",
+    "screenshot": "deploy-blocked-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\nDeploy\n\nReview guardrails and the exact replacement plan before starting a rollout.\n\nReview plan\nMore actions\n\nThe preview is computed from the database (the last discovery) and is advisory: every host re-checks drift before it writes anything, and the rollout stops at the first failed host.\n\nChange certificate, targets and rollout options\nDeploy blocked\n\nAnother rollout is active. Finish or cancel it first. Open the active deploy\n\nReview certificate and chain or review discovery and target bindings before generating a new plan.\n\nCertificate and rollout scope\nCertificate\ngateway.ops.example.test (#42) \u00b7 chain trusted \u00b7 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \u00b7 expires 2027-04-28 12:00 UTC\nHosts\n1\nBindings\n1\nFiles\n1\nGroups\n1\nBatches\nbatch 0 (canary): 1 host\nWhat will change\nHost\tBatch\tBindings\tFiles\nedge-01.example.test\nedge\t1 \u2014 canary\t\ngateway.ops.example.test:443 \u2014 matched\ncurrent: gateway.ops.example.test (#41) \u00b7 bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \u00b7 expires 2026-11-01 12:00 UTC\nnew: gateway.ops.example.test (#42) \u00b7 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \u00b7 expires 2027-04-28 12:00 UTC\n\t\n/etc/tls/gateway.pem replace root:root 0640\nConfirm replacement on the target hosts\n\nStarting this deploy replaces the listed certificate files and may reload the web service. Automatic rollback restores backups if the canary fails after writing files.\n\nDeploy to 1 host, starting with canary edge-01.example.test first.\n\nThe plan hash is echoed back, so a plan that changes between this preview and the start is refused instead of started.\n\nI confirm this plan.\nStart deploy",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "deploy-failure.html",
+    "screenshot": "deploy-failure-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\n\n\u2190 Overview \u00b7 All jobs\n\nDeploy gateway.ops.example.test\n\nFollow each host outcome; automatic restoration and failures remain in the report.\n\nRefresh progress\nMore actions\n Rollout stopped\n\nThe first failed host is edge-01.example.test (healthcheck_failed).\n\nIts files were restored from the backup, so the host is serving what it served before the rollout.\n\nReview retry controls \u00b7 Run discovery and inspect the host before retrying.\n\nStatus / phase\nfailed canary\nJob\nfixture-deploy-job\nStarted by\nFixture operator \u00b7 2026-10-30 12:00 UTC\nElapsed\n18 s\nInventory revision\ndddddddddddddddddddddddddddddddddddddddd\n\nRollback is automatic when a canary fails after writing files. Continue, cancel and per-host retry are the operator controls; there is no manual rollback action.\n\nRefresh progress if live updates are unavailable. No automatic scrolling.\n\nTotals\nSucceeded 0\nFailed 0\nRolled back 1\nSkipped 0\nPending 0\nBatch 1 \u2014 canary \u00b7 1 host\nHost\tBindings\tStatus\tOld \u2192 new fingerprint\tDuration\tRollback\tBackup\tLog\nedge-01.example.test\tgateway.ops.example.test:443\t\nrolled back\nhealthcheck_failed\tbbbbbbbbbbbb\u2026 \u2192 aaaaaaaaaaaa\u2026\t18\t\nrolled back\nAutomatic restoration to bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.\nRollback time is not supplied by this report.\t\n\t\nExcerpt\nControls\n\nDownload the per-host report as JSON\n\nRetry edge-01.example.test\n\nA retry is a new audited job for this host only, with its own guardrails and trust check. It can replace certificate files and reload the service again; review the host and enter a reason before confirming.\n\nReason\nOverride reason (only when the chain is not trusted)\nRetry host",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "deploy-jobs-empty.html",
+    "screenshot": "deploy-jobs-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\nJobs\n\nTrack queued, running and finished operations, newest first.\n\nPlan a deployment\nMore actions\n\nA rollout that rolled a host back is listed as rolled_back \u2014 a host state, not a job status \u2014 so it is never counted twice as a failure. Open a deployment for the full record; other jobs open their audit entries.\n\nFilters\n0 jobs \u00b7 Finished jobs keep their per-host record.\nNo jobs match these filters\n\nJobs appear here as discovery, scans, deployments and cleanups run.\n\nClear the filters\nPage 1 of 1",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "deploy-jobs.html",
+    "screenshot": "deploy-jobs-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\nJobs\n\nTrack queued, running and finished operations, newest first.\n\nPlan a deployment\nMore actions\n\nA rollout that rolled a host back is listed as rolled_back \u2014 a host state, not a job status \u2014 so it is never counted twice as a failure. Open a deployment for the full record; other jobs open their audit entries.\n\nFilters\n4 jobs \u00b7 Finished jobs keep their per-host record.\nType\tTarget\tOutcome\tHosts\tActor\tCreated\tDetails\ndeploy\tgateway.ops.example.test\t\nfailed\t\nedge-01 failed\n\n0 succeeded \u00b7 1 failed \u00b7 0 rolled_back \u00b7 0 skipped \u00b7 0 pending\n\n\tFixture operator\t2026-10-30 12:00 UTC\tDetails\ndeploy\tgateway.ops.example.test\t\nrolled_back\t\nedge-01 rolled_back\n\n0 succeeded \u00b7 0 failed \u00b7 1 rolled_back \u00b7 0 skipped \u00b7 0 pending\n\n\tFixture operator\t2026-10-30 12:00 UTC\tDetails\ndeploy\tgateway.ops.example.test\t\nrunning\t\nedge-01 running\n\n0 succeeded \u00b7 0 failed \u00b7 0 rolled_back \u00b7 0 skipped \u00b7 0 pending\n\n\tFixture operator\t2026-10-30 12:00 UTC\tDetails\ndeploy\tgateway.ops.example.test\t\nsucceeded\t\nedge-01 succeeded\n\n1 succeeded \u00b7 0 failed \u00b7 0 rolled_back \u00b7 0 skipped \u00b7 0 pending\n\n\tFixture operator\t2026-10-30 12:00 UTC\tDetails\nPage 1 of 1",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "deploy-paused.html",
+    "screenshot": "deploy-paused-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\n\n\u2190 Overview \u00b7 All jobs\n\nDeploy gateway.ops.example.test\n\nFollow each host outcome; automatic restoration and failures remain in the report.\n\nRefresh progress\nMore actions\n Canary succeeded \u2014 continue?\n\nThe rollout is waiting for approval since 2026-10-30 12:00 UTC. 23 hours left before automatic cancellation.\n\nNo worker, slot or lock is held while the job waits; resuming re-checks drift on every host.\n\nStatus / phase\npaused canary\nJob\nfixture-deploy-job\nStarted by\nFixture operator \u00b7 2026-10-30 12:00 UTC\nElapsed\n18 s\nInventory revision\ndddddddddddddddddddddddddddddddddddddddd\n\nRollback is automatic when a canary fails after writing files. Continue, cancel and per-host retry are the operator controls; there is no manual rollback action.\n\nRefresh progress if live updates are unavailable. No automatic scrolling.\n\nTotals\nSucceeded 0\nFailed 0\nRolled back 1\nSkipped 0\nPending 0\nBatch 1 \u2014 canary \u00b7 1 host\nControls\nContinue\nCancel this rollout\n\nDownload the per-host report as JSON",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "deploy-running.html",
+    "screenshot": "deploy-running-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\n\n\u2190 Overview \u00b7 All jobs\n\nDeploy gateway.ops.example.test\n\nFollow each host outcome; automatic restoration and failures remain in the report.\n\nRefresh progress\nMore actions\nStatus / phase\nrunning canary\nJob\nfixture-deploy-job\nStarted by\nFixture operator \u00b7 2026-10-30 12:00 UTC\nElapsed\n18 s\nInventory revision\ndddddddddddddddddddddddddddddddddddddddd\n\nRollback is automatic when a canary fails after writing files. Continue, cancel and per-host retry are the operator controls; there is no manual rollback action.\n\nRefresh progress if live updates are unavailable. No automatic scrolling.\n\nTotals\nSucceeded 0\nFailed 0\nRolled back 1\nSkipped 0\nPending 0\nBatch 1 \u2014 canary \u00b7 1 host\nControls\nCancel this rollout\n\nDownload the per-host report as JSON",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "email-digest.html",
+    "screenshot": "email-digest-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Cert Dashboard daily digest\n\nPeriod: 2026-10-29 12:00 UTC to 2026-10-30 12:00 UTC\n\nExpiring certificates (1)\n\nRenew at your CA.\n\ngateway.ops.example.test expires in 2 days\n\nInventory revision: fixture\n\nOpen Cert Dashboard\n\nhttps://dashboard.example.test/",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "email-expiry.html",
+    "screenshot": "email-expiry-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Certificate gateway.ops.example.test expires in 2 days\n\nReview the expiry and renewal below. This message does not deploy or renew a certificate.\n\nCertificate identity and validity\nCommon name\tgateway.ops.example.test\nSANs\t2\nIssuer\tExample Operations CA\nSerial\t0123456789abcdef\nNot after\t2026-11-01 12:00 UTC\nRenewal\tno renewal in progress\nNotes\tSynthetic fixture only.\nActive bindings\nedge-01.example.test:443\n\nReview this certificate in Cert Dashboard\n\nhttps://dashboard.example.test/certificates/42",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "error-403.html",
+    "screenshot": "error-403-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nAccess denied.\n\n Error 403\n\nRequest ID: fixture-request-0001\n\nReturn to dashboard",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "error-404.html",
+    "screenshot": "error-404-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nPage not found.\n\n Error 404\n\nRequest ID: fixture-request-0001\n\nReturn to dashboard",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "error-500.html",
+    "screenshot": "error-500-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nAn unexpected error occurred.\n\n Error 500\n\nRequest ID: fixture-request-0001\n\nReturn to dashboard",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "import-progress.html",
+    "screenshot": "import-progress-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nImport from server\n\nEndpoint gateway.ops.example.test:443\n\nfailed\n\nThe import failed: Connection refused. Check the host and port.\n\nRefresh \u00b7 Back to import",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "import.html",
+    "screenshot": "import-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nAll certificates\nUpload a file\nPull from host and port\nImport certificate\n\nUpload a certificate you already have. Chain and private key material are optional; ownership details can be edited later.\n\nFormat\nPEM\nCRT (PEM or DER certificate)\nPFX / PKCS#12\nCertificate file\n\u2026or paste it (PEM text; base64 for PFX)\nPFX password\nIntermediate chain (optional)\nPrivate key (optional, encrypted at rest)\nInventory details (optional)\nImport\nPull from server\n\nThe worker connects to the host and port, records the certificate chain it serves (without verifying trust) and keeps it as the expected certificate for that endpoint.\n\nHost name or IP address\nPort\nSNI server name (optional)\n\nDefaults to the host name; no SNI is sent when the host is an IP address.\n\nInventory details\nOwner name\nOwner email\nTeam\nNotes\nPull and import",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "login-2fa-error.html",
+    "screenshot": "login-2fa-error-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nTwo-factor verification\n\nEnter the 6-digit code from your authenticator app, or one of your recovery codes.\n\n Invalid code.\n\nCode\nVerify\nCancel and sign out\n\nLost your device and codes? Contact another admin.",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "login-2fa.html",
+    "screenshot": "login-2fa-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nTwo-factor verification\n\nEnter the 6-digit code from your authenticator app, or one of your recovery codes.\n\nCode\nVerify\nCancel and sign out\n\nLost your device and codes? Contact another admin.",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "login-error.html",
+    "screenshot": "login-error-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nSign in\n\n Invalid credentials.\n\nUsername\nPassword\nSign in\n\nThere is no password reset. If you cannot sign in, contact another admin.",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "login.html",
+    "screenshot": "login-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nSign in\nUsername\nPassword\nSign in\n\nThere is no password reset. If you cannot sign in, contact another admin.",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "overview-clear.html",
+    "screenshot": "overview-clear-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nFixture operator\nOverview\n\nTrack TLS certificates, reconcile endpoints and follow renewals and deployments.\n\nNeeds attention\n\nNothing needs attention in the work queue.\n\nRecorded results, not live probes. Other TLS findings are in Inventory and history below.\n\nIn flight\n0 renewals awaiting an issued certificate\n0 running scans\n0 deployments in progress\n\nAwaiting includes draft, CSR generated and submitted. Review all renewal stages.\n\nSystem\nStatus details\nWorker\nstale\nLast discovery\n2026-10-19 12:00 UTC\nLast digest\n2026-10-19 12:00 UTC\nInventory revision\nabc123def456 (5 h old)\nInventory and history \u00b7 all counters and recent work",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "overview-empty.html",
+    "screenshot": "overview-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nFixture operator\nOverview\n\nTrack TLS certificates, reconcile endpoints and follow renewals and deployments.\n\nNeeds attention\n\nNothing needs attention in the work queue.\n\nRecorded results, not live probes. Other TLS findings are in Inventory and history below.\n\nIn flight\n0 renewals awaiting an issued certificate\n0 running scans\n0 deployments in progress\n\nAwaiting includes draft, CSR generated and submitted. Review all renewal stages.\n\nSystem\nStatus details\nWorker\nstale\nLast discovery\nnever\nLast digest\nnever\nInventory revision\nno inventory revision recorded yet\nGet started\n\nNo certificates are in the inventory yet. Work through this checklist:\n\nImport a certificate from a file, a paste or a live server.\nConfigure SMTP for expiry alerts and the daily digest.\nReview servers and discovery to find deployed certificates.\nInventory and history \u00b7 all counters and recent work",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "overview.html",
+    "screenshot": "overview-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nFixture operator\nOverview\n\nTrack TLS certificates, reconcile endpoints and follow renewals and deployments.\n\nNeeds attention\nWork to review\tCount\tNext step\n\nExpired certificates\t2\tReview expired certificates\n\nCertificates expiring in < 7 days\t3\tPrepare renewals\n\nObserved certificate differs from stored certificate\t2\tReview mismatched endpoints\n\nDeployments failed or rolled back\t3\tReview failed (2)\nReview rolled back (1)\n\nRecorded results, not live probes. Other TLS findings are in Inventory and history below.\n\nIn flight\n1 renewal awaiting an issued certificate\n2 running scans\n1 deployment in progress\n\nAwaiting includes draft, CSR generated and submitted. Review all renewal stages.\n\nSystem\nStatus details\nWorker\nstale\nLast discovery\n2026-10-19 12:00 UTC\nLast digest\n2026-10-19 12:00 UTC\nInventory revision\nabc123def456 (5 h old)\nInventory and history \u00b7 all counters and recent work",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "renewal-basics.html",
+    "screenshot": "renewal-basics-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nStart a renewal\n\nStep 1 of 6: Basics\n\nBasics\nCSR\nOrder\nUpload\nReady\nDone\n\nState: \nnew \u00b7 Renewing gateway.ops.example.test (valid until 2026-11-19 12:00 UTC)\n\nBack to certificate\n\nNames\nCommon name\nSubject alternative names (one per line)\n\nDNS names and IP addresses; the common name is always included. Use IP:, email: or URI: prefixes for other types.\n\nCertificate authority\nNotes\n\nNotes are shown to every administrator; do not store secrets here.\n\nKey generation comes next\nKey algorithm\nRSA 2048 (default)\nRSA 2048 (default): Most compatible.\n\nCompatibility trade-off: RSA 2048 works everywhere; ECDSA is smaller and faster but not understood by every client or CA. The private key is generated here and stored encrypted; it never leaves the application.\n\nThe algorithm is chosen when you generate the CSR on the next screen; it is not saved with the draft.\n\nCreate draft",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "renewal-csr.html",
+    "screenshot": "renewal-csr-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nRenew gateway.ops.example.test\n\nStep 2 of 6: CSR\n\nBasics\nCSR\nOrder\nUpload\nReady\nDone\n\nState: \ncsr_generated \u00b7 Renewing gateway.ops.example.test (valid until 2026-11-19 12:00 UTC)\n\nCSR SHA-256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \u00b7 Download CSR\n\nBack to certificate\n\nCertificate signing request\n\nNames: gateway.ops.example.test (DNS:gateway-0.ops.example.test, DNS:gateway-1.ops.example.test, DNS:gateway-2.ops.example.test, DNS:gateway-3.ops.example.test, DNS:gateway-4.ops.example.test, DNS:gateway-5.ops.example.test, DNS:gateway-6.ops.example.test, DNS:gateway-7.ops.example.test, DNS:gateway-8.ops.example.test, DNS:gateway-9.ops.example.test, DNS:gateway-10.ops.example.test, DNS:gateway-11.ops.example.test, DNS:gateway-12.ops.example.test, DNS:gateway-13.ops.example.test, DNS:gateway-14.ops.example.test, DNS:gateway-15.ops.example.test, DNS:gateway-16.ops.example.test, DNS:gateway-17.ops.example.test, DNS:gateway-18.ops.example.test, DNS:gateway-19.ops.example.test, DNS:gateway-20.ops.example.test, DNS:gateway-21.ops.example.test, DNS:gateway-22.ops.example.test, DNS:gateway-23.ops.example.test, DNS:gateway-24.ops.example.test, DNS:gateway-25.ops.example.test, DNS:gateway-26.ops.example.test, DNS:gateway-27.ops.example.test, DNS:gateway-28.ops.example.test, DNS:gateway-29.ops.example.test, DNS:gateway-30.ops.example.test, DNS:gateway-31.ops.example.test, DNS:gateway-32.ops.example.test, DNS:gateway-33.ops.example.test, DNS:gateway-34.ops.example.test, DNS:gateway-35.ops.example.test, DNS:gateway-36.ops.example.test, DNS:gateway-37.ops.example.test, DNS:gateway-38.ops.example.test, DNS:gateway-39.ops.example.test). They can no longer be changed.\n\n-----BEGIN CERTIFICATE REQUEST-----\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\nFIXTURE-NOT-A-VALID-CSR\n-----END CERTIFICATE REQUEST-----\n\nDownload CSR\n\nSHA-256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n\nCompare this hash with the request shown in the CA portal; it proves you submitted the right CSR.\n\nAt the CA\n\nCA portal checklist: order a certificate, paste this CSR, complete validation, download the certificate and any intermediate.\n\nRecord the order\nCA order reference\n\nThe date is recorded automatically. The renewal then waits for the issued certificate.\n\nI have ordered it\nCancel this renewal: gateway.ops.example.test",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "renewal-done.html",
+    "screenshot": "renewal-done-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nRenew gateway.ops.example.test\n\nStep 6 of 6: Done\n\nBasics\nCSR\nOrder\nUpload\nReady\nDone\n\nState: \ndeployed \u00b7 Renewing gateway.ops.example.test (valid until 2026-11-19 12:00 UTC)\n\nCSR SHA-256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \u00b7 Download CSR\n\nBack to certificate\n\nNew certificate: gateway.ops.example.test (#42, valid until 2026-11-19 12:00 UTC).\n\nFinish the renewal\n\nA deploy of the new certificate succeeded. Confirm that it is in use to close the renewal.\n\nFinalize gateway.ops.example.test and retire gateway.ops.example.test (#42)",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "renewal-ready.html",
+    "screenshot": "renewal-ready-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nTrust warnings\nThe issuer certificate is missing from the chain.\n\nThis does not block the renewal, but deployment requires a trusted chain. Review trust anchors in Settings, or import the missing chain on the certificate page.\n\nRenew gateway.ops.example.test\n\nStep 5 of 6: Ready\n\nBasics\nCSR\nOrder\nUpload\nReady\nDone\n\nState: \nissued \u00b7 Renewing gateway.ops.example.test (valid until 2026-11-19 12:00 UTC)\n\nCSR SHA-256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \u00b7 Download CSR\n\nBack to certificate\n\nReady to deploy\nCertificate\ngateway.ops.example.test (#42)\nIssuer\nOperations Intermediate CA\nValid until\n2026-11-19 12:00 UTC\nSHA-256 fingerprint\n0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nStored chain assessment\nincomplete. This is cached, not a current trust verdict; review any trust warnings above. Deployment rechecks trust.\nCSR SHA-256\nabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n\nDeploy\n\nReview certificate, chain and export options\n\nCancel this renewal: gateway.ops.example.test",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "renewal-submitted.html",
+    "screenshot": "renewal-submitted-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nRenew gateway.ops.example.test\n\nStep 3 of 6: Order\n\nBasics\nCSR\nOrder\nUpload\nReady\nDone\n\nState: \nsubmitted \u00b7 Renewing gateway.ops.example.test (valid until 2026-11-19 12:00 UTC)\n\nCSR SHA-256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \u00b7 Download CSR\n\nBack to certificate\n\nIssued externally, awaiting upload\nCA\nOperations Intermediate CA\nOrder reference\nCA-FIXTURE-42\nSubmitted\n2026-10-30 12:00 UTC\nCSR SHA-256\nabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\n\nWhen the CA has issued the certificate, download it (and any intermediate) and upload it here.\n\nUpload the issued certificate\n\nCancel this renewal: gateway.ops.example.test",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "renewal-upload.html",
+    "screenshot": "renewal-upload-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nCertificates\nImport\nRenewals\nFixture operator\nRenew gateway.ops.example.test\n\nStep 4 of 6: Upload\n\nBasics\nCSR\nOrder\nUpload\nReady\nDone\n\nState: \nsubmitted \u00b7 Renewing gateway.ops.example.test (valid until 2026-11-19 12:00 UTC)\n\nCSR SHA-256: abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \u00b7 Download CSR\n\nBack to certificate\n\nUpload the issued certificate\nIssued certificate (PEM, CRT or DER file)\n\u2026or paste it (PEM)\nIntermediate certificates (optional file)\n\u2026or paste them (PEM)\n\nEach input is limited to 1 MiB. PFX/PKCS#12 bundles are not accepted: the key must be the one generated here. Without a chain, the previous certificate's stored chain is reused when it matches.\n\nChecked on upload: it parses, matches the generated key and the CSR (names and public key), is inside its validity period and is not self-signed. Trust problems are reported as warnings and do not block.\n\nCheck and attach\n\nBack to the order\n\nCancel this renewal: gateway.ops.example.test",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "scan-clear.html",
+    "screenshot": "scan-clear-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\n\n\u2190 All scans\n\ngateway.ops.example.test:443\n\nCompare the last observed certificate with the inventory expectation, then review scan history.\n\nManage endpoint\nMore actions\n\nNo findings\n\nNo expiry or certificate-mismatch findings in this scan. This is not a complete TLS security audit.\n\nSNI\ngateway.ops.example.test\nSource\nmanual\nServer\nedge-01\nExpected certificate\ngateway.ops.example.test 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nLast checked\n2026-10-30 12:00 UTC\nObserved common name\ngateway.ops.example.test\nObserved issuer\nOperations Intermediate CA\nObserved expiry\n2026-11-19 12:00 UTC\nObserved fingerprint\n0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nChain length / TLS\n2 / TLSv1.3\nScan now\nManage\nExpected certificate\n\nUpdate the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.\n\nActive certificate\nChoose\u2026\ngateway.ops.example.test (#42, expires 2026-11-19)\nSet expectation\n\nThe observed certificate is not in the inventory: import the served certificate first.\n\nScheduled scans\nDeactivate\nEndpoints are never deleted; deactivating keeps the history.\nHistory\n\nThe last 1 result (newest first) for gateway.ops.example.test:443.\n\nChecked\tStatus\tObserved fingerprint\tCommon name\tSource\tError\n2026-10-30 12:00 UTC\t\nNo findings\t0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\tgateway.ops.example.test\tmanual\t",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "scan-failed.html",
+    "screenshot": "scan-failed-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\n\n\u2190 All scans\n\ngateway.ops.example.test:443\n\nCompare the last observed certificate with the inventory expectation, then review scan history.\n\nManage endpoint\nMore actions\n\nScan failed: error\n\nThe scan did not complete. Do not interpret missing observations as a healthy endpoint. Check connectivity and the error below, then scan again.\n\nTLS handshake failed. Check endpoint connectivity.\n\nSNI\ngateway.ops.example.test\nSource\nmanual\nServer\nedge-01\nExpected certificate\ngateway.ops.example.test 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nLast checked\n2026-10-30 12:00 UTC\nObserved common name\n\u2014\nObserved issuer\n\u2014\nObserved expiry\n\u2014\nObserved fingerprint\n\u2014\nChain length / TLS\n\u2014 / \u2014\nScan now\nManage\nExpected certificate\n\nUpdate the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.\n\nActive certificate\nChoose\u2026\ngateway.ops.example.test (#42, expires 2026-11-19)\nSet expectation\nScheduled scans\nDeactivate\nEndpoints are never deleted; deactivating keeps the history.\nHistory\n\nThe last 1 result (newest first) for gateway.ops.example.test:443.\n\nChecked\tStatus\tObserved fingerprint\tCommon name\tSource\tError\n2026-10-30 12:00 UTC\t\nScan failed: error\t\u2014\t\u2014\tmanual\tTLS handshake failed. Check endpoint connectivity.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "scan-findings.html",
+    "screenshot": "scan-findings-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\n\n\u2190 All scans\n\ngateway.ops.example.test:443\n\nCompare the last observed certificate with the inventory expectation, then review scan history.\n\nManage endpoint\nMore actions\n\nFindings: mismatch\n\nAction required: the served certificate differs from the inventory expectation.\n\nSNI\ngateway.ops.example.test\nSource\nmanual\nServer\nedge-01\nExpected certificate\ngateway.ops.example.test 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nLast checked\n2026-10-30 12:00 UTC\nObserved common name\nold-gateway.ops.example.test\nObserved issuer\nOperations Intermediate CA\nObserved expiry\n2026-11-01 12:00 UTC\nObserved fingerprint\nfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\nChain length / TLS\n2 / TLSv1.3\nScan now\nManage\nExpected certificate\n\nUpdate the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.\n\nActive certificate\nChoose\u2026\ngateway.ops.example.test (#42, expires 2026-11-19)\nSet expectation\n\nThe observed certificate is not in the inventory: import the served certificate first.\n\nScheduled scans\nDeactivate\nEndpoints are never deleted; deactivating keeps the history.\nThis endpoint serves a different certificate than expected\n\nExpected: gateway.ops.example.test 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n\nServed: old-gateway.ops.example.test (not in the inventory) fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\n\nLikely actions\nThe old certificate is still being served: Renew and deploy the expected certificate.\nImport the served certificate from this endpoint (host, port and SNI are prefilled); if the virtual host changed on purpose, you can then use it as the expectation.\nHistory\n\nThe last 1 result (newest first) for gateway.ops.example.test:443.\n\nChecked\tStatus\tObserved fingerprint\tCommon name\tSource\tError\n2026-10-30 12:00 UTC\t\nFindings: mismatch\tfedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210\told-gateway.ops.example.test\tmanual\t",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "scan-list-empty.html",
+    "screenshot": "scan-list-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\nScans\n\nRead the latest endpoint verdict and observation age; open an endpoint for evidence and history.\n\nScan all\nMore actions\nSearch\nSearch\nFilters\n0 endpoints \u00b7 Stored results, not live probes.\nNo endpoints match these filters\n\nClear the filters or add an endpoint not covered by discovery.\n\nPage 1 of 1\nAdd endpoint\n\nEndpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.\n\nHost name or IP address\nPort\nSNI server name (optional)\nExpected certificate (optional)\nNone\ngateway.ops.example.test (#42, expires 2026-11-19)\nAdd endpoint",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "scan-list-verdicts.html",
+    "screenshot": "scan-list-verdicts-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\nScans\n\nRead the latest endpoint verdict and observation age; open an endpoint for evidence and history.\n\nScan all\nMore actions\nSearch\nSearch\nFilters\n5 endpoints \u00b7 Stored results, not live probes.\nEndpoint / SNI\tServer\tStatus\tLast observation\tActions\n\nmismatch.ops.example.test:443\ngateway.ops.example.test\n\t\nedge-01\n\t\nFindings: mismatch\t1 h ago\n2026-10-30 11:00 UTC\n\t\nActions\n\n\nunreachable.ops.example.test:443\ngateway.ops.example.test\n\t\nedge-01\n\t\nScan failed: unreachable\nTLS connection refused. Review endpoint details.\n\t2 h ago\n2026-10-30 10:00 UTC\n\t\nActions\n\n\nexpired.ops.example.test:443\ngateway.ops.example.test\n\t\nedge-01\n\t\nFindings: expired\t3 h ago\n2026-10-30 09:00 UTC\n\t\nActions\n\n\nnew.ops.example.test:443\ngateway.ops.example.test\n\t\nedge-01\n\t\nNot scanned\tNot observed\n\u2014\n\t\nActions\n\n\nok.ops.example.test:443\ngateway.ops.example.test\n\t\nedge-01\n\t\nNo findings\t5 h ago\n2026-10-30 07:00 UTC\n\t\nActions\nPage 1 of 1\nAdd endpoint\n\nEndpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.\n\nHost name or IP address\nPort\nSNI server name (optional)\nExpected certificate (optional)\nNone\ngateway.ops.example.test (#42, expires 2026-11-19)\nAdd endpoint",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "scan-list.html",
+    "screenshot": "scan-list-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\nScans\n\nRead the latest endpoint verdict and observation age; open an endpoint for evidence and history.\n\nScan all\nMore actions\nSearch\nSearch\nFilters\n1 endpoint \u00b7 Stored results, not live probes.\nEndpoint / SNI\tServer\tStatus\tLast observation\tActions\n\ngateway.ops.example.test:443\ngateway.ops.example.test\n\t\nedge-01\n\t\nFindings: mismatch\tLess than a minute ago\n2026-10-30 12:00 UTC\n\t\nActions\nPage 1 of 1\nAdd endpoint\n\nEndpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.\n\nHost name or IP address\nPort\nSNI server name (optional)\nExpected certificate (optional)\nNone\ngateway.ops.example.test (#42, expires 2026-11-19)\nAdd endpoint",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "scan-unscanned.html",
+    "screenshot": "scan-unscanned-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nFixture operator\n\n\u2190 All scans\n\ngateway.ops.example.test:443\n\nCompare the last observed certificate with the inventory expectation, then review scan history.\n\nManage endpoint\nMore actions\n\nNot scanned\n\nNo scan result is available. Run a scan to establish the endpoint state.\n\nSNI\ngateway.ops.example.test\nSource\nmanual\nServer\nedge-01\nExpected certificate\ngateway.ops.example.test 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\nLast checked\n\u2014\nObserved common name\n\u2014\nObserved issuer\n\u2014\nObserved expiry\n\u2014\nObserved fingerprint\n\u2014\nChain length / TLS\n\u2014 / \u2014\nScan now\nManage\nExpected certificate\n\nUpdate the expectation when the virtual host was changed on purpose. Earlier scan results keep the certificate that was expected when they ran.\n\nActive certificate\nChoose\u2026\ngateway.ops.example.test (#42, expires 2026-11-19)\nSet expectation\nScheduled scans\nDeactivate\nEndpoints are never deleted; deactivating keeps the history.\nHistory\n\nThe last 0 results (newest first) for gateway.ops.example.test:443.\n\nThis endpoint has not been scanned yet.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-detail.html",
+    "screenshot": "server-detail-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 All servers\n\nedge-01.ops.example.test\n\nReview discovery state, certificate bindings and run history before changing configuration.\n\nDiscovery controls\nMore actions\nDiscovered\nInventory state\nActive\nLast discovery\n2026-10-30 12:00 UTC\nBindings\n4 \u2014 2 need attention\nMismatched endpoints\n1 of 4 active endpoints\nBindings\n\nObserved files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nRelationship\tObserved on disk\tInventory / expectation\tMatch / freshness\ngateway.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: gateway.ops.example.test, api.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.\n\nExpected: a private key belonging to this certificate.\n\n\t\nDrift\n\nkey_mismatch \u2014 the key does not belong to this certificate. How to fix it\n\nLast seen 2026-10-30 12:00 UTC\n\nConfigured key differs from certificate.\n\n\nmatched.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: matched.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the on-disk certificate is in inventory and the configured key belongs to it.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nInventory match\n\nLast seen 2026-10-30 12:00 UTC\n\n\nmissing_file.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: missing_file.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the certificate file is missing or unreadable.\n\nExpected: a readable certificate at the configured path.\n\n\t\nFile failure\n\nmissing_file \u2014 the configured certificate cannot be read. How to fix it\n\nLast seen 2026-10-30 12:00 UTC\n\n\nunknown.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: unknown.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\t\n\nNo inventory match recorded.\n\nObserved: the on-disk certificate is not in the inventory.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nUnknown certificate\n\nLast seen 2026-10-30 12:00 UTC\n\nstale since 2026-10-30 12:00 UTC \u2014 the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.\n\n<script>fixture escaping check</script>\n\nImport as certificate\n\nDiscovery history\nStarted\tStatus\tDuration\tInventory revision\tError\n2026-10-30 12:00 UTC\t\nsucceeded\t1 min 35 s\tfixture-revision-1234\t\u2014\n2026-10-30 12:00 UTC\t\nfailed\t1 min 35 s\tfixture-revision-1234\tssh: connect to host failed: connection timed out\n\nThe newest 20 runs.\n\nLast captured discovery\n\nCaptured 2026-10-30 12:00 UTC \u00b7 4 bindings found in this dump.\n\nThe last captured dump may predate the latest attempt. Compare its timestamp with discovery history above.\n\nChanges since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove \u201cno changes\u201d.\n\nDiscovery and endpoint checks\nRun discovery\n\nLast raw dump summary\n\nOpen endpoint scan\n\nConfiguration\nDisplay name\nPublic gateway\nGroups\nproduction, edge\nWeb server\nnginx\nConnection address\n192.0.2.10\nInventory source\ninventory/production.yml\nNotes\nFixture only; inspect endpoint scans separately.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-dump-empty.html",
+    "screenshot": "server-dump-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 edge-01.ops.example.test\n\nLast raw dump summary\n\nInspect captured discovery evidence without exposing the raw configuration dump.\n\nReview server\nMore actions\n\nNo raw dump has been captured for edge-01.ops.example.test yet. Run discovery from the server page; unreachable or failed runs capture nothing.",
+    "documentWidth": 1440,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-dump.html",
+    "screenshot": "server-dump-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 edge-01.ops.example.test\n\nLast raw dump summary\n\nInspect captured discovery evidence without exposing the raw configuration dump.\n\nReview server\nMore actions\n\nLast captured dump, not necessarily the latest attempted run. Previous snapshots and a change diff are unavailable in this view.\n\nServer\nedge-01.ops.example.test\nCollected\n2026-10-30 12:00 UTC\nDiscovery job\nfixture-discovery\nWeb server\nnginx\nBindings found\n4 bindings\nParse suspected\nno\nDump size\n48213 bytes\nDump SHA-256\nfe98dc76fe98dc76fe98dc76fe98dc76fe98dc76fe98dc76fe98dc76fe98dc76\n\nThe dump itself stays on the worker and is never shown here; this page lists only what discovery recorded about it.\n\nConfiguration files read\n/etc/nginx/sites-enabled/gateway.conf\nWarnings\n\nThe parser raised no warnings.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-empty-discovery.html",
+    "screenshot": "server-empty-discovery-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 All servers\n\nedge-01.ops.example.test\n\nReview discovery state, certificate bindings and run history before changing configuration.\n\nDiscovery controls\nMore actions\nDiscovered\nInventory state\nActive\nLast discovery\n2026-10-30 12:00 UTC\nBindings\n4 \u2014 2 need attention\nMismatched endpoints\n1 of 4 active endpoints\nBindings\n\nObserved files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nNo bindings recorded for this server\n\nReview the last captured discovery below before treating an empty inventory as a clean result.\n\nDiscovery history\nStarted\tStatus\tDuration\tInventory revision\tError\n2026-10-30 12:00 UTC\t\nsucceeded\t1 min 35 s\tfixture-revision-1234\t\u2014\n2026-10-30 12:00 UTC\t\nfailed\t1 min 35 s\tfixture-revision-1234\tssh: connect to host failed: connection timed out\n\nThe newest 20 runs.\n\nLast captured discovery\n\nCaptured 2026-10-30 12:00 UTC \u00b7 0 bindings found in this dump.\n\nNo bindings found in the captured configuration. This is a recorded discovery, not a host that never ran.\n\nThe last captured dump may predate the latest attempt. Compare its timestamp with discovery history above.\n\nChanges since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove \u201cno changes\u201d.\n\nDiscovery and endpoint checks\nRun discovery\n\nLast raw dump summary\n\nOpen endpoint scan\n\nConfiguration\nDisplay name\nPublic gateway\nGroups\nproduction, edge\nWeb server\nnginx\nConnection address\n192.0.2.10\nInventory source\ninventory/production.yml\nNotes\nFixture only; inspect endpoint scans separately.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-failed.html",
+    "screenshot": "server-failed-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 All servers\n\nunreachable.ops.example.test\n\nReview discovery state, certificate bindings and run history before changing configuration.\n\nDiscovery controls\nMore actions\nDiscovery failed\n\nLatest discovery: ssh: connect to host failed: connection timed out\n\nInventory state\nActive\nLast discovery\n2026-10-30 12:00 UTC\nBindings\n4 \u2014 2 need attention\nMismatched endpoints\n1 of 4 active endpoints\nBindings\n\nObserved files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nRelationship\tObserved on disk\tInventory / expectation\tMatch / freshness\ngateway.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: gateway.ops.example.test, api.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.\n\nExpected: a private key belonging to this certificate.\n\n\t\nDrift\n\nkey_mismatch \u2014 the key does not belong to this certificate. How to fix it\n\nLast seen 2026-10-30 12:00 UTC\n\nConfigured key differs from certificate.\n\n\nmatched.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: matched.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the on-disk certificate is in inventory and the configured key belongs to it.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nInventory match\n\nLast seen 2026-10-30 12:00 UTC\n\n\nmissing_file.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: missing_file.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the certificate file is missing or unreadable.\n\nExpected: a readable certificate at the configured path.\n\n\t\nFile failure\n\nmissing_file \u2014 the configured certificate cannot be read. How to fix it\n\nLast seen 2026-10-30 12:00 UTC\n\n\nunknown.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: unknown.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\t\n\nNo inventory match recorded.\n\nObserved: the on-disk certificate is not in the inventory.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nUnknown certificate\n\nLast seen 2026-10-30 12:00 UTC\n\nstale since 2026-10-30 12:00 UTC \u2014 the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.\n\n<script>fixture escaping check</script>\n\nImport as certificate\n\nDiscovery history\nStarted\tStatus\tDuration\tInventory revision\tError\n2026-10-30 12:00 UTC\t\nfailed\t1 min 35 s\tfixture-revision-1234\tssh: connect to host failed: connection timed out\n\nThe newest 20 runs.\n\nLast captured discovery\n\nCaptured 2026-10-30 12:00 UTC \u00b7 4 bindings found in this dump.\n\nThe last captured dump may predate the latest attempt. Compare its timestamp with discovery history above.\n\nChanges since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove \u201cno changes\u201d.\n\nDiscovery and endpoint checks\nRun discovery\n\nLast raw dump summary\n\nOpen endpoint scan\n\nConfiguration\nDisplay name\nLast inventory retained\nGroups\nproduction, edge\nWeb server\nnginx\nConnection address\n192.0.2.10\nInventory source\ninventory/production.yml\nNotes\nFixture only; inspect endpoint scans separately.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-list-empty.html",
+    "screenshot": "server-list-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\nServers\n\nFind hosts, stored bindings and discovery failures before checking live TLS drift.\n\nRun discovery\nMore actions\nSearch\nSearch\nFilters\n0 servers \u00b7 Last seen means the recorded discovery time, not a live reachability check.\nNo servers match these filters\n\nClear the filters. Servers appear once discovery has run: use \u201cDiscover all\u201d below.\n\nPage 1 of 1\nDiscovery\n\nRun across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.\n\nDiscover all\n \nGroup\nproduction\nedge\nDiscover group",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-list.html",
+    "screenshot": "server-list-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\nServers\n\nFind hosts, stored bindings and discovery failures before checking live TLS drift.\n\nRun discovery\nMore actions\nSearch\nSearch\nFilters\n4 servers \u00b7 Last seen means the recorded discovery time, not a live reachability check.\nServer\tGroups\tDiscovery state\tBindings\tLast seen / discovery\tTLS drift\n\nedge-01.ops.example.test\nPublic gateway\n\t\nproduction, edge\n\t\nDiscovered\t4\n\n2 issues\n\n\t\n\n2026-10-30 12:00 UTC\n\n\t\n1 drifted\n\nunreachable.ops.example.test\nLast inventory retained\n\t\nproduction, edge\n\t\nDiscovery failed\nView host failure reason\n\t4\n\n2 issues\n\n\t\n\n2026-10-30 12:00 UTC\n\n\t\n1 drifted\n\nnew-host.ops.example.test\nnginx\n\t\nproduction, edge\n\t\nNever discovered\t0\tNever discovered\t0\n\nlong-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-.ops.example.test\nLong identity fixture\n\t\nlong-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-\n\t\nDiscovered\t4\n\n2 issues\n\n\t\n\n2026-10-30 12:00 UTC\n\n\t\n1 drifted\nPage 1 of 1\nDiscovery\n\nRun across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.\n\nDiscover all\n \nGroup\nproduction\nedge\nDiscover group",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-never.html",
+    "screenshot": "server-never-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 All servers\n\nnew-host.ops.example.test\n\nReview discovery state, certificate bindings and run history before changing configuration.\n\nDiscovery controls\nMore actions\nNever discovered\nInventory state\nActive\nLast discovery\nNever discovered\nBindings\n0\nMismatched endpoints\n0 of 4 active endpoints\nBindings\n\nObserved files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nNo bindings recorded for this server\n\nReview the last captured discovery below before treating an empty inventory as a clean result.\n\nDiscovery history\n\nThis server has not been discovered yet.\n\nLast captured discovery\n\nNo captured dump is available. This server has not been discovered yet.\n\nDiscovery and endpoint checks\nRun discovery\n\nLast raw dump summary\n\nOpen endpoint scan\n\nConfiguration\nDisplay name\n\u2014\nGroups\nproduction, edge\nWeb server\nnginx\nConnection address\n192.0.2.10\nInventory source\ninventory/production.yml\nNotes\nFixture only; inspect endpoint scans separately.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-parse-warning.html",
+    "screenshot": "server-parse-warning-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nServers\nBindings\nDiscovery\nFixture operator\n\n\u2190 All servers\n\nedge-01.ops.example.test\n\nReview discovery state, certificate bindings and run history before changing configuration.\n\nDiscovery controls\nMore actions\nDiscovered\nInventory state\nActive\nLast discovery\n2026-10-30 12:00 UTC\nBindings\n4 \u2014 2 need attention\nMismatched endpoints\n1 of 4 active endpoints\n Review needed: no bindings found\n\nThis host had bindings before, but its last discovery found none, so its bindings were kept and not deactivated. The web server configuration may have moved or could not be read. Check the host, review the raw dump summary and run discovery again.\n\nBindings\n\nObserved files and inventory evidence, side by side. Stored inventory matches are not live TLS checks. Desired deployment and expected fingerprint are not supplied by this view, so an inventory match is not a desired-state comparison.\n\nRelationship\tObserved on disk\tInventory / expectation\tMatch / freshness\ngateway.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: gateway.ops.example.test, api.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the configured key does not belong to the on-disk certificate. The web server would fail to reload this pair.\n\nExpected: a private key belonging to this certificate.\n\n\t\nDrift\n\nkey_mismatch \u2014 the key does not belong to this certificate. How to fix it\n\nLast seen 2026-10-30 12:00 UTC\n\nConfigured key differs from certificate.\n\n\nmatched.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: matched.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the on-disk certificate is in inventory and the configured key belongs to it.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nInventory match\n\nLast seen 2026-10-30 12:00 UTC\n\n\nmissing_file.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: missing_file.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\tgateway.ops.example.test\n\nInventory match #42\n\nObserved: the certificate file is missing or unreadable.\n\nExpected: a readable certificate at the configured path.\n\n\t\nFile failure\n\nmissing_file \u2014 the configured certificate cannot be read. How to fix it\n\nLast seen 2026-10-30 12:00 UTC\n\n\nunknown.ops.example.test\n\non edge-01.ops.example.test\n\nPort 443 \u00b7 nginx\n\nSNI / virtual-host names: unknown.ops.example.test\n\nConfiguration and permissions\n\t\n\nCertificate path\n\n/etc/tls/gateway/fullchain.pem\n\nOn-disk certificate SHA-256\n\nab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34ab12cd34\nKey and chain paths\n\t\n\nNo inventory match recorded.\n\nObserved: the on-disk certificate is not in the inventory.\n\nExpected: no desired deployment is recorded for this binding.\n\n\t\nUnknown certificate\n\nLast seen 2026-10-30 12:00 UTC\n\nstale since 2026-10-30 12:00 UTC \u2014 the latest discovery of this server did not succeed. This is a stored observation, not a current host verdict.\n\n<script>fixture escaping check</script>\n\nImport as certificate\n\nDiscovery history\nStarted\tStatus\tDuration\tInventory revision\tError\n2026-10-30 12:00 UTC\t\nsucceeded\t1 min 35 s\tfixture-revision-1234\t\u2014\n2026-10-30 12:00 UTC\t\nfailed\t1 min 35 s\tfixture-revision-1234\tssh: connect to host failed: connection timed out\n\nThe newest 20 runs.\n\nLast captured discovery\n\nCaptured 2026-10-30 12:00 UTC \u00b7 0 bindings found in this dump.\n\nThe last captured dump may predate the latest attempt. Compare its timestamp with discovery history above.\n\nChanges since the previous run: unavailable. Previous binding snapshots and a change diff are not supplied by this view; a successful run does not prove \u201cno changes\u201d.\n\nDiscovery and endpoint checks\nRun discovery\n\nLast raw dump summary\n\nOpen endpoint scan\n\nConfiguration\nDisplay name\nPublic gateway\nGroups\nproduction, edge\nWeb server\nnginx\nConnection address\n192.0.2.10\nInventory source\ninventory/production.yml\nNotes\nFixture only; inspect endpoint scans separately.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-alerts.html",
+    "screenshot": "settings-alerts-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Alerts settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nAlerts\n\nNo unsaved changes in this tab.\n\nAlert thresholds (days)\nRecipients\nSend daily digest\nRun expiry check\nSave Alerts settings\nRecent delivery failures\n\nNo delivery failures.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-deployment.html",
+    "screenshot": "settings-deployment-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Deployment settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nDeployment\n\nNo unsaved changes in this tab.\n\nBatch size (%)\nConcurrency\nPause after canary\n\nIf disabled, a successful canary proceeds without waiting for operator approval.\n\nPause timeout (hours)\nBackup retention (days)\nHost timeout (seconds)\nSave Deployment settings",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-general.html",
+    "screenshot": "settings-general-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave General settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSystem and maintenance\n\nNo unsaved changes in this tab.\n\nRelated settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.\n\nGeneral\nDisplay time zone\nJob retention (days)\nSave General settings\nMaintenance\nMaster key rotation\n\nRotation is a command-line operation; this page never edits the keyring or rotates keys. Current state:\n\nActive version 1; loaded versions: 1\nRows not yet on the active version: 0\nVersions referenced by stored keys but missing from the keyring: none\n\nRun these on the dashboard host as root (full procedure: docs/operations.md, section 6). Take a database backup first.\n\nGenerate the next version into a new file in a temporary 0700 directory owned by the container user, merging the current keyring (live limit: two versions). The current master_key is mounted read-only at /secrets and the new file is written to /out; both paths exist only inside this one docker run:\nset -eu\ntmp=\"$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)\"\ninstall -d -m 0700 -o 10001 -g 10001 \"$tmp\"\ndocker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v \"$tmp\":/out cert-dashboard:local \\\n  python -m app.cli generate-master-key --version 2 --merge /secrets/master_key --output /out/master_key.v2.new\nsha256sum \"$tmp/master_key.v2.new\"\nThe command prints only sha256=<digest> path=<file>; the digest must equal the sha256sum output.\nKeep a copy of the old file in the backup location, install the verified file as the master_key secret and restart so new writes use it:\ninstall -m 0400 -o 10001 -g 10001 \"$tmp/master_key.v2.new\" /etc/cert-dashboard/secrets/master_key\nshred -u -- \"$tmp/master_key.v2.new\" && rmdir -- \"$tmp\"\ndocker compose up -d --force-recreate web worker\nRe-encrypt every key and TOTP seed (batched, idempotent, resumable):\ndocker compose run --rm web python -m app.cli rotate-master-key\nVerify a keyed certificate (metadata only is printed):\ndocker compose run --rm web python -m app.cli verify-key --certificate-id ID\n\nSecret files are read once at startup: replace the file, rerun scripts/install-secrets.sh and restart the service.\n\nPrune old jobs\n\nQueues the retention cleanup now: finished jobs older than the retention period, old scan results, expired sessions and old artifacts are removed. Audit rows are never removed.\n\nType PRUNE OLD JOBS to confirm\nQueue retention cleanup",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-inventory.html",
+    "screenshot": "settings-inventory-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Inventory settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nInventory\n\nNo unsaved changes in this tab.\n\nRepository URL\nRef\nPath\nWeb server variable\nSave Inventory settings\n\nCurrent revision: unknown (no discovery, deploy or test pull has succeeded yet).\n\nTest pull\n\nTest pull fetches the repository and lists the hosts and groups on the worker; it does not connect to any server.\n\nNo test pull has run yet.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-maintenance.html",
+    "screenshot": "settings-maintenance-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave General settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSystem and maintenance\n\nNo unsaved changes in this tab.\n\nRelated settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.\n\nGeneral\nDisplay time zone\nJob retention (days)\nSave General settings\nMaintenance\nMaster key rotation\n\nRotation is a command-line operation; this page never edits the keyring or rotates keys. Current state:\n\nActive version 1; loaded versions: 1\nRows not yet on the active version: 0\nVersions referenced by stored keys but missing from the keyring: none\n\nRun these on the dashboard host as root (full procedure: docs/operations.md, section 6). Take a database backup first.\n\nGenerate the next version into a new file in a temporary 0700 directory owned by the container user, merging the current keyring (live limit: two versions). The current master_key is mounted read-only at /secrets and the new file is written to /out; both paths exist only inside this one docker run:\nset -eu\ntmp=\"$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)\"\ninstall -d -m 0700 -o 10001 -g 10001 \"$tmp\"\ndocker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v \"$tmp\":/out cert-dashboard:local \\\n  python -m app.cli generate-master-key --version 2 --merge /secrets/master_key --output /out/master_key.v2.new\nsha256sum \"$tmp/master_key.v2.new\"\nThe command prints only sha256=<digest> path=<file>; the digest must equal the sha256sum output.\nKeep a copy of the old file in the backup location, install the verified file as the master_key secret and restart so new writes use it:\ninstall -m 0400 -o 10001 -g 10001 \"$tmp/master_key.v2.new\" /etc/cert-dashboard/secrets/master_key\nshred -u -- \"$tmp/master_key.v2.new\" && rmdir -- \"$tmp\"\ndocker compose up -d --force-recreate web worker\nRe-encrypt every key and TOTP seed (batched, idempotent, resumable):\ndocker compose run --rm web python -m app.cli rotate-master-key\nVerify a keyed certificate (metadata only is printed):\ndocker compose run --rm web python -m app.cli verify-key --certificate-id ID\n\nSecret files are read once at startup: replace the file, rerun scripts/install-secrets.sh and restart the service.\n\nPrune old jobs\n\nQueues the retention cleanup now: finished jobs older than the retention period, old scan results, expired sessions and old artifacts are removed. Audit rows are never removed.\n\nType PRUNE OLD JOBS to confirm\nQueue retention cleanup",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-scanning.html",
+    "screenshot": "settings-scanning-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Scanning settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSchedule and scans\n\nNo unsaved changes in this tab.\n\nRelated settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.\n\nSchedule\nNightly discovery\nRun nightly discovery\nExpiry check\nDaily digest\nRetention cleanup\nRun cleanup\n\nIf disabled, old jobs, sessions and artifacts are not pruned by the scheduled cleanup.\n\nSave Schedule settings\nScanning\nTimeout (seconds)\nDaily scan time\nRun daily scan\nSave Scanning settings",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-schedule.html",
+    "screenshot": "settings-schedule-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Schedule settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSchedule and scans\n\nNo unsaved changes in this tab.\n\nRelated settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.\n\nSchedule\nNightly discovery\nRun nightly discovery\nExpiry check\nDaily digest\nRetention cleanup\nRun cleanup\n\nIf disabled, old jobs, sessions and artifacts are not pruned by the scheduled cleanup.\n\nSave Schedule settings\nScanning\nTimeout (seconds)\nDaily scan time\nRun daily scan\nSave Scanning settings",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-smtp-queued.html",
+    "screenshot": "settings-smtp-queued-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave SMTP settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSMTP\n\nNo unsaved changes in this tab.\n\nDelivery outcome: queued. Test send uses saved SMTP settings, not unsaved edits.\n\nHost\nPort\nSecurity\nNone\nSTARTTLS\nSSL/TLS\nFrom address\nUsername\nVerify SMTP TLS certificate\n\nDisabling verification lets an impersonated SMTP server intercept mail credentials and content.\n\nSave SMTP settings\n\nSMTP password: provided only via the worker secret file smtp_password; not settable or visible here.\n\nSend test email\n Last test e-mail\n\nQueued since 2026-10-30 12:00 UTC; the worker has not finished it yet.\n\nSMTP conversation (step and reply code only):\n\nconnect 220\nauth 535\n\nThis is the worker's recorded result, not an inbox receipt. A successful SMTP handoff does not guarantee inbox delivery. Refresh result if live updates are unavailable.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-smtp-succeeded.html",
+    "screenshot": "settings-smtp-succeeded-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave SMTP settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSMTP\n\nNo unsaved changes in this tab.\n\nDelivery outcome: succeeded. Test send uses saved SMTP settings, not unsaved edits.\n\nHost\nPort\nSecurity\nNone\nSTARTTLS\nSSL/TLS\nFrom address\nUsername\nVerify SMTP TLS certificate\n\nDisabling verification lets an impersonated SMTP server intercept mail credentials and content.\n\nSave SMTP settings\n\nSMTP password: provided only via the worker secret file smtp_password; not settable or visible here.\n\nSend test email\n Last test e-mail\n\nDelivered to ops@example.test, 2026-10-30 12:00 UTC\n\nSMTP conversation (step and reply code only):\n\nconnect 220\nauth 535\n\nThis is the worker's recorded result, not an inbox receipt. A successful SMTP handoff does not guarantee inbox delivery. Refresh result if live updates are unavailable.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-smtp.html",
+    "screenshot": "settings-smtp-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave SMTP settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSMTP\n\nNo unsaved changes in this tab.\n\nDelivery outcome: failed. Test send uses saved SMTP settings, not unsaved edits.\n\nHost\nPort\nSecurity\nNone\nSTARTTLS\nSSL/TLS\nFrom address\nUsername\nVerify SMTP TLS certificate\n\nDisabling verification lets an impersonated SMTP server intercept mail credentials and content.\n\nSave SMTP settings\n\nSMTP password: provided only via the worker secret file smtp_password; not settable or visible here.\n\nSend test email\n Last test e-mail\n\nFailed, 2026-10-30 12:00 UTC\n\nSMTP conversation (step and reply code only):\n\nconnect 220\nauth 535\n\nSMTPAuthenticationError: Authentication refused. Check the worker SMTP secret.\n\nThis is the worker's recorded result, not an inbox receipt. A successful SMTP handoff does not guarantee inbox delivery. Refresh result if live updates are unavailable.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-status.html",
+    "screenshot": "settings-status-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nRefresh status\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nStatus\n\nNo unsaved changes in this tab.\n\nWarnings\n\nNo warnings.\n\nWorker\nState: healthy\nLast heartbeat: 2026-10-30 12:00 UTC\nHeartbeat every 30 seconds; stale after 5 minutes\nLive workers: 1\nQueue\nQueued 0\nRunning 1\nPaused 0\nFailed in the last 24 hours 1\nSMTP delivery\n1 consecutive delivery failure; last error: Authentication refused\nLast successful delivery: never\nLast test e-mail: failed, 2026-10-30 12:00 UTC\n\nSend a test email from the SMTP tab to check the connection.\n\nKeyring\nActive version 1\nLoaded versions: 1\nFile SHA-256: eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\nVersions referenced by stored keys but missing from the keyring: none\nRows not yet on the active version: 0\nDatabase\n\nDatabase size: 12 MiB\n\nLast runs\n\nNo scheduled run has been recorded yet.\n\nNo job has finished yet.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-trust.html",
+    "screenshot": "settings-trust-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave and recheck\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nTrust anchors\n\nNo unsaved changes in this tab.\n\nPublic bundle: certifi fixture, 140 roots, include-public-bundle = true\n\nThe public roots are read-only, in-memory entries of the pinned certifi bundle; they are never listed or stored as rows.\n\nTrust the public CA bundle\n\nDisabling this removes public CA roots from chain verification. Certificates relying on those roots may become untrusted.\n\nSaving rechecks the stored chain statuses immediately.\n\nSave and recheck\nUploaded trust anchors\n\nAlso runs daily with the scan. Chain statuses are rechecked against the current time in the background.\n\nRecheck now\n\nNo uploaded trust anchors.\n\nAdd an internal root\n\nTrust-anchor upload fields are not kept as drafts. Add the anchor before leaving this page; file selections, pasted PEM and notes are lost on navigation.\n\nPEM file\nor paste one PEM certificate\n\nOne self-signed CA root (CA:TRUE, certificate-signing key usage), at most 1,048,576 bytes. Saving rechecks the stored chain statuses immediately.\n\nNotes\nAdd trust anchor",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "shell.html",
+    "screenshot": "shell-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nFixture operator\n Warning: Key material cannot be decrypted with the configured master key. Details\n Critical: Worker is not running (last heartbeat > 5 minutes) Details\n Critical: Discovery and deploy are unavailable: the worker has no known_hosts file. Details\n\n Notes on the last action:\n\nInventory refresh completed. No changes were made.\nComponent reference\n\nStatic fixture data only. Forms and links demonstrate markup, not live operations.\n\nCertificate states\nCertificate\tState\tDays remaining\tFingerprint\napi.internal\t\nValid\t120\t8F:4A:21:CC:09:7D\nvpn.internal\t\nExpiring\t14\t8F:4A:21:CC:09:7D\nold.internal\t\nExpired\t-2\t8F:4A:21:CC:09:7D\nnew.internal\t\nUnknown\tUnknown\t8F:4A:21:CC:09:7D\nPrevious\n1\n2\nNext\nControls\nName\n\nUse an identifiable host name.\n\nState\nAll states\nExpired\nInclude inactive certificates\nInvalid value\n\n Enter a host name.\n\nApply filters\nClear filters\nUnavailable\nNo matching certificates\n\nClear the filters to see all certificates.\n\nClear filters\nConfirmation pattern\nReview certificate deletion",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "users-empty.html",
+    "screenshot": "users-empty-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nUsers\n\nManage administrator access, sign-in security and local accounts.\n\nAdd local user\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nNo users to display\n\nAdd a local user to grant administrator access. Directory users appear after sign-in.\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.\n\nAdd local user\nUsername\nEmail\nDisplay name (optional)\nTemporary password (at least 12 characters)\nRepeat temporary password\nCreate user\n\nThe user must change this password at first sign-in. The password is never shown again.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "users.html",
+    "screenshot": "users-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nUsers\n\nManage administrator access, sign-in security and local accounts.\n\nAdd local user\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nUsername\tDisplay name\tEmail\tBackend\tActive\t2FA\tMust change password\tLast login\tLocked until\tActions\noperator (you)\tOperator\toperator@example.test\tlocal\t\nYes\t\nEnabled\tNo\t2026-10-19 12:00 UTC\t\u2014\t\nManage\noperator\n\ndirectory-admin\tDirectory-Admin\tdirectory-admin@example.test\tldap\t\nYes\t\nOff\tNo\t2026-10-19 12:00 UTC\t2026-10-19 12:00 UTC\t\nManage\ndirectory-admin\n\nretired-admin\tRetired-Admin\tretired-admin@example.test\tlocal\t\nNo\t\nOff\t\nYes\t\u2014\t\u2014\t\nManage\nretired-admin\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.\n\nAdd local user\nUsername\nEmail\nDisplay name (optional)\nTemporary password (at least 12 characters)\nRepeat temporary password\nCreate user\n\nThe user must change this password at first sign-in. The password is never shown again.",
+    "documentWidth": 1425,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "login.html",
+    "screenshot": "login-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu\nSign in\nUsername\nPassword\nSign in\n\nThere is no password reset. If you cannot sign in, contact another admin.",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "overview.html",
+    "screenshot": "overview-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Overview\nFixture operator\nOverview\n\nTrack TLS certificates, reconcile endpoints and follow renewals and deployments.\n\nNeeds attention\nWork to review\tCount\tNext step\n\nExpired certificates\t2\tReview expired certificates\n\nCertificates expiring in < 7 days\t3\tPrepare renewals\n\nObserved certificate differs from stored certificate\t2\tReview mismatched endpoints\n\nDeployments failed or rolled back\t3\tReview failed (2)\nReview rolled back (1)\n\nRecorded results, not live probes. Other TLS findings are in Inventory and history below.\n\nIn flight\n1 renewal awaiting an issued certificate\n2 running scans\n1 deployment in progress\n\nAwaiting includes draft, CSR generated and submitted. Review all renewal stages.\n\nSystem\nStatus details\nWorker\nstale\nLast discovery\n2026-10-19 12:00 UTC\nLast digest\n2026-10-19 12:00 UTC\nInventory revision\nabc123def456 (5 h old)\nInventory and history \u00b7 all counters and recent work",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "overview-empty.html",
+    "screenshot": "overview-empty-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Overview\nFixture operator\nOverview\n\nTrack TLS certificates, reconcile endpoints and follow renewals and deployments.\n\nNeeds attention\n\nNothing needs attention in the work queue.\n\nRecorded results, not live probes. Other TLS findings are in Inventory and history below.\n\nIn flight\n0 renewals awaiting an issued certificate\n0 running scans\n0 deployments in progress\n\nAwaiting includes draft, CSR generated and submitted. Review all renewal stages.\n\nSystem\nStatus details\nWorker\nstale\nLast discovery\nnever\nLast digest\nnever\nInventory revision\nno inventory revision recorded yet\nGet started\n\nNo certificates are in the inventory yet. Work through this checklist:\n\nImport a certificate from a file, a paste or a live server.\nConfigure SMTP for expiry alerts and the daily digest.\nReview servers and discovery to find deployed certificates.\nInventory and history \u00b7 all counters and recent work",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-list.html",
+    "screenshot": "certificate-list-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Certificates\nFixture operator\nCertificates\n\n5 certificates\n\nImport certificate\nMore actions\nSearch\nSearch\nFilters\nCommon name\tIssuer\tExpires\tStatus\tBindings\tActions\ngateway.ops.example.test\tOperations Intermediate CA\t2026-11-19 12:00 UTC\t\n20 days\n\t0\t\nActions\n\nactive-0.ops.example.test\tOperations Intermediate CA\t2027-04-28 12:00 UTC\t\nValid\t0\t\nActions\n\nactive-1.ops.example.test\tOperations Intermediate CA\t2026-10-27 12:00 UTC\t\nExpired\t0\t\nActions\n\nrevoked-2.ops.example.test\tOperations Intermediate CA\t2026-11-09 12:00 UTC\t\nRevoked\t0\t\nActions\n\nunknown-3.ops.example.test\tOperations Intermediate CA\t2026-11-09 12:00 UTC\t\nUnknown\t0\t\nActions\nPage 1 of 1",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "certificate-detail.html",
+    "screenshot": "certificate-detail-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Certificates\nFixture operator\n\nAll certificates\n\nNo previous certificate\n\u2192\ngateway.ops.example.test\n\u2192\nNo later certificate\ngateway.ops.example.test\n\nExpiring\n20 days\nIncomplete chain\nInventory: active\n\nSubject alternative names\nDNS:gateway-0.ops.example.test\nDNS:gateway-1.ops.example.test\nDNS:gateway-2.ops.example.test\nDNS:gateway-3.ops.example.test\nDNS:gateway-4.ops.example.test\nDNS:gateway-5.ops.example.test\nDNS:gateway-6.ops.example.test\nDNS:gateway-7.ops.example.test\nDNS:gateway-8.ops.example.test\nDNS:gateway-9.ops.example.test\nDNS:gateway-10.ops.example.test\nDNS:gateway-11.ops.example.test\nDNS:gateway-12.ops.example.test\nDNS:gateway-13.ops.example.test\nDNS:gateway-14.ops.example.test\nDNS:gateway-15.ops.example.test\nDNS:gateway-16.ops.example.test\nDNS:gateway-17.ops.example.test\nDNS:gateway-18.ops.example.test\nDNS:gateway-19.ops.example.test\nDNS:gateway-20.ops.example.test\nDNS:gateway-21.ops.example.test\nDNS:gateway-22.ops.example.test\nDNS:gateway-23.ops.example.test\nDNS:gateway-24.ops.example.test\nDNS:gateway-25.ops.example.test\nDNS:gateway-26.ops.example.test\nDNS:gateway-27.ops.example.test\nDNS:gateway-28.ops.example.test\nDNS:gateway-29.ops.example.test\nDNS:gateway-30.ops.example.test\nDNS:gateway-31.ops.example.test\nDNS:gateway-32.ops.example.test\nDNS:gateway-33.ops.example.test\nDNS:gateway-34.ops.example.test\nDNS:gateway-35.ops.example.test\nDNS:gateway-36.ops.example.test\nDNS:gateway-37.ops.example.test\nDNS:gateway-38.ops.example.test\nDNS:gateway-39.ops.example.test\nSubject\nCN=gateway.ops.example.test,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,OU=Long department name,\nIssuer\nOperations Intermediate CA\nCN=Operations Intermediate CA,O=Example Operations\nSerial number\n1234567890abcdef1234567890abcdef\nValid from\n2026-01-03 12:00 UTC\nValid until\n2026-11-19 12:00 UTC\nSHA-256 fingerprint\n0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n\nSelect the full fingerprint to copy. The exact value is preserved.\n\nSource\nupload\nOwner\nOperations team <ops@example.test>\nTeam\nInfrastructure\nNotes\nFixture only. Review chain before deployment.\nAdded\n2026-01-03 12:00 UTC\nLast changed\n2026-10-30 12:00 UTC\nActions\nEdit details\nDownload certificate\nDownload chain\nDownload full chain\nExport PFX\nStart renewal\nDeploy\nScan now\n\nPublic downloads are audited. The private key is never shown; the only way to obtain it is a re-authenticated PFX protected by a password you choose. Deployments and scans are audited too.\n\nDeployments\n\nA trusted chain is required.\n\nNo deploy has run for this certificate yet.\n\nValidation\n\nIncomplete chain\n\nStored chain status: \nincomplete \u00b7 no intermediate chain stored\n\nRe-assessed just now against the enabled trust anchors: incomplete.\n\nThe issuer certificate is missing from the chain.\n\nThis does not block use of the certificate, but deployment requires a trusted chain. Review trust anchors in Settings, or import the missing chain below.\n\nLeaf certificate\nDownload certificate \u2014 stored public certificate\nIntermediate chain\nNo intermediate chain stored. Import missing intermediates.\nTrust anchors\nReview enabled trust anchors\nPrivate key\nKey present\nyes\nType\nRSA 2048-bit\nPublic key SHA-256\nabcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789\nCreated\n2026-10-30 12:00 UTC\nOrigin\ngenerated\nMaster key version\n1\n\nThe key is stored encrypted and is never displayed.\n\nBindings\n\nNo bindings recorded for this certificate. Bindings appear once server discovery is available (a later plan).\n\nEndpoints\n\nNo endpoints expect this certificate yet. Add one to watch where this certificate is served.\n\nAdd endpoint\n\nHistory\nRenewals\n\nEvery renewal awaiting an issued certificate \u00b7 All renewals\n\nNo renewals recorded.\n\nRecent activity\n\nNo activity recorded.\n\nEdit owner, team and notes\nOwner name\nOwner email\nTeam\nNotes\n\nNotes are shown to every administrator; do not store secrets here.\n\nSave details\nStatus\nChange the status of gateway.ops.example.test (#42)\nImport chain\nReplace the stored chain for gateway.ops.example.test (#42)",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "server-list.html",
+    "screenshot": "server-list-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Infrastructure\nFixture operator\nServers\n\nFind hosts, stored bindings and discovery failures before checking live TLS drift.\n\nRun discovery\nMore actions\nSearch\nSearch\nFilters\n4 servers \u00b7 Last seen means the recorded discovery time, not a live reachability check.\nServer\tGroups\tDiscovery state\tBindings\tLast seen / discovery\tTLS drift\n\nedge-01.ops.example.test\nPublic gateway\n\t\nproduction, edge\n\t\nDiscovered\t4\n\n2 issues\n\n\t\n\n2026-10-30 12:00 UTC\n\n\t\n1 drifted\n\nunreachable.ops.example.test\nLast inventory retained\n\t\nproduction, edge\n\t\nDiscovery failed\nView host failure reason\n\t4\n\n2 issues\n\n\t\n\n2026-10-30 12:00 UTC\n\n\t\n1 drifted\n\nnew-host.ops.example.test\nnginx\n\t\nproduction, edge\n\t\nNever discovered\t0\tNever discovered\t0\n\nlong-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-long-.ops.example.test\nLong identity fixture\n\t\nlong-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-long-group-\n\t\nDiscovered\t4\n\n2 issues\n\n\t\n\n2026-10-30 12:00 UTC\n\n\t\n1 drifted\nPage 1 of 1\nDiscovery\n\nRun across the inventory or a group. Open a server for failure reasons, captured results and run history; this list does not receive host error details.\n\nDiscover all\n \nGroup\nproduction\nedge\nDiscover group",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "users.html",
+    "screenshot": "users-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nFixture operator\nUsers\n\nManage administrator access, sign-in security and local accounts.\n\nAdd local user\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nUsername\tDisplay name\tEmail\tBackend\tActive\t2FA\tMust change password\tLast login\tLocked until\tActions\noperator (you)\tOperator\toperator@example.test\tlocal\t\nYes\t\nEnabled\tNo\t2026-10-19 12:00 UTC\t\u2014\t\nManage\noperator\n\ndirectory-admin\tDirectory-Admin\tdirectory-admin@example.test\tldap\t\nYes\t\nOff\tNo\t2026-10-19 12:00 UTC\t2026-10-19 12:00 UTC\t\nManage\ndirectory-admin\n\nretired-admin\tRetired-Admin\tretired-admin@example.test\tlocal\t\nNo\t\nOff\t\nYes\t\u2014\t\u2014\t\nManage\nretired-admin\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.\n\nAdd local user\nUsername\nEmail\nDisplay name (optional)\nTemporary password (at least 12 characters)\nRepeat temporary password\nCreate user\n\nThe user must change this password at first sign-in. The password is never shown again.",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-inventory.html",
+    "screenshot": "settings-inventory-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Inventory settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nInventory\n\nNo unsaved changes in this tab.\n\nRepository URL\nRef\nPath\nWeb server variable\nSave Inventory settings\n\nCurrent revision: unknown (no discovery, deploy or test pull has succeeded yet).\n\nTest pull\n\nTest pull fetches the repository and lists the hosts and groups on the worker; it does not connect to any server.\n\nNo test pull has run yet.",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "settings-general.html",
+    "screenshot": "settings-general-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave General settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nSystem and maintenance\n\nNo unsaved changes in this tab.\n\nRelated settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.\n\nGeneral\nDisplay time zone\nJob retention (days)\nSave General settings\nMaintenance\nMaster key rotation\n\nRotation is a command-line operation; this page never edits the keyring or rotates keys. Current state:\n\nActive version 1; loaded versions: 1\nRows not yet on the active version: 0\nVersions referenced by stored keys but missing from the keyring: none\n\nRun these on the dashboard host as root (full procedure: docs/operations.md, section 6). Take a database backup first.\n\nGenerate the next version into a new file in a temporary 0700 directory owned by the container user, merging the current keyring (live limit: two versions). The current master_key is mounted read-only at /secrets and the new file is written to /out; both paths exist only inside this one docker run:\nset -eu\ntmp=\"$(mktemp -d /tmp/cert-dashboard-keyring.XXXXXXXX)\"\ninstall -d -m 0700 -o 10001 -g 10001 \"$tmp\"\ndocker run --rm -v /etc/cert-dashboard/secrets:/secrets:ro -v \"$tmp\":/out cert-dashboard:local \\\n  python -m app.cli generate-master-key --version 2 --merge /secrets/master_key --output /out/master_key.v2.new\nsha256sum \"$tmp/master_key.v2.new\"\nThe command prints only sha256=<digest> path=<file>; the digest must equal the sha256sum output.\nKeep a copy of the old file in the backup location, install the verified file as the master_key secret and restart so new writes use it:\ninstall -m 0400 -o 10001 -g 10001 \"$tmp/master_key.v2.new\" /etc/cert-dashboard/secrets/master_key\nshred -u -- \"$tmp/master_key.v2.new\" && rmdir -- \"$tmp\"\ndocker compose up -d --force-recreate web worker\nRe-encrypt every key and TOTP seed (batched, idempotent, resumable):\ndocker compose run --rm web python -m app.cli rotate-master-key\nVerify a keyed certificate (metadata only is printed):\ndocker compose run --rm web python -m app.cli verify-key --certificate-id ID\n\nSecret files are read once at startup: replace the file, rerun scripts/install-secrets.sh and restart the service.\n\nPrune old jobs\n\nQueues the retention cleanup now: finished jobs older than the retention period, old scan results, expired sessions and old artifacts are removed. Audit rows are never removed.\n\nType PRUNE OLD JOBS to confirm\nQueue retention cleanup",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "error-404.html",
+    "screenshot": "error-404-mobile.png",
+    "width": 390,
+    "height": 844,
+    "kind": "static-fixture-not-live",
+    "text": "Skip to content\nCert Dashboard\nMenu\nPage not found.\n\n Error 404\n\nRequest ID: fixture-request-0001\n\nReturn to dashboard",
+    "documentWidth": 390,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "theme": "dark"
+  },
+  {
+    "preview": "users.html",
+    "screenshot": "users-add-disclosure-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "kind": "static-fixture-not-live",
+    "theme": "dark",
+    "documentWidth": 1425,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nUsers\n\nManage administrator access, sign-in security and local accounts.\n\nAdd local user\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nUsername\tDisplay name\tEmail\tBackend\tActive\t2FA\tMust change password\tLast login\tLocked until\tActions\noperator (you)\tOperator\toperator@example.test\tlocal\t\nYes\t\nEnabled\tNo\t2026-10-19 12:00 UTC\t\u2014\t\nManage\noperator\n\ndirectory-admin\tDirectory-Admin\tdirectory-admin@example.test\tldap\t\nYes\t\nOff\tNo\t2026-10-19 12:00 UTC\t2026-10-19 12:00 UTC\t\nManage\ndirectory-admin\n\nretired-admin\tRetired-Admin\tretired-admin@example.test\tlocal\t\nNo\t\nOff\t\nYes\t\u2014\t\u2014\t\nManage\nretired-admin\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.\n\nAdd local user\nUsername\nEmail\nDisplay name (optional)\nTemporary password (at least 12 characters)\nRepeat temporary password\nCreate user\n\nThe user must change this password at first sign-in. The password is never shown again."
+  },
+  {
+    "preview": "users.html",
+    "screenshot": "users-manage-confirm-desktop.png",
+    "width": 1440,
+    "height": 1000,
+    "pixelSize": [
+      1440,
+      1000
+    ],
+    "kind": "static-fixture-not-live",
+    "theme": "dark",
+    "documentWidth": 1425,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nUsers\nAudit\nSettings\nAccount\nFixture operator\nUsers\n\nManage administrator access, sign-in security and local accounts.\n\nAdd local user\nMore actions\n\nEvery active user is an administrator. Security actions ask for your current password and sign the affected user out immediately.\n\nUser access\nUsername\tDisplay name\tEmail\tBackend\tActive\t2FA\tMust change password\tLast login\tLocked until\tActions\noperator (you)\tOperator\toperator@example.test\tlocal\t\nYes\t\nEnabled\tNo\t2026-10-19 12:00 UTC\t\u2014\t\nManage\noperator\nEmail \nDisplay name \nSave\nReset password\n\nReplaces the password, signs this user out everywhere and requires a new password at next sign-in.\n\nReset password\nTemporary password \nRepeat temporary password \nYour current password \nReset password\nCancel\nReset two-factor authentication\nDeactivate user\n\ndirectory-admin\tDirectory-Admin\tdirectory-admin@example.test\tldap\t\nYes\t\nOff\tNo\t2026-10-19 12:00 UTC\t2026-10-19 12:00 UTC\t\nManage\ndirectory-admin\n\nretired-admin\tRetired-Admin\tretired-admin@example.test\tlocal\t\nNo\t\nOff\t\nYes\t\u2014\t\u2014\t\nManage\nretired-admin\n\nDeactivated users stay in the list and in the audit history; the last active user cannot be deactivated.\n\nAdd local user\nUsername\nEmail\nDisplay name (optional)\nTemporary password (at least 12 characters)\nRepeat temporary password\nCreate user\n\nThe user must change this password at first sign-in. The password is never shown again."
+  },
+  {
+    "preview": "settings-inventory.html",
+    "screenshot": "settings-menu-open-mobile.png",
+    "width": 390,
+    "height": 844,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "kind": "static-fixture-not-live",
+    "theme": "dark",
+    "documentWidth": 390,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nOverview\nCertificates\nCertificates\nImport\nRenewals\nInfrastructure\nServers\nBindings\nDiscovery\nOperations\nScans\nDeploy\nJobs\nAdministration\nUsers\nAudit\nSettings\nAccount\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Inventory settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nInventory\n\nNo unsaved changes in this tab.\n\nRepository URL\nRef\nPath\nWeb server variable\nSave Inventory settings\n\nCurrent revision: unknown (no discovery, deploy or test pull has succeeded yet).\n\nTest pull\n\nTest pull fetches the repository and lists the hosts and groups on the worker; it does not connect to any server.\n\nNo test pull has run yet."
+  },
+  {
+    "preview": "settings-inventory.html",
+    "screenshot": "settings-inventory-fields-mobile.png",
+    "width": 390,
+    "height": 844,
+    "pixelSize": [
+      390,
+      844
+    ],
+    "kind": "static-fixture-not-live",
+    "theme": "dark",
+    "documentWidth": 390,
+    "text": "Skip to content\nCert Dashboard\nMenu \u00b7 Administration\nSettings\n\nConfigure discovery, scans and delivery; save each configuration section explicitly.\n\nSave Inventory settings\nMore actions\n\nSave each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.\n\nSMTP\nAlerts\nInventory\nDeployment\nSchedule and scans\nTrust anchors\nStatus\nSystem and maintenance\nInventory\n\nNo unsaved changes in this tab.\n\nRepository URL\nRef\nPath\nWeb server variable\nSave Inventory settings\n\nCurrent revision: unknown (no discovery, deploy or test pull has succeeded yet).\n\nTest pull\n\nTest pull fetches the repository and lists the hosts and groups on the worker; it does not connect to any server.\n\nNo test pull has run yet."
+  }
+]

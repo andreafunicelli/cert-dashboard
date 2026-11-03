@@ -1,0 +1,37 @@
+[
+  {
+    "action": "Users: click Add local user",
+    "result": {
+      "hash": "#create-heading",
+      "headingTop": 354.546875
+    }
+  },
+  {
+    "action": "Users: open Manage then Reset password",
+    "result": [
+      "Manage operator",
+      "Reset password"
+    ]
+  },
+  {
+    "action": "Inspect repository form",
+    "result": [
+      {
+        "name": "repo_url",
+        "value": "ssh://git@example.test/inventory.git"
+      },
+      {
+        "name": "ref",
+        "value": "main"
+      },
+      {
+        "name": "path",
+        "value": "hosts"
+      },
+      {
+        "name": "webserver_var",
+        "value": "webserver_type"
+      }
+    ]
+  }
+]
