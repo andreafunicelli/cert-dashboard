@@ -2,7 +2,7 @@
 
 ## Decision summary and evidence boundary
 
-Live target: **certlab**, `https://certlab.funilab.org`, audited 2026-11-03 22:57–23:09 UTC (screens display Europe/Rome, crossing midnight). Remote checkout: `2489211`, `feat(ui): a Worker tab for the credentials, and a banner that leads somewhere`. db/web/worker were healthy before and after testing. The running web/worker image was created on November 2; the observed UI, rather than checkout alone, is the authority here.
+Live target: **certlab**, `https://certlab.funilab.org`, audited 2026-11-03 22:57–23:12 UTC (screens display Europe/Rome, crossing midnight). Remote checkout: `2489211`, `feat(ui): a Worker tab for the credentials, and a banner that leads somewhere`. db/web/worker were healthy before and after testing. The running web/worker image was created on November 2; the observed UI, rather than checkout alone, is the authority here.
 
 **This report supersedes the old static-only conclusions.** The [historical static audit](ux-audit/static-audit.md) and its [91 labeled fixture captures](ux-audit/README.md) remain a supplement at baseline `fe928fd`. They are not fresh live evidence. In particular:
 
@@ -37,7 +37,7 @@ docker compose ps --format '{{.Service}} {{.Health}}'
 
 Those audit harnesses remain root-only operational files on certlab, not dependencies or production code in this PR. They drive real Playwright Chromium page controls; they are not requests against synthesized HTML. They must not be rerun blindly: CRUD scripts are not general-purpose idempotent provisioning tools. Reproducible human steps are below. Credentials were read **on certlab only** from the supplied 0600 file, passed inside the process through environment variables, never printed, committed, put on a command line or included in captures. No cookies were injected for authentication. The assertion after login required the URL not to contain `/login`.
 
-Capture settings: desktop **1440×900**, narrow **390×844**, DPR 1, dark color-scheme. Actual PNG dimensions/sizes and SHA-256 hashes are in [live index](ux-audit/live/README.md) and [image manifest](ux-audit/live/images.json). Screenshots are viewport captures; an action may scroll the document to its control. A second scrolled shot is provided for buried settings/SSH fields. No touch gestures were synthesized.
+Capture settings: **74 live PNGs, including 11 narrow captures**, plus the separately labeled 91 historical fixture images (165 images total). Desktop **1440×900**, narrow **390×844**, DPR 1, dark color-scheme. Actual PNG dimensions/sizes and SHA-256 hashes are in [live index](ux-audit/live/README.md) and [image manifest](ux-audit/live/images.json). Screenshots are viewport captures; an action may scroll the document to its control. A second scrolled shot is provided for buried settings/SSH fields. No touch gestures were synthesized.
 
 ### Synthetic certificate / scan setup
 
@@ -101,7 +101,7 @@ The exploratory paths `/jobs`, `/discovery` and `/certificates/7/export/pfx` ret
 
 ## Prioritized reproducible findings
 
-P0 = critical safety/outage blocker; P1 = substantial task-blocking gap or major friction; P2 = meaningful friction with a workaround. **No P0 established.** This is a targeted workflow audit, not a numeric WCAG/performance certification.
+P0 = critical safety/outage blocker; P1 = substantial task-blocking gap or major friction; P2 = meaningful friction with a workaround. **Nine findings: zero P0, four P1, five P2.** This is a targeted workflow audit, not a numeric WCAG/performance certification.
 
 ### UX-01 — P1 — Managed-host inventory cannot be authored inside the dashboard
 
@@ -214,4 +214,6 @@ P0 = critical safety/outage blocker; P1 = substantial task-blocking gap or major
 
 This is a docs/images-only deliverable with real live workflow evidence and historical fixture supplementation, not a claim that every conceivable state was exercised. The strict request to replace **empty Overview** with a live screenshot remains incompatible with preserving existing shared lab data. Successful SSH mutation is similarly incompatible with protecting its preexisting singleton key. A live 500 was not intentionally caused. These require operator acceptance of the documented exclusions or a disposable fresh app/database and credential slot; they must not be silently called passed.
 
-Exact final lint/unit/remote-CI results are recorded in the PR and task handoff. No production route/template/business-logic file was changed by this audit, so there is no new runtime integration contract to regress. The historical test counts apply only to the original attempt; they are not substituted for the refreshed PR's checks.
+Refreshed local checks: `uv run ruff check .` passed; `uv run pytest -q tests/unit` completed with **1329 passed, 20 failed, 34 warnings in 192.77s**. All failures are Docker-dependent `tests/unit/test_topology.py` cases in the Docker-less sandbox; this is **not a green full local gate**. `git diff --check` passed. Image inventory verified 74 live PNG headers/dimensions/sizes and hashes, all above 20 KB. Native no-JavaScript login, detail navigation and audit-endpoint activation/deactivation were also exercised successfully, leaving the endpoint inactive.
+
+Remote CI for the original head `02bb7cb` was green (verify run `41729248464`), but it does not verify this new docs head. Exact-head CI status for the refreshed PR must be checked before review/acceptance. No production route/template/business-logic file was changed by this audit; historical test counts are not substituted for the refreshed checks.
