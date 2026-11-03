@@ -8,7 +8,7 @@
 {% call page_header('Servers', 'Find hosts, stored bindings and discovery failures before checking live TLS drift.') %}
   {% if discovery_reason %}<button type="button" disabled title="{{ discovery_reason }}">Run discovery</button>
   {% else %}<a class="button" href="#discovery-actions">Run discovery</a>{% endif %}
-  {% call more_actions() %}<a href="{{ export_url }}" download="servers.json">Export list as JSON</a><a href="/bindings">Where is a certificate used?</a>{% endcall %}
+  {% call more_actions() %}<a href="/inventory">Manage inventory</a><a href="{{ export_url }}" download="servers.json">Export list as JSON</a><a href="/bindings">Where is a certificate used?</a>{% endcall %}
 {% endcall %}
 {% call filters('/servers', values, {'search': 'Search', 'group': 'Group', 'active': 'Servers'}, 'search', 'Host name') %}
   <label>Group <input name="group" value="{{ values.group or '' }}" maxlength="200"></label>

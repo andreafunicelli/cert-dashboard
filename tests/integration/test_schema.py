@@ -42,6 +42,7 @@ COLUMNS = {
     "scheduler_state": "key:text! last_run_at:timestamptz",
     "login_rate_limit": "ip:inet! window_start:timestamptz! attempts:integer!",
     "trust_anchor": "id:bigint! subject:text! sha256_fingerprint:char(64)! pem:text! source:trust_anchor_source! notes:text created_by:bigint",
+    "ssh_public_key": "id:bigint! label:text! public_key:text! key_type:text! fingerprint_sha256:char(64)! created_by:bigint",
 }
 IMMUTABLE = {"audit_log", "scan_result", "trust_anchor"}
 ENUMS = {
@@ -142,6 +143,7 @@ FK = {
     "audit_log": {"actor_user_id": ("user", "id")},
     "worker_heartbeat": {"current_job_id": ("job", "id")},
     "trust_anchor": {"created_by": ("user", "id")},
+    "ssh_public_key": {"created_by": ("user", "id")},
 }
 UNIQUE = {
     "certificate": {("sha256_fingerprint",), ("issuer_dn", "serial")},
@@ -152,6 +154,7 @@ UNIQUE = {
     "user": {("username",)},
     "notification_log": {("dedupe_key",)},
     "trust_anchor": {("sha256_fingerprint",)},
+    "ssh_public_key": {("label",), ("fingerprint_sha256",)},
 }
 
 

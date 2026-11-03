@@ -1,0 +1,17 @@
+/* SSH keys: the worker-key facts list, the paste form, and the registered-key table. */
+.key-facts { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-5); margin-block: var(--space-4); }
+.key-facts dt { font-weight: var(--weight-medium); color: var(--text-muted); }
+.key-facts dd { margin: 0; overflow-wrap: anywhere; }
+.ssh-key-create { margin-block: var(--space-4); }
+.ssh-key-create[open] { width: 100%; }
+.ssh-key-form { display: grid; gap: var(--space-4); margin-block: var(--space-4); max-width: 46rem; }
+.ssh-key-field { display: grid; gap: var(--space-1); }
+.ssh-key-field textarea, .ssh-key-field input { max-width: 100%; font-family: var(--font-mono, monospace); }
+.ssh-key-field .hint { margin: 0; font-family: var(--font-sans, inherit); }
+.ssh-keys td { vertical-align: top; overflow-wrap: anywhere; }
+.ssh-keys code { font-size: var(--text-sm); }
+.ssh-keys .confirmation { margin-block: var(--space-2); }
+@media (max-width: 40rem) {
+  .key-facts { grid-template-columns: 1fr; }
+  .ssh-key-form { max-width: none; }
+}

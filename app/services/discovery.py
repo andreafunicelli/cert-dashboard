@@ -21,6 +21,7 @@ from app.services.audit import Actor, record
 from app.services.bindings import audit_binding_state, binding_state
 from app.services.endpoints import ensure_binding_endpoint, expect_for_binding, settle_endpoints
 from app.services.inventory import InventoryHost
+from app.services.inventory_entries import is_manual
 from app.services.scans import EndpointInputError
 
 CERTIFICATE_MISSING = "certificate missing or unreadable at discovery"
@@ -122,7 +123,13 @@ def sync_inventory_servers(
                 server.webserver = host.webserver
             updated += changed
         ids[host.hostname] = server.id
-    removed = [server for hostname, server in existing.items() if hostname not in ids and server.is_active]
+    # A host typed in from the dashboard was never expected in the checkout, so its absence is not a
+    # removal: only repository-backed rows are reconciled away (``services.inventory_entries``).
+    removed = [
+        server
+        for hostname, server in existing.items()
+        if hostname not in ids and server.is_active and not is_manual(server)
+    ]
     for server in removed:
         _deactivate_server(db, server, actor, now)
     db.flush()

@@ -1,0 +1,44 @@
+{# One host form shared by create and edit: same fields, same validation, no duplicated markup. #}
+{% macro host_form(action, values, csrf_token, submit_label, prefix, errors={}) %}
+<form class="inventory-form" method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#inventory-panel" hx-swap="outerHTML" hx-select="#inventory-panel" autocomplete="off">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="inventory-field">
+    <label for="{{ prefix }}-hostname">Hostname or IP address</label>
+    <input id="{{ prefix }}-hostname" name="hostname" value="{{ values.hostname or '' }}" maxlength="253" required autocomplete="off" aria-describedby="{{ prefix }}-hostname-help">
+    <p class="hint" id="{{ prefix }}-hostname-help">Exactly as Ansible must reach it, for example web01.example.internal or 10.0.0.11.</p>
+    {% if errors.hostname %}<p class="form-error" data-field="hostname" role="alert">{{ errors.hostname }}</p>{% endif %}
+  </div>
+  <div class="inventory-field">
+    <label for="{{ prefix }}-display_name">Display name</label>
+    <input id="{{ prefix }}-display_name" name="display_name" value="{{ values.display_name or '' }}" maxlength="200" autocomplete="off">
+    {% if errors.display_name %}<p class="form-error" data-field="display_name" role="alert">{{ errors.display_name }}</p>{% endif %}
+  </div>
+  <div class="inventory-field">
+    <label for="{{ prefix }}-connection_address">Connection address</label>
+    <input id="{{ prefix }}-connection_address" name="connection_address" value="{{ values.connection_address or '' }}" maxlength="253" autocomplete="off" aria-describedby="{{ prefix }}-connection-help">
+    <p class="hint" id="{{ prefix }}-connection-help">Only when it differs from the hostname.</p>
+    {% if errors.connection_address %}<p class="form-error" data-field="connection_address" role="alert">{{ errors.connection_address }}</p>{% endif %}
+  </div>
+  <div class="inventory-field">
+    <label for="{{ prefix }}-webserver">Web server</label>
+    <select id="{{ prefix }}-webserver" name="webserver">
+      <option value=""{% if not values.webserver %} selected{% endif %}>Detect during discovery</option>
+      <option value="nginx"{% if values.webserver == 'nginx' %} selected{% endif %}>nginx</option>
+      <option value="apache"{% if values.webserver == 'apache' %} selected{% endif %}>Apache</option>
+    </select>
+    {% if errors.webserver %}<p class="form-error" data-field="webserver" role="alert">{{ errors.webserver }}</p>{% endif %}
+  </div>
+  <div class="inventory-field">
+    <label for="{{ prefix }}-ansible_groups">Ansible groups</label>
+    <input id="{{ prefix }}-ansible_groups" name="ansible_groups" value="{{ values.ansible_groups or '' }}" maxlength="2000" autocomplete="off" aria-describedby="{{ prefix }}-groups-help">
+    <p class="hint" id="{{ prefix }}-groups-help">Comma or space separated, for example web, tls. “all” and “ungrouped” are added by Ansible.</p>
+    {% if errors.ansible_groups %}<p class="form-error" data-field="ansible_groups" role="alert">{{ errors.ansible_groups }}</p>{% endif %}
+  </div>
+  <div class="inventory-field">
+    <label for="{{ prefix }}-notes">Notes</label>
+    <textarea id="{{ prefix }}-notes" name="notes" rows="3" maxlength="2000">{{ values.notes or '' }}</textarea>
+    {% if errors.notes %}<p class="form-error" data-field="notes" role="alert">{{ errors.notes }}</p>{% endif %}
+  </div>
+  <div class="actions"><button type="submit">{{ submit_label }}</button><a href="/inventory">Cancel</a></div>
+</form>
+{% endmacro %}

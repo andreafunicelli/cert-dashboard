@@ -1,0 +1,137 @@
+{% extends "base.html.j2" %}
+{% block title %}Inventory · Cert Dashboard{% endblock %}
+{% block extra_css %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}<link rel="stylesheet" href="/static/pages/inventory.css">{% endblock %}
+{% block content %}
+{% from "_operations_ui.html.j2" import page_header, more_actions, filters %}
+{% from "_ui.html.j2" import icon %}
+{% from "inventory/_form.html.j2" import host_form %}
+{% set labels = {'search': 'Search', 'group': 'Group', 'source': 'Source', 'webserver': 'Web server', 'active': 'Hosts'} %}
+{% call page_header('Inventory', 'The hosts Ansible manages. Add them here, or import them from a repository — a repository is optional.') %}
+  {% if import_reason %}
+  <button type="button" disabled title="{{ import_reason }}">Import from repository</button>
+  {% else %}
+  <form class="inline" method="post" action="/inventory/import">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" hx-post="/inventory/import" hx-target="#inventory-panel" hx-select="#inventory-panel" hx-swap="outerHTML">Import from repository</button>
+  </form>
+  {% endif %}
+  {% call more_actions() %}<a href="/servers">Servers and bindings</a><a href="/servers#discovery-actions">Run discovery</a><a href="/audit?target_type=server">Host audit history</a>{% endcall %}
+{% endcall %}
+{% if repository %}
+<p class="help" data-source-hint="repository">Repository source: <code>{{ repository }}</code>. Discovery adds the hosts it finds there and deactivates the ones it stops finding; hosts you add here stay until you delete them.</p>
+{% else %}
+<p class="help" data-source-hint="manual">No inventory repository is configured: hosts you add here are the whole inventory and nothing else is required. <a href="/settings?tab=inventory">Configure a repository</a> if you also want to import hosts from one.</p>
+{% endif %}
+{% call filters('/inventory', values, labels, 'search', 'Hostname, group or note') %}
+  <label>Group <select name="group"><option value="">Any group</option>{% for name in groups %}<option value="{{ name }}"{% if values.group == name %} selected{% endif %}>{{ name }}</option>{% endfor %}</select></label>
+  <label>Source <select name="source">
+    <option value=""{% if not values.source %} selected{% endif %}>Any source</option>
+    <option value="manual"{% if values.source == 'manual' %} selected{% endif %}>Added here</option>
+    <option value="repository"{% if values.source == 'repository' %} selected{% endif %}>Repository</option>
+  </select></label>
+  <label>Web server <select name="webserver">
+    <option value=""{% if not values.webserver %} selected{% endif %}>Any web server</option>
+    <option value="nginx"{% if values.webserver == 'nginx' %} selected{% endif %}>nginx</option>
+    <option value="apache"{% if values.webserver == 'apache' %} selected{% endif %}>Apache</option>
+  </select></label>
+  <label>Hosts <select name="active">
+    <option value="true"{% if values.active == 'true' %} selected{% endif %}>Active</option>
+    <option value="false"{% if values.active == 'false' %} selected{% endif %}>Inactive</option>
+    <option value="all"{% if values.active == 'all' %} selected{% endif %}>All</option>
+  </select></label>
+  <input type="hidden" name="sort" value="{{ query.sort }}">
+  <input type="hidden" name="page_size" value="{{ query.page_size }}">
+{% endcall %}
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> host{{ "" if page.total == 1 else "s" }}{% if values.search or values.group or values.source or values.webserver or values.active != 'true' %} matching these filters{% endif %}.</div>
+<section class="panel wide" id="inventory-panel" data-inventory-total="{{ page.total }}">
+{% if errors %}
+<div class="form-error" role="alert" data-inventory-errors="true">
+  <p>The change was not saved:</p>
+  <ul>{% for field, message in errors.items() %}<li data-field="{{ field }}">{{ message }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+<details class="inventory-create" id="add-host"{% if create_open %} open{% endif %}>
+  <summary class="button">{{ 'Add another host' if page.items else 'Add host' }}</summary>
+  {{ host_form('/inventory', form, csrf_token, 'Add host', 'create', errors) }}
+</details>
+
+{% if page.items %}
+<div class="table-wrap" role="region" tabindex="0" aria-label="Inventory hosts">
+<table class="inventory">
+  <thead><tr>
+    <th scope="col"><a href="{{ sort_url('hostname') }}">Host</a></th>
+    <th scope="col">Groups</th>
+    <th scope="col">Source</th>
+    <th scope="col">Web server</th>
+    <th scope="col">State</th>
+    <th scope="col" class="numeric">Bindings</th>
+    <th scope="col" class="numeric"><a href="{{ sort_url('last_discovery_at') }}">Last discovery</a></th>
+    <th scope="col">Actions</th>
+  </tr></thead>
+  <tbody>
+  {% for row in page.items %}
+  <tr data-server-id="{{ row.id }}" data-source="{{ row.source }}"{% if not row.is_active %} class="row-inactive"{% endif %}>
+    <td><a class="row-identity" href="/servers/{{ row.id }}">{{ row.hostname }}</a><small class="row-secondary">{{ row.display_name or "" }}{% if row.connection_address %} · connects to {{ row.connection_address }}{% endif %}</small>{% if row.notes %}<small class="row-secondary inventory-notes">{{ row.notes }}</small>{% endif %}</td>
+    <td>{{ row.groups | join(", ") or "—" }}</td>
+    <td>{% if row.manual %}<span class="badge badge-ok" title="Added in the dashboard">{{ icon('ok') }}Added here</span>{% else %}<span class="badge badge-info" title="{{ row.source }}">Repository</span>{% endif %}</td>
+    <td>{{ row.webserver or "Not detected" }}</td>
+    <td>{% if row.is_active %}<span class="badge badge-ok">{{ icon('ok') }}Active</span>{% else %}<span class="badge badge-danger">{{ icon('danger') }}Inactive</span>{% endif %}
+      {% if row.last_discovery_status in ('failed', 'unreachable', 'error') %}<span class="badge badge-warn" title="The last discovery for this host failed">{{ icon('warn') }}Discovery failed</span>{% endif %}</td>
+    <td class="numeric">{{ row.binding_count }}</td>
+    <td class="numeric">{% if row.last_discovery_at %}{{ time_tag(row.last_discovery_at, tz) }}{% else %}Never discovered{% endif %}</td>
+    <td>
+      {% if row.manual %}
+      <details class="inventory-row-actions">
+        <summary>Manage <span class="row-secondary">{{ row.hostname }}</span></summary>
+        <h3>Edit host</h3>
+        {% set edit_values = {'hostname': row.hostname, 'display_name': row.display_name or '', 'connection_address': row.connection_address or '', 'webserver': row.webserver or '', 'ansible_groups': row.groups | join(', '), 'notes': row.notes or ''} %}
+        {{ host_form('/inventory/' ~ row.id ~ '/edit', edit_values, csrf_token, 'Save host', 'edit-' ~ row.id, errors) }}
+        <form class="inline" method="post" action="/inventory/{{ row.id }}/active">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="active" value="{{ 'false' if row.is_active else 'true' }}">
+          <button class="button-secondary" type="submit">{{ 'Deactivate host' if row.is_active else 'Activate host' }}</button>
+        </form>
+        <details class="confirmation">
+          <summary>Delete host</summary>
+          <p>Removes the host from the inventory. A host that still has discovery history cannot be deleted: deactivate it instead, so its bindings and audit trail stay readable.</p>
+          <form method="post" action="/inventory/{{ row.id }}/delete">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="actions"><button class="button-destructive" type="submit">Delete host</button><a href="/inventory">Cancel</a></div>
+          </form>
+        </details>
+      </details>
+      {% else %}
+      <p class="hint">Managed by the repository (<code>{{ row.source }}</code>): discovery adds and removes it. <a href="/servers/{{ row.id }}">Open the host</a> for discovery history and bindings.</p>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+  {% if values.search or values.group or values.source or values.webserver or values.active != 'true' %}
+  <section class="empty-state" data-empty="filtered"><h2>No hosts match these filters</h2><p><a href="/inventory">Clear the filters</a> to see every host in the inventory.</p></section>
+  {% else %}
+  <section class="empty-state" data-empty="inventory"><h2>No hosts in the inventory yet</h2>
+    <p>Add the servers Ansible manages here. No repository, GitHub account or external file is required.</p>
+    <div class="actions">
+      <a class="button" href="/inventory?create=1#add-host">Add your first host</a>
+      {% if not import_reason %}
+      <form class="inline" method="post" action="/inventory/import">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button-secondary" type="submit">Import from repository</button>
+      </form>
+      {% endif %}
+    </div>
+    {% if import_reason %}<p class="hint">{{ import_reason }}</p>{% endif %}
+  </section>
+  {% endif %}
+{% endif %}
+<nav class="pager" aria-label="Pages">
+  {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
+  <span>Page <span class="mono">{{ page.page }}</span> of <span class="mono">{{ pages }}</span></span>
+  {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
+</nav>
+</section>
+{% endblock %}

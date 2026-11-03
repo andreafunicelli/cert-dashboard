@@ -1,0 +1,103 @@
+{% extends "base.html.j2" %}
+{% block title %}SSH keys · Cert Dashboard{% endblock %}
+{% block extra_css %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}<link rel="stylesheet" href="/static/pages/ssh-keys.css">{% endblock %}
+{% block content %}
+{% from "_operations_ui.html.j2" import page_header, more_actions %}
+{% from "_ui.html.j2" import icon %}
+{% call page_header('SSH keys', 'The public keys to authorize on the servers Ansible manages, and the private key in use.') %}
+  <a class="button" href="#add-ssh-key">Add public key</a>
+  {% call more_actions() %}<a href="/settings?tab=worker">Worker SSH private key</a><a href="/audit?target_type=ssh_key">Key audit history</a>{% endcall %}
+{% endcall %}
+<p class="help">Only public keys are stored on this screen. The private key Ansible uses stays sealed: the card below shows its type and public fingerprint, never the value itself.</p>
+
+<section class="panel" id="worker-key" aria-labelledby="worker-key-heading">
+  <h2 id="worker-key-heading">Worker SSH key</h2>
+  {% if worker_key.configured %}
+  <p><span class="badge badge-ok">{{ icon('ok') }}Configured</span> <span class="hint">{{ 'Set in the dashboard, stored encrypted' if worker_key.source == 'database' else 'Supplied by a mounted secret file' }}</span></p>
+  {% if worker_key.key_type and worker_key.fingerprint_sha256 %}
+  <dl class="key-facts">
+    <dt>Key type</dt><dd>{{ worker_key.key_type }}</dd>
+    <dt>Public fingerprint <span class="hint">SHA-256 of the DER SubjectPublicKeyInfo</span></dt>
+    <dd><code class="identifier">{{ worker_key.fingerprint_sha256 }}</code></dd>
+    {% if worker_key.updated_at %}<dt>Last replaced</dt><dd>{{ time_tag(worker_key.updated_at, tz) }}{% if worker_key.updated_by %} by {{ worker_key.updated_by }}{% endif %}</dd>{% endif %}
+  </dl>
+  {% else %}
+  <p class="hint">Public metadata is unavailable for this key. <a href="/settings?tab=worker">Open Worker settings</a> to check or replace it.</p>
+  {% endif %}
+  <p><a class="button button-secondary" href="/settings?tab=worker#worker-ssh">Replace or remove the private key</a></p>
+  {% else %}
+  <section class="empty-state" data-empty="worker-key"><h3>No worker SSH key configured</h3>
+    <p>Discovery and deploy need a private key. <a href="/settings?tab=worker#worker-ssh">Add one in Settings → Worker</a>: it is stored sealed and never shown again.</p>
+  </section>
+  {% endif %}
+</section>
+
+<section class="panel wide" id="ssh-key-panel" data-key-count="{{ keys | length }}">
+  <h2>Registered public keys</h2>
+  {% if errors %}
+  <div class="form-error" role="alert" data-ssh-key-errors="true">
+    <p>The key was not saved:</p>
+    <ul>{% for field, message in errors.items() %}<li data-field="{{ field }}">{{ message }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  <details class="ssh-key-create" id="add-ssh-key"{% if add_open %} open{% endif %}>
+    <summary class="button">Add public key</summary>
+    <form class="ssh-key-form" method="post" action="/ssh-keys" hx-post="/ssh-keys" hx-target="#ssh-key-panel" hx-select="#ssh-key-panel" hx-swap="outerHTML" autocomplete="off">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="ssh-key-field">
+        <label for="key-label">Label</label>
+        <input id="key-label" name="label" value="{{ form.label or '' }}" maxlength="64" required autocomplete="off" aria-describedby="key-label-help">
+        <p class="hint" id="key-label-help">What this key is for, for example “Ansible production” or “Backup host”.</p>
+        {% if errors.label %}<p class="form-error" data-field="label" role="alert">{{ errors.label }}</p>{% endif %}
+      </div>
+      <div class="ssh-key-field">
+        <label for="key-public">Public key</label>
+        <textarea id="key-public" name="public_key" rows="4" required spellcheck="false" aria-describedby="key-public-help">{{ form.public_key or '' }}</textarea>
+        <p class="hint" id="key-public-help">Paste the contents of the <code>.pub</code> file: one line beginning with ssh-ed25519, ssh-rsa or ecdsa-sha2-. A private key is refused, and the pasted text is cleared after a failed save.</p>
+        {% if errors.public_key %}<p class="form-error" data-field="public_key" role="alert">{{ errors.public_key }}</p>{% endif %}
+      </div>
+      <div class="actions"><button type="submit">Add key</button><a href="/ssh-keys">Cancel</a></div>
+    </form>
+  </details>
+
+  {% if keys %}
+  <div class="table-wrap" role="region" tabindex="0" aria-label="Registered SSH public keys">
+  <table class="ssh-keys">
+    <thead><tr>
+      <th scope="col">Label</th>
+      <th scope="col">Type</th>
+      <th scope="col">Fingerprint</th>
+      <th scope="col">Created</th>
+      <th scope="col">Actions</th>
+    </tr></thead>
+    <tbody>
+    {% for key in keys %}
+    <tr data-ssh-key-id="{{ key.id }}">
+      <td><span class="row-identity">{{ key.label }}</span>{% if key.comment %}<small class="row-secondary">{{ key.comment }}</small>{% endif %}</td>
+      <td>{{ key.key_type }}{% if key.bits %} <span class="hint">{{ key.bits }} bits</span>{% endif %}</td>
+      <td><code class="identifier" title="Compare with ssh-keygen -lf on the server">{{ key.fingerprint_openssh }}</code>
+        <small class="row-secondary">DER SHA-256 <code>{{ key.fingerprint_sha256 }}</code></small></td>
+      <td>{% if key.created_at %}{{ time_tag(key.created_at, tz) }}{% else %}Not recorded{% endif %}{% if key.created_by %}<small class="row-secondary">by {{ key.created_by }}</small>{% endif %}</td>
+      <td>
+        <details class="confirmation">
+          <summary>Delete key</summary>
+          <p>Removes “{{ key.label }}” from the dashboard. Servers keep the key in their <code>authorized_keys</code> until you remove it there too.</p>
+          <form method="post" action="/ssh-keys/{{ key.id }}/delete">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <div class="actions"><button class="button-destructive" type="submit">Delete key</button><a href="/ssh-keys">Cancel</a></div>
+          </form>
+        </details>
+      </td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  {% else %}
+  <section class="empty-state" data-empty="ssh-keys"><h3>No public keys registered</h3>
+    <p>Register the public keys you want to authorize on the managed servers, so the fingerprint you check there has a label and a date here.</p>
+    <p><a class="button" href="/ssh-keys#add-ssh-key">Add the first public key</a></p>
+  </section>
+  {% endif %}
+</section>
+{% endblock %}

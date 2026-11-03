@@ -1,5 +1,5 @@
 {% from "_ui.html.j2" import icon %}
-<p class="help" id="worker-secret-help">Credentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning.</p>
+<p class="help" id="worker-secret-help">Credentials are encrypted at rest and used by the next job without a worker restart. Stored values are never shown. Secret edits and file selections are not kept as drafts: save each credential before switching tabs or saving another section. Without JavaScript, leaving this page loses unsaved input without a warning. <a href="/ssh-keys">Registered SSH public keys</a></p>
 <p class="help">A database value overrides a mounted worker secret. Removing it restores the mounted value, if one exists. <a href="/audit?target_type=credential">Credential audit history</a></p>
 {% for slug, control in credential_controls.items() %}
 {% set spec = control.spec %}{% set state = worker_credentials[spec.name] %}{% set field = control.field %}

@@ -1,0 +1,15 @@
+/* Inventory management: the shared table, with a per-row edit panel and a delete confirmation. */
+.inventory-create, .inventory-row-actions { margin-block: var(--space-4); }
+.inventory-create[open], .inventory-row-actions[open] { width: 100%; }
+.inventory-create > summary, .inventory-row-actions > summary { font-weight: var(--weight-medium); }
+.inventory-form { display: grid; gap: var(--space-4); margin-block: var(--space-4); max-width: 46rem; }
+.inventory-field { display: grid; gap: var(--space-1); }
+.inventory-field input, .inventory-field select, .inventory-field textarea { max-width: 100%; }
+.inventory-field .hint { margin: 0; }
+.inventory .inventory-notes { white-space: pre-line; overflow-wrap: break-word; }
+.inventory td { vertical-align: top; }
+.inventory .badge { white-space: nowrap; }
+.inventory-row-actions .confirmation { margin-block: var(--space-4); }
+@media (max-width: 40rem) {
+  .inventory-form { max-width: none; }
+}
