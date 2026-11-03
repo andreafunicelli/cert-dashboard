@@ -206,10 +206,10 @@ hard-codes that secret directory. Relevant knobs:
 | --- | --- | --- |
 | `WORKER_CONCURRENCY` | 4 | slots, i.e. maximum concurrently running jobs |
 | `MAX_PARALLEL_JOBS` | 2 | cap on `discover`/`scan` jobs among those slots; the rest stay queued |
-| `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed |
+| `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed. The setting `worker.ssh_private_key` (Settings → Worker, encrypted in the database) wins over the file |
 | `known_hosts` → `/etc/ssh/ssh_known_hosts` (`SSH_KNOWN_HOSTS`) | `/etc/ssh/ssh_known_hosts` | pinned SSH host keys; a missing file fails every `discover`/`deploy` with `config_invalid` before any connection |
-| `ansible_vault_password` (secret) | absent | optional Ansible Vault password; reaches the child as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE=app/ansible/vault_client.py` |
-| `inventory_git_token` (secret) | absent | optional HTTPS Git token; reaches `git` through `app/ansible/git_askpass.py` (username `x-access-token`), never stored in `.git/config` |
+| `ansible_vault_password` (secret) | absent | optional Ansible Vault password; reaches the child as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE=app/ansible/vault_client.py`. The setting `worker.vault_password` wins over the file |
+| `inventory_git_token` (secret) | absent | optional HTTPS Git token; reaches `git` through `app/ansible/git_askpass.py` (username `x-access-token`), never stored in `.git/config`. The setting `inventory.git_token` wins over the file |
 | `smtp_password` (secret) | absent | the SMTP password; worker-only, read from `/run/secrets` (the web profile never loads it). Absent means no AUTH is attempted |
 | `DASHBOARD_URL` (environment) | empty | optional absolute `http(s)` base URL that alert and digest e-mails put in front of dashboard paths; without it the mails carry relative paths such as `/certificates/42`. A URL with credentials, a query or a fragment refuses startup |
 
@@ -243,9 +243,13 @@ Discovery shares the two-job `MAX_PARALLEL_JOBS` cap with scans; a deploy job ta
 slot and is serialized instead by `deploy:global` (one deploy at a time) and `deploy.concurrency`
 (hosts per batch). A deploy job also holds `inventory:pull`; a paused deploy holds no claim, no slot,
 no lock and no `timeout_at`, so it is never reaped. At startup the worker writes one `worker.start`
-audit row with the worker id and four presence booleans (`ssh_key_present`, `known_hosts_present`,
-`vault_password_present`, `inventory_token_present`) and never a value; the web enables or disables
-the discovery/deploy controls from the newest row of a worker with a fresh heartbeat.
+audit row with the worker id and never a value: four effective presence booleans (`ssh_key_present`,
+`known_hosts_present`, `vault_password_present`, `inventory_token_present`) and three file-only
+provenance booleans (`ssh_key_file_present`, `vault_password_file_present`,
+`inventory_token_file_present`). The web enables or disables the discovery/deploy controls from the
+newest row of a worker with a fresh heartbeat: it reads the database side live and trusts the file
+provenance only when the worker reported it explicitly — the effective flags say what the worker had
+at startup and are never proof of a mounted file, and a row without provenance is unknown, not file.
 
 ### Shutdown and in-flight writes
 

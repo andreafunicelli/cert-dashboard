@@ -92,6 +92,8 @@ def operator_fixtures():
             "snapshot": {"recent_jobs": [], "renewals": [], "status": {"worker": "stale", "last_heartbeat_at": None,
                 "last_discovery_at": None,
                 "inventory_rev": None, "inventory_rev_age_hours": None, "last_digest_at": None}}}),
+        "administration": ("administration.html.j2", {"active_user_count": 1}),
+        "administration-empty": ("administration.html.j2", {"active_user_count": 0}),
         "account": ("account.html.j2", account),
         "account-enrollment": ("account.html.j2", account | {"totp_enabled": False, "totp_pending": True,
             "enrollment": {"secret": "PREVIEW-KEY-NOT-A-REAL-SECRET", "provisioning_uri": "otpauth://totp/preview-only",
@@ -101,6 +103,10 @@ def operator_fixtures():
         "account-error": ("account.html.j2", account | {"disable_error": "Current password is incorrect."}),
         "users": ("users.html.j2", {"users": users, "current_user_id": 1, "values": {}, "tz": "UTC"}),
         "users-empty": ("users.html.j2", {"users": [], "current_user_id": 1, "values": {}, "tz": "UTC"}),
+        "users-create": ("users.html.j2", {"users": users, "current_user_id": 1, "values": {}, "tz": "UTC", "create_open": True}),
+        "users-create-error": ("users.html.j2", {"users": users, "current_user_id": 1,
+            "values": {"username": "new-operator", "email": "operator@example.test", "display_name": "New operator"},
+            "tz": "UTC", "create_open": True, "error": "A user with this username already exists."}),
         "audit": ("audit.html.j2", audit | {"items": events}),
         "audit-empty": ("audit.html.j2", audit | {"items": [], "total": 0}),
     }
@@ -189,6 +195,7 @@ def fixtures():
     pages.update(certificate_density_fixtures())
     pages.update(operations_fixtures())
     pages.update(infrastructure_fixtures())
+    pages.update(worker_fixtures(pages['settings-smtp'][1]))
     pages.update(consistency_fixtures(pages))
     return {name: (template, common | context) for name, (template, context) in pages.items()}
 
@@ -563,7 +570,7 @@ def operations_fixtures():
                                                            "tz": 'UTC', "request": request})
     tabs = [('smtp', 'SMTP'), ('alerts', 'Alerts'), ('inventory', 'Inventory'), ('deployment', 'Deployment'),
             ('scanning', 'Scanning'), ('schedule', 'Schedule'), ('general', 'General'),
-            ('trust', 'Trust anchors'), ('status', 'Status'), ('maintenance', 'Maintenance')]
+            ('trust', 'Trust anchors'), ('status', 'Status'), ('maintenance', 'Maintenance'), ('worker', 'Worker')]
     rows_by_tab = {
         'smtp': [('host', 'Host', 'text', 'smtp.example.test'), ('port', 'Port', 'text', '587'),
                  ('security', 'Security', 'select', 'starttls'), ('from', 'From address', 'text', 'alerts@example.test'),
@@ -690,6 +697,41 @@ def infrastructure_fixtures():
         "binding-help": ("bindings/help.html.j2", listing),
     }
 
+
+
+def worker_fixtures(base):
+    """Metadata-only Worker states: no private key, password or token fixture values."""
+    ns = SimpleNamespace
+    controls = {}
+    states = {}
+    stamp = datetime(2026, 11, 2, 12, tzinfo=UTC)
+    for slug, name, label, field, description, cap in [
+        ('ssh', 'worker.ssh_private_key', 'SSH private key', 'private_key',
+         'Discovery and deploy stop working without an SSH private key.', 16384),
+        ('vault', 'worker.vault_password', 'Ansible vault password', 'vault_password',
+         'Needed when inventory files use Ansible Vault.', 512),
+        ('inventory-token', 'inventory.git_token', 'Inventory repository token', 'inventory_token',
+         'HTTPS token, needed only when the inventory repository is private.', 512),
+    ]:
+        controls[slug] = {'spec': ns(name=name, label=label, description=description, max_bytes=cap), 'field': field}
+        states[name] = ns(name=name, label=label, configured=True, source='database', updated_at=stamp,
+                          updated_by='Fixture operator', key_type='Ed25519' if slug == 'ssh' else None,
+                          fingerprint_sha256='0123456789abcdef' * 4 if slug == 'ssh' else None)
+    context = base | {'tab': 'worker', 'tab_label': 'Worker', 'fields': [], 'values': {},
+                       'credential_controls': controls, 'worker_credentials': states}
+    absent = {name: ns(**(vars(state) | {'configured': False, 'source': None, 'updated_at': None,
+              'updated_by': None, 'key_type': None, 'fingerprint_sha256': None})) for name, state in states.items()}
+    mounted = {name: ns(**(vars(state) | {'configured': True, 'source': 'file'})) for name, state in absent.items()}
+    return {
+        'settings-worker': ('settings.html.j2', context),
+        'settings-worker-empty': ('settings.html.j2', context | {'worker_credentials': absent,
+            'capability_banner': 'Discovery and deploy are unavailable: no SSH key is configured.'}),
+        'settings-worker-mounted': ('settings.html.j2', context | {'worker_credentials': mounted}),
+        'settings-worker-error': ('settings.html.j2', context | {'errors': {
+            'form': ['SSH private key: this is a public key: paste the private key instead']}}),
+        'settings-worker-saved': ('settings.html.j2', context | {'flash': [
+            'SSH private key saved. Public SHA-256 fingerprint: ' + '0123456789abcdef' * 4 + '.']}),
+    }
 
 
 def consistency_fixtures(pages):

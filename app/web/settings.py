@@ -100,6 +100,15 @@ from app.services.trust_anchors import (
     recheck_chain_statuses,
     remove_anchor,
 )
+from app.services.worker_credentials import (
+    SSH_PRIVATE_KEY,
+    WORKER_CREDENTIALS,
+    CredentialError,
+    credential_configured,
+    credential_states,
+    remove_credential,
+    set_credential,
+)
 from app.web.common import (
     _render,
     _transact,
@@ -226,6 +235,7 @@ _TAB_LABELS = {
     "trust": "Trust anchors",
     "status": "Status",
     "maintenance": "Maintenance",
+    "worker": "Worker",
 }
 _TAB_LINKS = [{"name": name, "label": label} for name, label in _TAB_LABELS.items()]
 
@@ -242,6 +252,7 @@ _SECTION_LABELS = {
     "trust": "Trust anchors",
     "status": "Status",
     "maintenance": "System and maintenance",
+    "worker": "Worker",
 }
 _SECTION_TABS = [{"name": name, "label": label} for name, label in _SECTION_LABELS.items()]
 _GROUPED_SECTIONS = {"scanning": "schedule", "general": "maintenance"}
@@ -349,7 +360,7 @@ _WARNINGS = {
 
 
 _NO_INVENTORY = "No inventory repository is configured: set the repository URL first."
-_NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+_NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 _REVISION = re.compile(r"[0-9a-f]{40}")
 
 
@@ -430,6 +441,14 @@ def inventory_status(db: Session, now: datetime) -> dict[str, JSONValue]:
     finished = newest[1] if newest is not None else None
     last = db.scalars(_test_pull_jobs().order_by(Job.created_at.desc(), Job.id.desc()).limit(1)).first()
     capabilities = worker_capabilities(db, now)
+    # A key stored in the database is held by every worker, even one that started after it was saved:
+    # that side is read live. A mounted file is known only from the worker's explicit file provenance;
+    # its effective startup flag is not proof (it is true for a database-held key too).
+    ssh_key_present = (
+        None
+        if capabilities is None
+        else capabilities.ssh_key_file_present is True or credential_configured(db, SSH_PRIVATE_KEY)
+    )
     return {
         "configured": bool(get_setting(db, "inventory.repo_url")),
         "current_rev": revision[0] if revision else None,
@@ -438,7 +457,7 @@ def inventory_status(db: Session, now: datetime) -> dict[str, JSONValue]:
         "last_test": None if last is None else _test_pull_view(last),
         "worker": {
             "reporting": capabilities is not None,
-            "ssh_key_present": capabilities.ssh_key_present if capabilities else None,
+            "ssh_key_present": ssh_key_present,
             "known_hosts_present": capabilities.known_hosts_present if capabilities else None,
         },
     }
@@ -558,6 +577,15 @@ def _page(
                     max_attempts=MAX_NOTIFICATION_ATTEMPTS,
                     timezone=display_timezone(db),
                 )
+        elif tab == "worker":
+            context.update(
+                worker_credentials=credential_states(
+                    db, request.app.state.settings,
+                    worker=worker_capabilities(db, request.app.state.clock()),
+                ),
+                credential_controls=_WORKER_CONTROLS,
+                timezone=display_timezone(db),
+            )
         elif tab == "trust":
             context.update(_trust_context(db))
         else:  # status and maintenance both render the snapshot (maintenance shows the keyring state)
@@ -839,6 +867,64 @@ async def _submit(request: Request, handler, *args, max_files: int = 0):
         await form.close()
 
 
+_WORKER_CONTROLS = {
+    slug: {"spec": spec, "field": field}
+    for slug, spec, field in zip(
+        ("ssh", "vault", "inventory-token"), WORKER_CREDENTIALS,
+        ("private_key", "vault_password", "inventory_token"), strict=True,
+    )
+}
+
+
+def _worker_control(slug: str):
+    if slug not in _WORKER_CONTROLS:
+        raise HTTPException(404)
+    return _WORKER_CONTROLS[slug]
+
+
+def _handle_worker_save(request: Request, slug: str, form: FormData):
+    control = _worker_control(slug)
+    spec, field = control["spec"], control["field"]
+    allowed = (field, "private_key_file") if slug == "ssh" else (field,)
+    if not _only(form, *allowed) or any(len(form.getlist(name)) > 1 for name in form):
+        return _refused(request, "worker", _UNRECOGNISED)
+    value = form.get(field, "")
+    if not isinstance(value, str):
+        return _refused(request, "worker", f"{spec.label}: enter a new value.")
+    upload = form.get("private_key_file")
+    if isinstance(upload, UploadFile) and upload.filename:
+        if value.strip():
+            return _refused(request, "worker", "Choose a key file or paste a key, not both.")
+        value = upload.file.read(spec.max_bytes + 1)
+    if len(value) > spec.max_bytes:
+        return _refused(request, "worker", f"{spec.label}: must be at most {spec.max_bytes} bytes.")
+
+    def work(db, now, actor):
+        return set_credential(db, request.app.state.settings, spec.name, value, actor)
+
+    try:
+        state, _ = _transact(request, work)
+    except CredentialError as exc:
+        return _refused(request, "worker", f"{spec.label}: {exc}")
+    note = f"{spec.label} saved."
+    if state.fingerprint_sha256:
+        note += f" Public SHA-256 fingerprint: {state.fingerprint_sha256}."
+    return _done(request, "worker", note)
+
+
+def _handle_worker_remove(request: Request, slug: str, form: FormData):
+    control = _worker_control(slug)
+    if not _only(form, "confirm") or form.getlist("confirm") != ["REMOVE"]:
+        return _refused(request, "worker", "Type REMOVE exactly to confirm removing the stored credential.")
+    spec = control["spec"]
+
+    def work(db, now, actor):
+        remove_credential(db, request.app.state.settings, spec.name, actor)
+
+    _transact(request, work)
+    return _done(request, "worker", f"{spec.label} database value removed. Any mounted credential still takes precedence over absence.")
+
+
 def register_settings_routes(app: FastAPI) -> None:
     install_template_helpers(app)
 
@@ -895,3 +981,13 @@ def register_settings_routes(app: FastAPI) -> None:
             return await run_in_threadpool(_handle_post, request, tab, form)
         finally:
             await form.close()
+
+    @app.post("/settings/worker/{slug}")
+    async def worker_save(request: Request, slug: str):
+        _worker_control(slug)
+        return await _submit(request, _handle_worker_save, slug, max_files=1 if slug == "ssh" else 0)
+
+    @app.post("/settings/worker/{slug}/remove")
+    async def worker_remove(request: Request, slug: str):
+        _worker_control(slug)
+        return await _submit(request, _handle_worker_remove, slug)

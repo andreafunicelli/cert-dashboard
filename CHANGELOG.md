@@ -224,6 +224,20 @@ with the pull request that delivered each group of changes.
   `python -m scripts.render_previews`; `tests/test_ui_previews.py` fails when they drift from the
   templates (PRs #70–#75).
 
+**Worker credentials as encrypted settings (PR #87)**
+
+- The SSH private key, the Ansible Vault password and the inventory Git token become first-class
+  settings in `encrypted_setting`: one AES-256-GCM row per credential, sealed with the certificate
+  keyring and bound to its own setting name through the AAD. They are write-only — the interface
+  reads presence, who set them, when, and, for the key, its type and public fingerprint.
+- Credentials are resolved when a job runs — database first, then the mounted file of the same name,
+  then absent — so a change applies without restarting the worker and an installation that only has
+  the files behaves exactly as before. The worker also claims `discover`/`deploy` and clears the
+  capability banner from a key stored in the database.
+- Every set, replacement and removal writes one `credential.*` audit event with the metadata and
+  never the value; `rotate-master-key` rewraps the stored credentials with the private keys and TOTP
+  seeds.
+
 ### Changed
 
 - `README.md` rewritten around the product, the interface and the operator path, with screenshots
@@ -231,6 +245,9 @@ with the pull request that delivered each group of changes.
 - `README.md` screenshots are captures of a running instance populated with synthetic data through the
   application's own endpoints; the deploy, renewal and alert-settings images remain renders of the same
   templates with fixture data (PR #77).
+- `README.md` screenshots refreshed for the grouped-navigation interface, with `alt` text and navigation
+  wording for the four areas and the regrouped Settings sections; `alert-settings` is rendered from
+  `docs/ui/previews/settings-alerts.html` because the capture of that page returned a 404 (PR #85).
 - **Operator decisions D1–D3 (2026-10-25) are recorded and the spec is corrected.** D1: certificate
   chain roles are decided per file by signature verification, never by position or DN equality, so a
   same-CA RSA+ECDSA pair is two bindings; D2: key identity is the SHA-256 of the DER
@@ -245,6 +262,18 @@ with the pull request that delivered each group of changes.
   change host-key checking in `known_hosts`, never in that variable.
 - `docs/operations.md` §11.1 now states the seeded `discovery.nightly_at` default (03:00 UTC) that
   `app/services/settings.py` and the migration actually use.
+
+### Fixed
+
+- **Worker credential provenance (PR #88).** `worker.start` recorded the effective startup presence
+  of the three credentials (database row *or* mounted file) and the interface read those flags as proof
+  of a mounted file, so a credential saved only in the database and later removed kept being reported
+  as `Configured`/`source=file` and kept the missing-SSH-key banner away while the next job resolved no
+  key. The report now also records file-only provenance (`ssh_key_file_present`,
+  `vault_password_file_present`, `inventory_token_file_present`); `credential_states` and the
+  banner/Inventory availability reads use that provenance plus a live database read, and a report that
+  predates the fields is treated as unknown, never as a file. The effective flags keep their meaning
+  for compatibility. See `docs/operations.md` §11.2 for the one worker restart after an upgrade.
 
 ### Security
 

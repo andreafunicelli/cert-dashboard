@@ -24,6 +24,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection, Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import ConfigurationError, Settings, load_settings
@@ -49,6 +50,14 @@ from app.models import AppSetting, AuditLog, Job, JSONValue, SchedulerState, Wor
 from app.models.enums import JobType
 from app.services.audit import Actor, SecretRedactionFilter, record
 from app.services.notifications import enqueue_notification_retry
+from app.services.worker_credentials import (
+    INVENTORY_GIT_TOKEN,
+    SSH_PRIVATE_KEY,
+    VAULT_PASSWORD,
+    credential_configured,
+    file_presence,
+    resolve_worker_settings,
+)
 
 _LOG = logging.getLogger(__name__)
 
@@ -397,27 +406,75 @@ def worker_liveness(db: Session, now: datetime) -> Literal["ok", "stale"]:
 
 @dataclass(frozen=True)
 class WorkerCapabilities:
-    """What the newest live worker holds, as the web process (which cannot see secrets) may know it."""
+    """What the newest live worker holds, as the web process (which cannot see secrets) may know it.
+
+    Two families of booleans, answering different questions:
+
+    * ``ssh_key_present`` / ``vault_password_present`` / ``inventory_token_present`` are the
+      **effective** startup availability: the worker had the value when it wrote the row, from the
+      database or from a file. They are kept for compatibility and are no proof of a file — a reader
+      that needs the database side must read ``encrypted_setting`` live.
+    * ``*_file_present`` is the explicit **file-only provenance** of that report: true only when the
+      file level of resolution held the value, independent of any database row. ``None`` means the
+      row predates this field (a worker from an older release): unknown, never "mounted".
+    """
 
     worker_id: str
     ssh_key_present: bool
     known_hosts_present: bool
     vault_password_present: bool
     inventory_token_present: bool
+    ssh_key_file_present: bool | None = None
+    vault_password_file_present: bool | None = None
+    inventory_token_file_present: bool | None = None
 
 
 def record_worker_start(factory: sessionmaker[Session], settings: Settings, worker_id: str, now: datetime) -> None:
-    """Write one ``worker.start`` audit row: the worker id and four presence booleans, never a value."""
-    details: dict[str, JSONValue] = {
-        "worker_id": worker_id,
-        "ssh_key_present": settings.ansible_ssh_key is not None,
-        "known_hosts_present": settings.known_hosts_file.is_file(),
-        "vault_password_present": settings.ansible_vault_password is not None,
-        "inventory_token_present": settings.inventory_git_token is not None,
-    }
+    """Write one ``worker.start`` audit row: the worker id and presence booleans, never a value.
+
+    ``*_present`` is the effective startup availability (the database row or a file), as before.
+    ``*_file_present`` adds the file-only provenance: the file level of resolution in *this* process,
+    the same bytes a job would fall back to, so a database-held value is never reported as a file.
+    The web process does not infer the database side from this row — it reads ``encrypted_setting``
+    live, so a credential removed after startup stops being reported immediately.
+    """
+    file_present = file_presence(settings)
     with factory.begin() as db:
+        details: dict[str, JSONValue] = {
+            "worker_id": worker_id,
+            "ssh_key_present": settings.ansible_ssh_key is not None
+            or credential_configured(db, SSH_PRIVATE_KEY),
+            "known_hosts_present": settings.known_hosts_file.is_file(),
+            "vault_password_present": settings.ansible_vault_password is not None
+            or credential_configured(db, VAULT_PASSWORD),
+            "inventory_token_present": settings.inventory_git_token is not None
+            or credential_configured(db, INVENTORY_GIT_TOKEN),
+            "ssh_key_file_present": file_present[SSH_PRIVATE_KEY],
+            "vault_password_file_present": file_present[VAULT_PASSWORD],
+            "inventory_token_file_present": file_present[INVENTORY_GIT_TOKEN],
+        }
         row = record(db, Actor(None, f"worker:{worker_id}"), "worker.start", "worker", worker_id, details)
         row.created_at = now  # the injected clock, like the heartbeat it is matched against
+
+
+def _reported_boolean(details: Mapping[str, JSONValue], key: str) -> bool | None:
+    """A provenance boolean from a startup report; absent or malformed is unknown, never ``False``."""
+    value = details.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _capabilities_from_details(details: Mapping[str, JSONValue]) -> WorkerCapabilities:
+    """The read model of one ``worker.start`` row, effective flags and file provenance alike."""
+    return WorkerCapabilities(
+        worker_id=str(details["worker_id"]),
+        ssh_key_present=details.get("ssh_key_present") is True,
+        known_hosts_present=details.get("known_hosts_present") is True,
+        vault_password_present=details.get("vault_password_present") is True,
+        inventory_token_present=details.get("inventory_token_present") is True,
+        ssh_key_file_present=_reported_boolean(details, "ssh_key_file_present"),
+        vault_password_file_present=_reported_boolean(details, "vault_password_file_present"),
+        inventory_token_file_present=_reported_boolean(details, "inventory_token_file_present"),
+    )
 
 
 def worker_capabilities(db: Session, now: datetime) -> WorkerCapabilities | None:
@@ -431,13 +488,7 @@ def worker_capabilities(db: Session, now: datetime) -> WorkerCapabilities | None
     ).scalar_one_or_none()
     if row is None:
         return None
-    return WorkerCapabilities(
-        worker_id=str(row["worker_id"]),
-        ssh_key_present=row.get("ssh_key_present") is True,
-        known_hosts_present=row.get("known_hosts_present") is True,
-        vault_password_present=row.get("vault_password_present") is True,
-        inventory_token_present=row.get("inventory_token_present") is True,
-    )
+    return _capabilities_from_details(row)
 
 
 # --- key staging wipe ---------------------------------------------------------------------------
@@ -554,11 +605,25 @@ class Worker:
         if len(running) >= self.settings.worker_concurrency:
             return frozenset()
         types = set(self.registry.job_types())
-        if not self.settings.ssh_available:
+        if not self._ssh_available():
             types -= _SSH_TYPES
         if sum(1 for job_type in running if job_type in _CAPPED_TYPES) >= self.settings.max_parallel_jobs:
             types -= _CAPPED_TYPES
         return frozenset(types)
+
+    def _ssh_available(self) -> bool:
+        """The mounted key, or one stored in the database: a change applies without a restart.
+
+        The startup snapshot cannot know about a key an operator saves later, so the gate asks the
+        database. A database blip keeps the previous behaviour (no SSH jobs) instead of killing the loop.
+        """
+        if self.settings.ssh_available:
+            return True
+        try:
+            with self.factory() as db:
+                return credential_configured(db, SSH_PRIVATE_KEY)
+        except SQLAlchemyError:
+            return False
 
     # -- one iteration of each loop ------------------------------------------------------------
 
@@ -742,7 +807,6 @@ class Worker:
                 self._slots.notify_all()
 
     def _execute(self, job_id: UUID) -> str:
-        context = JobContext(job_id, self.worker_id, self.factory, self.settings, clock=self.clock)
         failure: JobFailure | None = None
         result: Mapping[str, JSONValue] = {}
         try:
@@ -751,6 +815,11 @@ class Worker:
                 if job is None:
                     raise StaleJobError(f"job {job_id} no longer exists")
                 db.expunge(job)
+                # Credentials are resolved for each job, never at startup: an operator's change applies
+                # to the next job without restarting the worker. A row that cannot be decrypted raises
+                # KeyUnwrapError here, which fails the job as internal without echoing anything.
+                settings = resolve_worker_settings(db, self.settings)
+            context = JobContext(job_id, self.worker_id, self.factory, settings, clock=self.clock)
             result = self.registry.dispatch(context, job)
         except JobControl as control:
             try:

@@ -174,6 +174,33 @@ def test_two_concurrent_deactivations_preserve_one_active_user(queue_factory):
 # --- list ------------------------------------------------------------------------------------------
 
 
+def test_administration_landing_count_and_direct_creation(signed_in, web_factory, sole_admin):
+    _make(web_factory, "inactive-admin", is_active=False)
+    _make(web_factory, "directory-admin", backend="ldap")
+    with web_factory() as db:
+        active = db.scalar(select(func.count()).select_from(User).where(User.is_active.is_(True)))
+    response = signed_in.get("/administration")
+    assert response.status_code == 200
+    assert 'no-store' in response.headers['cache-control']
+    assert f'<span class="mono">{active}</span> users can sign in' in response.text
+    assert 'href="/users?create=1#create-heading"' in response.text
+    creation = signed_in.get('/users?create=1')
+    assert '<details class="user-create" open>' in creation.text
+    assert '<details class="user-create" open>' not in signed_in.get('/users').text
+
+
+def test_administration_requires_sign_in_and_honors_password_change_gate(client, signed_in, web_factory, web_user):
+    anonymous = TestClient(
+        client.app, base_url="https://testserver", client=("192.0.2.251", 4000), raise_server_exceptions=False
+    )
+    with anonymous:
+        assert anonymous.get('/administration', headers={'Accept': 'application/json'}).status_code == 401
+    with web_factory.begin() as db:
+        db.execute(update(User).where(User.id == web_user.id).values(must_change_password=True))
+    response = signed_in.get('/administration', follow_redirects=False)
+    assert response.status_code == 303 and response.headers['location'] == '/account'
+
+
 def test_list_shows_columns_and_never_secrets(signed_in, web_factory, web_settings, clock, sole_admin):
     other = _make(web_factory, "<b>carol</b>", must_change_password=True)
     enrollment = _enroll_totp(web_factory, web_settings, clock, other)

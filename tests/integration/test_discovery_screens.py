@@ -17,7 +17,7 @@ from app.models.enums import JobHostStatus, JobStatus, JobType, WebserverType
 from app.services.servers import DumpSummary, last_dump_summary
 from tests.integration.conftest import add_server, set_setting
 
-NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 NO_KNOWN_HOSTS = "Discovery and deploy are unavailable: the worker has no known_hosts file"
 NO_INVENTORY = "No inventory repository is configured"
 REPO = "https://git.example.test/inventory.git"
