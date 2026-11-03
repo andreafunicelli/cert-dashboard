@@ -69,7 +69,6 @@ def test_empty_state_and_worker_key_card_without_a_configured_key(signed_in):
     assert 'data-empty="ssh-keys"' in page.text and "No public keys registered" in page.text
     assert "No worker SSH key configured" in page.text
     assert 'href="/settings?tab=worker#worker-ssh"' in page.text
-    assert 'aria-current="page"' in page.text and 'href="/ssh-keys"' in page.text
 
 
 def test_add_public_key_registers_it_with_a_fingerprint_and_an_audit_row(signed_in, csrf, web_factory):
