@@ -44,7 +44,6 @@ __all__ = [
     "InventoryRow",
     "create_entry",
     "delete_entry",
-    "inventory_sources",
     "is_manual",
     "list_entries",
     "parse_entry",
@@ -232,11 +231,6 @@ def parse_entry(form: Mapping[str, object]) -> EntryFields:
 def is_manual(server: Server) -> bool:
     """True for a row an operator added here (never for a row a repository revision produced)."""
     return server.inventory_source == MANUAL_SOURCE
-
-
-def inventory_sources() -> tuple[str, ...]:
-    """The source markers the list can filter on, in display order."""
-    return (MANUAL_SOURCE, "repository")
 
 
 # --- reads -----------------------------------------------------------------------------------------

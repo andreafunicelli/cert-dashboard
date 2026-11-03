@@ -28,7 +28,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import SSHPublicKey
+from app.models import SSHPublicKey, User
 from app.services.audit import Actor, record
 
 __all__ = [
@@ -246,8 +246,6 @@ def list_keys(db: Session) -> list[SSHKeyRow]:
 
 
 def _labels(db: Session, user_ids: set[int]) -> dict[int, str]:
-    from app.models import User
-
     if not user_ids:
         return {}
     return dict(db.execute(select(User.id, User.username).where(User.id.in_(user_ids))).all())
