@@ -83,7 +83,7 @@ One internal web application that is the source of truth for every non-ACME cert
 
 - CA API integration (DigiCert/Sectigo/ADCS APIs). Renewal is manual through the CA portal.
 - IIS, F5, HAProxy, Traefik, Kubernetes ingress, or any target other than nginx and Apache on Linux reached over SSH.
-- Network/CIDR discovery. Servers come only from the Ansible inventory.
+- Network/CIDR discovery. Servers come only from the Ansible inventory or from hosts an administrator adds in the dashboard (amended, `docs/slice-b-contract.md` D1).
 - CSV import.
 - Roles/RBAC. Every user is an admin.
 - Teams/Slack/PagerDuty alerting.
@@ -477,10 +477,10 @@ Transition rules:
 | `ansible_groups` | text[] not null default `{}` | From the inventory |
 | `webserver` | `webserver_type` null | Auto-detected, or from inventory variable `webserver_type` |
 | `connection_address` | text null | When it differs from `hostname` |
-| `inventory_source` | text not null | Repo ref and inventory path that produced this row |
+| `inventory_source` | text not null | Repo ref and inventory path that produced this row, or `manual` for a host added in the dashboard (`docs/slice-b-contract.md` D1) |
 | `last_discovery_at` | timestamptz null | |
 | `last_discovery_status` | text null | `ok`, `failed`, `unreachable` |
-| `is_active` | boolean not null default true | Set false when the host disappears from the inventory; never deleted, so history survives |
+| `is_active` | boolean not null default true | Set false when the host disappears from the inventory; never deleted, so history survives (exception: a manual host with no dependent rows may be deleted, `docs/slice-b-contract.md` D5) |
 | `notes` | text null | |
 
 ### 4.8 `binding`
@@ -732,6 +732,23 @@ Audited actions include: login success/failure, logout, 2FA enable/disable, user
 
 This table, its enum, `certificate.chain_status`, and the public-bundle setting are created by the single initial v1 migration. Certifi is pinned in the lock file and loaded into memory; its public roots are never copied into this table. Add rejects anything except a single PEM root with BasicConstraints `CA:TRUE`, matching issuer/subject, a valid self-signature, and a KeyUsage extension with `keyCertSign`. Deduplicate by fingerprint. Delete removes the uploaded anchor and recomputes statuses in the same transaction; audit `trust_anchor.add/remove` records actor/fingerprint/subject/notes, not private material. Anchors contain public certificates only.
 
+### 4.19 `ssh_host_key`
+
+Host public keys trusted by an administrator in the dashboard (amended, `docs/slice-b-contract.md` D2/D4; additive migration `0003_ssh_host_key`). Rows are immutable; removal deletes the row and the audit log keeps the history. Public material only. The worker appends every row to the mounted known_hosts file for each job (§6.1).
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | bigserial PK | |
+| `host` | text not null | lower-case hostname or IP literal, or `[host]:port` for a port other than 22 |
+| `key_type` | text not null | `ssh-ed25519`, `ecdsa-sha2-nistp256`, `ecdsa-sha2-nistp384`, `ecdsa-sha2-nistp521`, `ssh-rsa` |
+| `public_key` | text not null | canonical base64 key blob |
+| `fingerprint_sha256` | text not null | `SHA256:` + unpadded base64, as `ssh-keygen -lf` prints it |
+| `comment` | text null | |
+| `created_by` | bigint null FK `user` | |
+| `created_at` | timestamptz not null | |
+
+Unique `(host, key_type)`.
+
 ---
 
 ## 5. Key handling & security
@@ -841,7 +858,7 @@ Plan 1 performs these rechecks synchronously (at most ~500 certificates). Plan 2
 
 ### 6.1 Inventory source
 
-The team's existing static inventory repository (INI or YAML inventory plus `group_vars`/`host_vars`) is the only source of servers.
+Servers come from two sources (amended by `docs/slice-b-contract.md` D1, owner request `t_198538ae`): the team's existing static inventory repository (INI or YAML inventory plus `group_vars`/`host_vars`), which is optional, and hosts an administrator adds on the Inventory screen (`inventory_source = manual`). Every discover and deploy job uses the union; Git is authoritative for every hostname it lists and adopts a manual row of the same name; a manual row is never deactivated for being absent from Git. The rules below apply to the repository source. The known_hosts used by every job is the mounted file plus the dashboard's trusted host keys (§4.19).
 
 - The worker clones it read-only into `/srv/inventory` (persistent volume) using `inventory.repo_url` and `inventory.ref`, authenticated by `inventory_git_token` or a deploy key supplied as part of `ansible_ssh_key` configuration. `Assumption`: the token is a read-only deploy token; the dashboard never pushes.
 - Refresh rules: a pull runs before every discovery job and before every deploy job, and nightly before the scheduled discovery. A pull uses `git fetch` + `git reset --hard origin/<ref>` on a clean checkout. A pull failure does not destroy the previous checkout: a failed fetch keeps the last good revision, records `inventory_rev` in the job result, and fails the job if the checkout is older than 24 hours.
@@ -1146,6 +1163,8 @@ Re-entry points: each step is a URL, and the wizard shows the current state, so 
 - Bindings view (`/bindings`) is the cross-server table: filter by certificate, server, group, webserver, match state, vhost name. This is the "where is this certificate used" answer, and the filter result is exportable as JSON.
 - A binding row with `key_mismatch` or `missing_file` has a persistent warning badge and a link to the fix instructions (the app does not fix them).
 
+- Inventory (`/inventory`) and SSH keys (`/ssh-keys`): create/edit/deactivate/delete manual hosts, optional repository import, trusted host keys and the worker key summary — routes, fields and states in `docs/slice-b-contract.md` §4 and §6.
+
 ### 8.7 Deploy (`/deploy`, `/deploy/{job_id}`)
 
 Start screen:
@@ -1178,7 +1197,7 @@ Job screen (live, polls `/jobs/{id}/progress` every 2 s):
 
 - Settings tabs: SMTP (with test send), Alerts (thresholds, recipients, digest on/off), Inventory (repo URL, ref, path, webserver var, "Test pull" button), Deployment (default batch percent, concurrency, pause-after-canary, pause timeout, backup retention days, per-host timeout), Scanning (timeout, daily time), Schedule (daily times), General (display timezone, retention), Trust anchors (include-public-bundle toggle, pinned certifi version, uploaded internal roots), Status (worker heartbeat, keyring version, DB size, queue depth, last runs).
 - Dangerous actions are isolated in a "Maintenance" panel with a typed confirmation: rotate master key instructions (the actual rotation is a CLI command, with the UI showing the current state and required steps), prune old jobs.
-- Users: list, create (local), edit email/display name, deactivate, reset password, reset 2FA, view last login. Deactivating the last active user is refused. The UI names the auth backend per user and disables password actions for non-local backends.
+- Users: list, create (local), edit email/display name, deactivate, reactivate (with a new temporary password), reset password, reset 2FA, view last login, managed on a per-user page `/users/{id}` (`docs/slice-b-contract.md` §5). Deactivating the last active user is refused. The UI names the auth backend per user and disables password actions for non-local backends.
 - Every settings change is audited with the before/after values (excluding secrets, which are not settable here).
 - Trust anchors: upload a single PEM internal root (CA:TRUE and self-signed verification), view fingerprint/subject/source/notes, delete with confirmation; audit trust_anchor.add/remove and synchronously recheck stored chain statuses. Public roots are read-only in-memory bundle entries, never uploaded-anchor rows.
 
@@ -1215,7 +1234,7 @@ Job screen (live, polls `/jobs/{id}/progress` every 2 s):
 - Wrong file type (PFX uploaded where PEM is required), oversized files (limit 1 MB per uploaded object), and malformed base64 are explicit messages.
 - Importing a certificate whose fingerprint already exists offers "view existing" instead of creating a duplicate.
 - A name/path that would escape the artifacts or key-staging directory is rejected.
-- Deleting users: deactivation only, with a check that at least one active user remains.
+- Deleting users: deactivation only, with a check that at least one active user remains; reactivation always issues a new temporary password.
 
 ### 9.4 Job failures
 
