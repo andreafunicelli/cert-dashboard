@@ -5,8 +5,9 @@ Feature modules import these helpers and never re-implement them:
 - ``done()`` is the only success channel: native ``303`` or, for an htmx request, ``200`` +
   ``HX-Redirect``; both carry exactly one signed flash note rendered by the existing base banner.
 - ``management_head()`` links the shared management stylesheet plus the page stylesheet and emits
-  the ``htmx-config`` meta: 422 swaps refresh the targeted panel, 403 (a stale form rejected by the
-  CSRF check) swaps into ``#main-content`` so the shared "Your form expired" text is visible.
+  the ``htmx-config`` meta: 422 swaps refresh the targeted panel (the form's ``hx-select`` applies),
+  403 (a stale form rejected by the CSRF check) selects and replaces ``#main-content`` so the shared
+  "Your form expired" text is visible instead of an empty panel filter.
 - the Jinja partials in ``_management_ui.html.j2`` render error summaries, field errors, confirmation
   disclosures, empty states and source/state badges.
 
@@ -24,12 +25,21 @@ from app.web.common import set_flash
 
 # htmx 2 response handling. 4xx/5xx do not swap by default; a validation refusal (422) must swap the
 # re-rendered panel, and a stale form (403 from the CSRF gate) must replace the whole main region.
+# The 403 rule selects #main-content explicitly: htmx otherwise reapplies the form's hx-select panel
+# filter, and the error page has no management panel, so nothing would be displayed.
 _HTMX_CONFIG = {
     "responseHandling": [
         {"code": "204", "swap": False},
         {"code": "[23]..", "swap": True},
         {"code": "422", "swap": True, "error": True},
-        {"code": "403", "swap": True, "error": True, "target": "#main-content"},
+        {
+            "code": "403",
+            "swap": True,
+            "error": True,
+            "target": "#main-content",
+            "select": "#main-content",
+            "swapOverride": "outerHTML",
+        },
         {"code": "[45]..", "swap": False, "error": True},
     ]
 }

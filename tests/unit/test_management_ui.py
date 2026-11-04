@@ -199,7 +199,13 @@ def test_management_head_links_management_styles_and_configures_htmx():
     config = json.loads(html.unescape(meta.group(1)))
     rules = {rule["code"]: rule for rule in config["responseHandling"]}
     assert rules["422"]["swap"] is True
+    # A 422 must keep the form's hx-select panel filter (C4) so the panel is re-rendered in place.
+    assert "select" not in rules["422"]
     assert rules["403"]["swap"] is True and rules["403"]["target"] == "#main-content"
+    # A 403 leaves the form's hx-select("#inventory-panel"/"#ssh-host-keys-panel") in force unless the
+    # rule overrides it, but the error page has no management panel; select the main region instead.
+    assert rules["403"]["select"] == "#main-content"
+    assert rules["403"]["swapOverride"] == "outerHTML"
     assert rules["[45].."]["swap"] is False and rules["[45].."]["error"] is True
     assert "<script>" not in str(management_head('"><script>alert(1)</script>'))
 
@@ -215,6 +221,22 @@ def _page_context(path: str) -> dict:
         "csrf_token": "preview-only-not-a-valid-token",
         "tz": "UTC",
     }
+
+
+def test_csrf_error_page_offers_the_main_region_selected_by_the_403_rule():
+    page = environment().get_template("error.html.j2").render(
+        **(
+            _page_context("/inventory")
+            | {
+                "status": 403,
+                "message": "Your form expired. Reload the page and try again.",
+                "request_id": "fixture-request-id",
+            }
+        )
+    )
+    region = re.search(r'<main id="main-content"[^>]*>(.*?)</main>', page, re.DOTALL)
+    assert region is not None
+    assert "Your form expired. Reload the page and try again." in region.group(1)
 
 
 def test_inventory_skeleton_renders_the_empty_state_without_a_repository():
