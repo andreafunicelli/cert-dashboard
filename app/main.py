@@ -67,11 +67,13 @@ from app.web.common import (
     unsupported_reason,
 )
 from app.web.deploy import register_deploy_routes
+from app.web.inventory import register_inventory_routes
 from app.web.overview import register_overview_routes
 from app.web.renewals import register_renewal_routes
 from app.web.scans import register_scan_routes
 from app.web.servers import register_server_routes
 from app.web.settings import register_settings_routes
+from app.web.ssh_keys import register_ssh_key_routes
 from app.web.users import register_user_routes
 
 __all__ = [
@@ -701,6 +703,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _register_auth_routes(app)
     register_certificate_routes(app)
     register_deploy_routes(app)
+    register_inventory_routes(app)
     register_overview_routes(app)
     register_renewal_routes(app)
     register_audit_routes(app)
@@ -708,6 +711,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_settings_routes(app)
     register_scan_routes(app)
     register_server_routes(app)
+    register_ssh_key_routes(app)
 
     @app.exception_handler(StarletteHTTPException)
     async def http_error(request, exc):

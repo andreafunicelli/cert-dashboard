@@ -1,0 +1,59 @@
+{% extends "base.html.j2" %}
+{% from "_operations_ui.html.j2" import page_header %}
+{% from "_management_ui.html.j2" import empty_state, panel, source_badge, state_badge %}
+{% block title %}Inventory · Cert Dashboard{% endblock %}
+{% block extra_css %}{{ management_head() }}{% endblock %}
+{% block content %}
+{{ page_header('Inventory', 'Hosts discovery and deploy may use. A Git repository is optional.') }}
+<div class="management-page">
+
+<section class="management-panel" aria-label="Inventory source">
+  <dl class="connection-defaults">
+    <div>
+      <dt>Repository</dt>
+      <dd>{% if repository_configured %}Configured · <a href="/settings?tab=inventory">Settings → Inventory</a>
+      {% else %}Repository: not configured · <a href="/settings?tab=inventory">Configure a repository (optional)</a>{% endif %}</dd>
+    </div>
+  </dl>
+</section>
+
+{% call panel('inventory-panel', 'Hosts', 'Manual hosts are stored in the dashboard; repository hosts come from the optional Git inventory.') %}
+{% if hosts %}
+<div class="table-wrap">
+<table class="management-table">
+  <thead><tr>
+    <th scope="col">Hostname</th>
+    <th scope="col">Display name</th>
+    <th scope="col">Source</th>
+    <th scope="col">State</th>
+  </tr></thead>
+  <tbody>
+  {% for host in hosts %}
+  <tr data-server-id="{{ host.id }}">
+    <td><a href="/servers/{{ host.id }}">{{ host.hostname }}</a></td>
+    <td>{{ host.display_name or "—" }}</td>
+    <td>{{ source_badge(host.inventory_source) }}</td>
+    <td>{{ state_badge(host.is_active) }}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+{% call empty_state('No hosts yet', 'Add a host in the dashboard, or import hosts from the optional Git repository.') %}
+  <a class="button" href="/servers">Open Servers</a>
+  {% if repository_configured %}<a href="/servers#discovery-actions">Import from repository</a>
+  {% else %}<a href="/settings?tab=inventory">Configure a repository (optional)</a>{% endif %}
+{% endcall %}
+{% endif %}
+{% endcall %}
+
+{% call panel('inventory-connection', 'Connection defaults', "Used for every manual host. An empty SSH user means the worker's default SSH user.") %}
+<dl class="connection-defaults">
+  <div><dt>SSH user</dt><dd>{{ manual_ssh_user or 'Worker default' }}</dd></div>
+  <div><dt>SSH port</dt><dd>{{ manual_ssh_port }}</dd></div>
+</dl>
+{% endcall %}
+
+</div>
+{% endblock %}

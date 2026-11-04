@@ -1,0 +1,47 @@
+{% extends "base.html.j2" %}
+{% from "_operations_ui.html.j2" import page_header %}
+{% from "_management_ui.html.j2" import empty_state, panel %}
+{% block title %}SSH keys · Cert Dashboard{% endblock %}
+{% block extra_css %}{{ management_head() }}{% endblock %}
+{% block content %}
+{{ page_header('SSH keys', "The worker's client key and the host keys the dashboard trusts.") }}
+<div class="management-page">
+
+<section class="management-panel" aria-label="Worker client key">
+  <h2>Worker client key</h2>
+  <p>The private key is managed in <a href="/settings?tab=worker">Settings → Worker</a> and is never read by this page.</p>
+</section>
+
+{% call panel('ssh-host-keys-panel', 'Trusted host keys', 'Keys are trusted only after you verify their fingerprints with the server through an independent channel.') %}
+{% if host_keys %}
+<div class="table-wrap">
+<table class="management-table">
+  <thead><tr>
+    <th scope="col">Host</th>
+    <th scope="col">Key type</th>
+    <th scope="col">Fingerprint</th>
+    <th scope="col">Comment</th>
+    <th scope="col">Added</th>
+  </tr></thead>
+  <tbody>
+  {% for key in host_keys %}
+  <tr data-host-key-id="{{ key.id }}">
+    <td>{{ key.host }}</td>
+    <td>{{ key.key_type }}</td>
+    <td><code>{{ key.fingerprint_sha256 }}</code></td>
+    <td>{{ key.comment or "—" }}</td>
+    <td>{{ time_tag(key.created_at, tz) }}{% if key.created_by %} by {{ key.created_by }}{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+{% call empty_state('No host keys trusted in the dashboard yet.', 'Discovery and deploy refuse to connect to a host whose key is not trusted.') %}
+  <a class="button" href="/settings?tab=worker">Configure the worker key</a>
+{% endcall %}
+{% endif %}
+{% endcall %}
+
+</div>
+{% endblock %}
