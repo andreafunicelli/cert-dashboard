@@ -154,8 +154,10 @@ def test_every_seeded_key_round_trips_through_get_setting(db, web_factory, admin
 def test_service_defaults_match_the_seeded_migration_defaults():
     from app.services import settings as service
 
-    assert {key: spec.default for key, spec in service._SETTINGS.items()} == DEFAULTS
-    assert service.SETTING_KEYS == set(DEFAULTS)
+    # Slice B decision D4: these two keys live only in the code allowlist (no seed row, no migration).
+    code_only = {"inventory.manual_ssh_user": "", "inventory.manual_ssh_port": 22}
+    assert {key: spec.default for key, spec in service._SETTINGS.items()} == DEFAULTS | code_only
+    assert service.SETTING_KEYS == set(DEFAULTS) | set(code_only)
 
 
 def test_get_setting_of_unknown_key_raises_key_error(db):

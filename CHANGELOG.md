@@ -238,6 +238,16 @@ with the pull request that delivered each group of changes.
   never the value; `rotate-master-key` rewraps the stored credentials with the private keys and TOTP
   seeds.
 
+**Slice B foundation: manual-first inventory, users and SSH keys (PR #94)**
+
+- Manual hosts, local users and trusted SSH host keys are managed in the dashboard; a Git inventory
+  repository stays optional. The new `ssh_host_key` trust store (migration `0003_ssh_host_key`,
+  public keys only, append/delete under `app_role`) records host keys an administrator verified, and
+  `inventory.manual_ssh_user` / `inventory.manual_ssh_port` carry the connection defaults.
+- Shared management conventions for the three pages: one signed-flash success channel for native
+  and htmx forms, inline 422 field errors, `<details>` confirmation disclosures, empty states and
+  source/state badges, plus the management page shell and its navigation entries.
+
 ### Changed
 
 - `README.md` rewritten around the product, the interface and the operator path, with screenshots

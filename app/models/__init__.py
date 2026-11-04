@@ -16,6 +16,7 @@ from app.models.renewal import Renewal
 from app.models.scan_result import ScanResult
 from app.models.scheduler_state import SchedulerState
 from app.models.server import Server
+from app.models.ssh_host_key import SshHostKey
 from app.models.trust_anchor import TrustAnchor
 from app.models.user import User
 from app.models.user_session import UserSession
@@ -39,6 +40,7 @@ __all__ = [
     "ScanResult",
     "SchedulerState",
     "Server",
+    "SshHostKey",
     "TrustAnchor",
     "User",
     "UserSession",

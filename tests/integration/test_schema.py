@@ -42,8 +42,9 @@ COLUMNS = {
     "scheduler_state": "key:text! last_run_at:timestamptz",
     "login_rate_limit": "ip:inet! window_start:timestamptz! attempts:integer!",
     "trust_anchor": "id:bigint! subject:text! sha256_fingerprint:char(64)! pem:text! source:trust_anchor_source! notes:text created_by:bigint",
+    "ssh_host_key": "id:bigint! host:text! key_type:text! public_key:text! fingerprint_sha256:text! comment:text created_by:bigint",
 }
-IMMUTABLE = {"audit_log", "scan_result", "trust_anchor"}
+IMMUTABLE = {"audit_log", "scan_result", "trust_anchor", "ssh_host_key"}
 ENUMS = {
     "certificate_status": ["active", "superseded", "revoked"],
     "chain_status": ["trusted", "incomplete", "untrusted_root", "unchecked"],
@@ -142,6 +143,7 @@ FK = {
     "audit_log": {"actor_user_id": ("user", "id")},
     "worker_heartbeat": {"current_job_id": ("job", "id")},
     "trust_anchor": {"created_by": ("user", "id")},
+    "ssh_host_key": {"created_by": ("user", "id")},
 }
 UNIQUE = {
     "certificate": {("sha256_fingerprint",), ("issuer_dn", "serial")},
@@ -152,6 +154,7 @@ UNIQUE = {
     "user": {("username",)},
     "notification_log": {("dedupe_key",)},
     "trust_anchor": {("sha256_fingerprint",)},
+    "ssh_host_key": {("host", "key_type")},
 }
 
 
@@ -229,6 +232,7 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
             "ck_encrypted_setting_keyring_version",
             "ck_encrypted_setting_known_name",
         },
+        "ssh_host_key": {"ck_ssh_host_key_key_type"},
     }
     assert {c["name"] for c in inspect(engine).get_check_constraints(table)} == expected_checks.get(
         table, set()
@@ -660,6 +664,51 @@ def test_binding_job_host_uniqueness_and_worker_cascade(db, now):
         db.scalar(text("SELECT current_job_id FROM worker_heartbeat WHERE worker_id='fixture-worker'"))
         is None
     )
+
+
+def test_ssh_host_key_unique_check_and_append_only_grants(db, now):
+    from app.models import SshHostKey, User
+
+    user = User(username="host-key-admin", email="host-key@example.test")
+    db.add(user)
+    db.flush()
+    row = SshHostKey(
+        host="web01.example.test",
+        key_type="ssh-ed25519",
+        public_key="AAAAC3NzaC1lZDI1NTE5AAAAIFixtureOnly",
+        fingerprint_sha256="SHA256:fixture-only",
+        comment="lab host",
+        created_by=user.id,
+    )
+    db.add(row)
+    db.flush()
+    assert row.created_at is not None
+    with pytest.raises(IntegrityError), db.begin_nested():
+        db.add(
+            SshHostKey(
+                host="web01.example.test",
+                key_type="ssh-ed25519",
+                public_key="AAAAC3NzaC1lZDI1NTE5AAAAIOther",
+                fingerprint_sha256="SHA256:other",
+            )
+        )
+        db.flush()
+    with pytest.raises(IntegrityError), db.begin_nested():
+        db.add(
+            SshHostKey(
+                host="web02.example.test",
+                key_type="ssh-dss",
+                public_key="AAAAB3NzaC1kc3MAAACB",
+                fingerprint_sha256="SHA256:refused",
+            )
+        )
+        db.flush()
+    # Rows are immutable for the runtime role: trust is added or deleted, never rewritten.
+    with pytest.raises(DBAPIError) as exc, db.begin_nested():
+        db.execute(text("UPDATE ssh_host_key SET comment='changed' WHERE id=:id"), {"id": row.id})
+    assert exc.value.orig.sqlstate == "42501"
+    db.execute(text("DELETE FROM ssh_host_key WHERE id=:id"), {"id": row.id})
+    assert db.scalar(text("SELECT count(*) FROM ssh_host_key WHERE host='web01.example.test'")) == 0
 
 
 def test_trust_anchor_uniqueness_defaults_and_session_cascade(db, now):
