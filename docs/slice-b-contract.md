@@ -56,8 +56,12 @@ already managed in Settings → Worker (`encrypted_setting`, PR #87) and is not 
 capability (UX-02, P1) is host trust: today `known_hosts` is a mounted file only. Slice B adds a
 dashboard trust store of **host public keys** (`ssh_host_key` table, §3.3). Keys are trusted only by
 explicit administrator entry; nothing is ever auto-accepted and `ANSIBLE_HOST_KEY_CHECKING=True` stays.
-Effective trust per job = mounted file ∪ table rows. A pasted public key with no host is meaningless
-for SSH and is not accepted (the PR #92 "labelled public key registry" had no consumer and is dropped).
+Effective trust per job = mounted file ∪ table rows. Deleting a table row removes only that row's
+trust: the dashboard never edits or overwrites the mounted file, so a key the mounted file also lists
+stays trusted, and other trusted key types for the same host still apply. Administrators verify every
+fingerprint against the server through an independent channel before adding it (§6, rule 10):
+`ssh-keyscan` output is unauthenticated. A pasted public key with no host is meaningless for SSH and is not
+accepted (the PR #92 "labelled public key registry" had no consumer and is dropped).
 
 **D3 — Users: no roles, no hard delete; reactivation added.** Spec §2.2 (every user is an admin) and
 §9.3 (deleting users = deactivation only) stand; the owner request does not ask for roles. UX-06 asks for
@@ -244,19 +248,31 @@ user*. The `?notice=` mechanism is replaced by the flash (§8); the query parame
 | Method | Path | Purpose | Success | Refusal |
 | --- | --- | --- | --- | --- |
 | GET | `/ssh-keys` | worker key card + trusted host keys list + add form | 200 | — |
-| POST | `/ssh-keys/host-keys` | add one or more trusted host keys | flash `Trusted <n> host key(s): <host> <type> <fingerprint>…` → `/ssh-keys` | 422 inline, all-or-nothing |
-| POST | `/ssh-keys/host-keys/{key_id}/delete` | remove one, `confirm=1` | flash `Removed the trusted <type> key for <host> (<fingerprint>). SSH to <host> now fails host-key verification until a key is trusted again.` | 404 unknown id; 422 `Confirm the action to continue.` |
+| POST | `/ssh-keys/host-keys` | add one or more trusted host keys; requires `verified=1` (rule 10) | flash `Trusted <n> host key(s).` → `/ssh-keys` (the list shows host, type and fingerprint of each) | 422 inline, all-or-nothing |
+| POST | `/ssh-keys/host-keys/{key_id}/delete` | remove one, `confirm=1` | flash `Removed the dashboard-trusted <type> key for <host≤64>. The mounted known_hosts file and other trusted keys still apply.` | 404 unknown id; 422 `Confirm the action to continue.` |
 
 Worker key card: state and fingerprint from `credential_states`, plus the worker-reported "mounted
 known_hosts file: present/absent". Action: *Replace or remove in Settings → Worker* (`/settings?tab=worker`,
 a link, not a redirect). Empty host-key state: "No host keys trusted in the dashboard yet. Discovery and
-deploy refuse to connect to a host whose key is not trusted." + the add form open, with the hint *Run
-`ssh-keyscan -t ed25519,ecdsa,rsa <host>` from a trusted network and paste the output.*
+deploy refuse to connect to a host whose key is not trusted." + the add form open. The add form always
+shows this hint (verbatim): *Only trust a key whose fingerprint you checked with the server itself. Best:
+paste `/etc/ssh/ssh_host_ed25519_key.pub` copied from the server's console or your provisioning system,
+and enter the host. If you use `ssh-keyscan <host>`, first compare its fingerprints (`ssh-keyscan <host> |
+ssh-keygen -lf -`) with `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` run on the server: ssh-keyscan
+does not authenticate the server.*
+
+`<host≤64>` in flashes: the host token, cut to its first 63 characters plus `…` when longer than 64, so the
+delete flash stays under 200 characters and never reaches the 240-character `set_flash` truncation (a
+truncated warning is a bug). Flashes never claim that SSH to a host now fails: the dashboard cannot know
+what the mounted file trusts. The delete confirmation (C5) consequence reads: `The dashboard stops trusting
+this key. Keys for this host in the mounted known_hosts file are not changed and still apply.`
 
 List columns: Host, Key type, Fingerprint (`SHA256:…`, monospace, full), Comment, Added (date) by
 (username), Actions (Delete with confirmation).
 
-Add form fields: `entries` (textarea, required) and `hosts` (optional), `comment` (optional, ≤ 100).
+Add form fields: `entries` (textarea, required) and `hosts` (optional), `comment` (optional, ≤ 100),
+`verified` (checkbox, value `1`, required, never pre-checked, rendered unchecked on every 422; label `I
+compared these fingerprints with the server's own host keys through a trusted channel.`).
 Validation (`app/services/ssh_host_keys.py`, pure parser + transactional `add_host_keys`):
 
 1. Input ≤ 16 KiB; after dropping blank lines and `#` comment lines, 1–20 lines. Else `Paste between 1 and
@@ -286,9 +302,12 @@ Validation (`app/services/ssh_host_keys.py`, pure parser + transactional `add_ho
    the same messages.
 9. All-or-nothing: if any line fails, nothing is stored; errors are listed as `Line <n>: <message>` in the
    error summary and the input is preserved (except rule 2).
+10. `verified` missing or not `1` → `Confirm that you verified the fingerprints with the server before
+    trusting them.` (field error on `verified`); nothing is stored. No auto-accept, no trust-on-first-use,
+    no server-side `ssh-keyscan`: the dashboard stores only keys the administrator pasted and attested.
 
-Audit: `ssh_host_key.add` (one row per stored key: host, type, fingerprint) and `ssh_host_key.remove`
-(host, type, fingerprint). No key material beyond the public fingerprint goes into the audit details.
+Audit: `ssh_host_key.add` (one row per stored key: host, type, fingerprint, `"verified": true`) and
+`ssh_host_key.remove` (host, type, fingerprint). No key material beyond the public fingerprint goes into the audit details.
 
 ## 7. Worker integration rules (W)
 
@@ -304,7 +323,8 @@ Audit: `ssh_host_key.add` (one row per stored key: host, type, fingerprint) and 
    keep `manual`; a manual row is never deactivated for being absent from Git.
 4. known_hosts per job: mounted file content (if present) followed by one `host key_type public_key` line
    per `ssh_host_key` row, written `0600` into the job staging area, removed on exit, passed to Ansible and
-   to Git exactly where the mounted file path is passed today. The "no known_hosts" failure and banner
+   to Git exactly where the mounted file path is passed today. The mounted file is only read, never
+   written. The "no known_hosts" failure and banner
    apply only when the file is absent **and** the table is empty.
 5. Renderers refuse (raise) any value containing whitespace, a newline or a leading `-`, as defence in depth
    behind the validated inputs.
@@ -339,7 +359,14 @@ and do not re-implement them.
 - **C6 Empty states.** `empty_state(title, body, actions)`; "nothing yet" (primary action) is always
   distinct from "no match for these filters" (*Clear filters*).
 - **C7 Audit and transactions.** Every mutation runs in one `_transact` transaction with exactly the audit
-  rows named in §4–§6; a refused request writes nothing.
+  rows named in §4–§6. The target change and its success audit commit together or not at all: a
+  validation, business or confirmation refusal changes no target row and writes no success audit.
+  **Mandatory exception:** a failed current-password re-authentication (`PasswordChangeError` from
+  `reauthenticate`) keeps the existing `_transact` behaviour in `app/web/common.py` — the acting
+  administrator's failed-attempt counter, any lockout and the security audit row are **committed**, while
+  the target user is left unchanged (re-authentication runs before the target change, via
+  `_reauthenticated`). Feature code never catches, wraps or rolls back that path (Plan 1 Global
+  Constraints: lockout and audit integrity).
 - **C8 Badges.** `source_badge(source)` → `Manual` / `Repository · <ref>:<path>@<sha7>`; `state_badge`
   → `Active` / `Inactive`.
 - **C9 Styles and assets.** Page styles in `app/static/pages/<area>.css` using existing tokens; no edits to
@@ -372,6 +399,9 @@ PostgreSQL, CSRF-valid sessions) and run with `inventory.repo_url` unset unless 
       manual mix; adoption keeps id/notes and audits; manual row survives a Git listing without it.
 - [ ] No inventory → `config_invalid` with the §7.2 sentence; banner/status say the same.
 - [ ] DB-only host key lets discovery connect; empty table + no file → missing-known-hosts failure.
+- [ ] Same host/key in the mounted file and in the table, then the row deleted: the rendered per-job
+      known_hosts still contains the mounted line, discovery still connects, and the mounted file's bytes
+      and mode are unchanged (hash before/after).
 - [ ] Existing discover/deploy/test-pull suites green.
 
 ### INV — inventory
@@ -393,6 +423,11 @@ PostgreSQL, CSRF-valid sessions) and run with `inventory.repo_url` unset unless 
 - [ ] Every existing `UserAdminError` and re-auth message rendered inline with 422/423; passwords never re-rendered.
 - [ ] Reactivate: wrong current password, already active, policy failure, non-local backend; success forces
       a password change at next login.
+- [ ] Wrong `current_password` on deactivate and on reactivate: 422; the target's `is_active`, password hash
+      and `must_change_password` are unchanged and no `user.deactivate`/`user.reactivate` audit row exists,
+      **while** the acting admin's `failed_attempts` is incremented and the re-authentication failure audit
+      row exists — asserted from a fresh DB session after the response (C7 exception). Repeating it up to the
+      lockout threshold returns 423.
 - [ ] Last-active-user deactivation still refused; deleted-user route does not exist (POST `/users/{id}/delete` → 404/405).
 - [ ] Only-user empty state; inactive/locked/must-change states visible in the list.
 - [ ] Existing `test_users_http.py` and administration preview tests green (create form stays at `action="/users"`).
@@ -406,6 +441,10 @@ PostgreSQL, CSRF-valid sessions) and run with `inventory.repo_url` unset unless 
       paste, all-or-nothing (nothing stored when line 2 fails).
 - [ ] `[host]:22` normalized to `host`; `[host]:2222` kept.
 - [ ] Delete with confirmation removes the row, flashes, audits; without `confirm` → 422; unknown id → 404.
+- [ ] Delete flash and confirmation text exactly as §6 (source-aware, no "now fails" claim); with a
+      253-character host the flash is ≤ 240 characters and still ends with `still apply.`
+- [ ] Add without `verified=1` → 422 with the rule 10 message, nothing stored; on every 422 the checkbox is
+      unchecked; the add form shows the fingerprint-verification hint.
 - [ ] Worker key card shows type/fingerprint/provenance and never any key value; works with no key configured.
 - [ ] Works with no repository configured; no response redirects off-site.
 
@@ -414,9 +453,13 @@ PostgreSQL, CSRF-valid sessions) and run with `inventory.repo_url` unset unless 
 2. Infrastructure → Inventory: empty state shows *Add a host*; add `web01.example.test`, groups
    `web prod`, nginx; edit its notes; submit an invalid hostname `-bad` in the edit form and see the inline
    error on that row; deactivate, reactivate, delete (with confirmation).
-3. Infrastructure → SSH keys: paste `ssh-keyscan` output for a lab host, see the fingerprint; paste it again
-   and see the duplicate message; paste an `-----BEGIN OPENSSH PRIVATE KEY-----` block and see the refusal
-   with an empty textarea; delete the key with confirmation.
+3. Infrastructure → SSH keys: on the lab host's console run `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`;
+   run `ssh-keyscan -t ed25519 <host> | ssh-keygen -lf -` and continue **only if the two fingerprints
+   match**. Submit the `ssh-keyscan` line once without the verification box (refused), then with it; check
+   the listed fingerprint equals the console one. Paste it again and see the duplicate message; paste an
+   `-----BEGIN OPENSSH PRIVATE KEY-----` block and see the refusal with an empty textarea; delete the key
+   with confirmation and read the source-aware flash (a key also in the mounted known_hosts file stays
+   trusted).
 4. Administration → Users: add a user, open it, edit the email, deactivate (current password), reactivate
    with a new temporary password, sign in as that user and get the change-password gate.
 5. With a lab host key trusted and the worker SSH key configured, run discovery from `/servers` for the

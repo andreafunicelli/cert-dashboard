@@ -734,7 +734,7 @@ This table, its enum, `certificate.chain_status`, and the public-bundle setting 
 
 ### 4.19 `ssh_host_key`
 
-Host public keys trusted by an administrator in the dashboard (amended, `docs/slice-b-contract.md` D2/D4; additive migration `0003_ssh_host_key`). Rows are immutable; removal deletes the row and the audit log keeps the history. Public material only. The worker appends every row to the mounted known_hosts file for each job (§6.1).
+Host public keys trusted by an administrator in the dashboard (amended, `docs/slice-b-contract.md` D2/D4; additive migration `0003_ssh_host_key`). Rows are immutable; removal deletes the row and the audit log keeps the history. Public material only. Each job's known_hosts is the mounted file's content followed by every row (§6.1); the mounted file is never modified, so deleting a row does not revoke trust the mounted file grants. Keys are added only by an administrator who verified the fingerprint with the server through an independent channel (no auto-accept).
 
 | Column | Type | Notes |
 | --- | --- | --- |
