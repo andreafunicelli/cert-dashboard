@@ -1,58 +1,165 @@
 {% extends "base.html.j2" %}
-{% from "_operations_ui.html.j2" import page_header %}
-{% from "_management_ui.html.j2" import empty_state, panel, source_badge, state_badge %}
+{% from "_operations_ui.html.j2" import filters, page_header %}
+{% from "_management_ui.html.j2" import empty_state, error_summary, panel %}
+{% from "inventory/_host_form.html.j2" import connection_form, host_form %}
+{% from "inventory/_host_row.html.j2" import host_row %}
 {% block title %}Inventory · Cert Dashboard{% endblock %}
-{% block extra_css %}{{ management_head() }}{% endblock %}
+{% block extra_css %}{{ management_head('/static/pages/inventory-hosts.css') }}{% endblock %}
 {% block content %}
-{{ page_header('Inventory', 'Hosts discovery and deploy may use. A Git repository is optional.') }}
-<div class="management-page">
+{% macro import_action(csrf_token, reason) -%}
+{% if reason %}
+<button class="button-secondary" type="button" disabled title="{{ reason }}">Import from repository</button>
+<p class="hint">{{ reason }}</p>
+{% else %}
+<form class="inline" method="post" action="/inventory/import">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button class="button-secondary" type="submit">Import from repository</button>
+</form>
+{% endif %}
+{%- endmacro %}
 
-<section class="management-panel" aria-label="Inventory source">
-  <dl class="connection-defaults">
-    <div>
-      <dt>Repository</dt>
-      <dd>{% if repository_configured %}Configured · <a href="/settings?tab=inventory">Settings → Inventory</a>
-      {% else %}Repository: not configured · <a href="/settings?tab=inventory">Configure a repository (optional)</a>{% endif %}</dd>
-    </div>
-  </dl>
-</section>
-
-{% call panel('inventory-panel', 'Hosts', 'Manual hosts are stored in the dashboard; repository hosts come from the optional Git inventory.') %}
-{% if hosts %}
-<div class="table-wrap">
-<table class="management-table">
+{% macro host_table(rows, csrf_token, return_to, tz, edit, row_errors) -%}
+<div class="table-wrap" role="region" tabindex="0" aria-label="Inventory hosts">
+<table class="management-table inventory-table">
   <thead><tr>
     <th scope="col">Hostname</th>
     <th scope="col">Display name</th>
+    <th scope="col">Connection address</th>
+    <th scope="col">Groups</th>
+    <th scope="col">Web server</th>
     <th scope="col">Source</th>
     <th scope="col">State</th>
+    <th scope="col">Last discovery</th>
+    <th scope="col" class="numeric">Bindings</th>
+    <th scope="col">Actions</th>
   </tr></thead>
   <tbody>
-  {% for host in hosts %}
-  <tr data-server-id="{{ host.id }}">
-    <td><a href="/servers/{{ host.id }}">{{ host.hostname }}</a></td>
-    <td>{{ host.display_name or "—" }}</td>
-    <td>{{ source_badge(host.inventory_source) }}</td>
-    <td>{{ state_badge(host.is_active) }}</td>
-  </tr>
+  {% for host in rows %}
+  {{ host_row(host, csrf_token, return_to, tz,
+              values=(edit['values'] if edit and edit['id'] == host.id else none),
+              errors=(row_errors if edit and edit['id'] == host.id and row_errors else none),
+              editing=(edit and edit['id'] == host.id)) }}
   {% endfor %}
   </tbody>
 </table>
 </div>
-{% else %}
-{% call empty_state('No hosts yet', 'Add a host in the dashboard, or import hosts from the optional Git repository.') %}
-  <a class="button" href="/servers">Open Servers</a>
-  {% if repository_configured %}<a href="/servers#discovery-actions">Import from repository</a>
+{%- endmacro %}
+
+{# Row-targeted refusals: the shared error summary links to the namespaced field ids of that row. #}
+{% set row_errors = {} %}
+{% if edit and edit['errors'] %}
+  {% for name, messages in edit['errors'].items() %}{% set _ignore = row_errors.update({name ~ '-' ~ edit['id']: messages}) %}{% endfor %}
+{% endif %}
+{% set summary_errors = errors if errors else row_errors %}
+{% set return_to = request.url.path ~ ('?' ~ request.url.query if request.url.query else '') %}
+
+{{ page_header('Inventory', 'Hosts discovery and deploy may use. A Git repository is optional.') }}
+<div class="management-page">
+
+<section class="management-panel" id="inventory-source" aria-label="Inventory source">
+  <dl class="connection-defaults">
+    <div>
+      <dt>Repository</dt>
+      <dd>
+        {%- if source.configured %}Repository: configured · <code>{{ source.url }}</code>{% if source.ref %} @ <code>{{ source.ref }}</code>{% endif %}
+        {%- if source.last_pull %} · last pull {{ time_tag(source.last_pull, tz) }}{% endif %}
+        {%- if source.revision %} · revision <code class="mono">{{ source.revision[:7] }}</code>{% endif %}
+        · <a href="/settings?tab=inventory">Settings → Inventory</a>
+        {%- else %}Repository: not configured · <a href="/settings?tab=inventory">Configure a repository (optional)</a>
+        {%- endif %}
+      </dd>
+    </div>
+  </dl>
+  <div class="source-actions">{{ import_action(csrf_token, import_reason) }}</div>
+</section>
+
+{% if connection_warning %}
+<p class="notice notice-warning" role="status">Manual hosts connect as the worker's default SSH user. Set the SSH user used on your servers.</p>
+{% endif %}
+
+{% call panel('inventory-panel', 'Hosts', 'Manual hosts are stored in the dashboard; repository hosts come from the optional Git inventory.') %}
+{{ error_summary(summary_errors) }}
+{% if action_error %}
+<div class="error-summary" role="alert" tabindex="-1">
+  <h2>The action was refused</h2>
+  <p>{{ action_error }}</p>
+</div>
+{% endif %}
+
+{% if total_hosts == 0 %}
+{% call empty_state('No hosts yet', 'Add a host in the dashboard, or import hosts from the optional Git repository. Discovery and deploy use these hosts; no repository is required.') %}
+  <a class="button" href="#add-host">Add a host</a>
+  {% if source.configured %}{{ import_action(csrf_token, import_reason) }}
   {% else %}<a href="/settings?tab=inventory">Configure a repository (optional)</a>{% endif %}
 {% endcall %}
+{% endif %}
+
+{% if extra_row %}
+<h3 class="editing-heading">Editing <code>{{ extra_row.hostname }}</code></h3>
+{{ host_table([extra_row], csrf_token, return_to, tz, edit, row_errors) }}
+{% endif %}
+
+<details class="inventory-add-host" id="add-host"{% if add_open %} open{% endif %}>
+  <summary>Add host</summary>
+  {{ host_form('/inventory', csrf_token, form_values, errors, 'Add host') }}
+</details>
+
+{% if total_hosts %}
+{% call filters('/inventory', values, {'q': 'Search', 'group': 'Group', 'source': 'Source', 'webserver': 'Web server', 'state': 'Hosts'}, 'q', 'Hostname, display name or address') %}
+  <label>Group <select name="group">
+    <option value="">Any group</option>
+    {% for name in groups %}<option value="{{ name }}"{% if name == values.get('group') %} selected{% endif %}>{{ name }}</option>{% endfor %}
+  </select></label>
+  <label>Source <select name="source">
+    <option value="">Manual and repository</option>
+    <option value="manual"{% if values.get('source') == 'manual' %} selected{% endif %}>Manual</option>
+    <option value="repository"{% if values.get('source') == 'repository' %} selected{% endif %}>Repository</option>
+  </select></label>
+  <label>Web server <select name="webserver">
+    <option value="">Any web server</option>
+    <option value="auto"{% if values.get('webserver') == 'auto' %} selected{% endif %}>Auto-detect</option>
+    <option value="nginx"{% if values.get('webserver') == 'nginx' %} selected{% endif %}>nginx</option>
+    <option value="apache"{% if values.get('webserver') == 'apache' %} selected{% endif %}>apache</option>
+  </select></label>
+  <label>Hosts <select name="state">
+    <option value="active"{% if values.get('state', 'active') == 'active' %} selected{% endif %}>Active</option>
+    <option value="inactive"{% if values.get('state') == 'inactive' %} selected{% endif %}>Inactive</option>
+    <option value="all"{% if values.get('state') == 'all' %} selected{% endif %}>All</option>
+  </select></label>
+  {% if page.page_size != 50 %}<input type="hidden" name="page_size" value="{{ page.page_size }}">{% endif %}
+{% endcall %}
+
+<div class="list-summary" data-total="{{ page.total }}"><span class="mono">{{ page.total }}</span> host{{ "" if page.total == 1 else "s" }}</div>
+
+{% if page.items %}
+{{ host_table(page.items, csrf_token, return_to, tz, edit, row_errors) }}
+<nav class="pager" aria-label="Pages">
+  {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
+  <span>Page <span class="mono">{{ page.page }}</span> of <span class="mono">{{ pages }}</span></span>
+  {% if page.page < pages %}<a rel="next" href="{{ page_url(page.page + 1) }}">Next</a>{% endif %}
+</nav>
+{% elif values %}
+{% call empty_state('No hosts match these filters', 'The inventory has hosts, but none match the current search and filters.') %}
+  <a href="/inventory">Clear filters</a>
+{% endcall %}
+{% else %}
+{% call empty_state('No hosts on this page', 'This page number is past the end of the list.') %}
+  <a href="/inventory">Back to the first page</a>
+{% endcall %}
+{% endif %}
 {% endif %}
 {% endcall %}
 
 {% call panel('inventory-connection', 'Connection defaults', "Used for every manual host. An empty SSH user means the worker's default SSH user.") %}
+{{ error_summary(connection_errors) }}
 <dl class="connection-defaults">
   <div><dt>SSH user</dt><dd>{{ manual_ssh_user or 'Worker default' }}</dd></div>
   <div><dt>SSH port</dt><dd>{{ manual_ssh_port }}</dd></div>
 </dl>
+<details class="connection-editor"{% if connection_errors %} open{% endif %}>
+  <summary>Change connection defaults</summary>
+  {{ connection_form(csrf_token, connection_values, connection_errors) }}
+</details>
 {% endcall %}
 
 </div>
