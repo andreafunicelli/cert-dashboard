@@ -19,8 +19,8 @@ from app.web.management import done
 PAGES = ("/inventory", "/ssh-keys", "/users")
 
 
-def _done_request(**headers: str) -> Request:
-    app = SimpleNamespace(state=SimpleNamespace(settings=SimpleNamespace(session_secret=b"x" * 32)))
+def _done_request(secret: bytes, **headers: str) -> Request:
+    app = SimpleNamespace(state=SimpleNamespace(settings=SimpleNamespace(session_secret=secret)))
     raw = [(name.lower().encode("ascii"), value.encode("ascii")) for name, value in headers.items()]
     return Request({"type": "http", "method": "POST", "path": "/inventory", "headers": raw, "app": app})
 
@@ -58,7 +58,7 @@ def test_inventory_page_states_the_optional_source_and_connection_defaults(
     assert "Repository: not configured" in page
     assert 'href="/settings?tab=inventory"' in page
     assert "Connection defaults" in page
-    assert "worker's default SSH user" in page
+    assert "worker&#39;s default SSH user" in page
     assert ">22<" in page or "22" in page
 
 
@@ -114,15 +114,19 @@ def _flash_value(response) -> str:
     return SimpleCookie(response.headers["set-cookie"])[FLASH_COOKIE].value
 
 
-def test_done_flash_is_rendered_on_the_next_full_page(signed_in):
-    response = done(_done_request(), "/inventory", "Host web01 added.")
+def test_done_flash_is_rendered_on_the_next_full_page(signed_in, web_settings):
+    response = done(_done_request(web_settings.session_secret), "/inventory", "Host web01 added.")
     signed_in.cookies.set(FLASH_COOKIE, _flash_value(response))
     page = signed_in.get("/inventory")
     assert 'data-banner="flash"' in page.text and "Host web01 added." in page.text
 
 
-def test_done_htmx_flash_survives_the_redirect(signed_in):
-    response = done(_done_request(**{"HX-Request": "true"}), "/ssh-keys", "Trusted 1 host key.")
+def test_done_htmx_flash_survives_the_redirect(signed_in, web_settings):
+    response = done(
+        _done_request(web_settings.session_secret, **{"HX-Request": "true"}),
+        "/ssh-keys",
+        "Trusted 1 host key.",
+    )
     assert response.status_code == 200 and response.headers["HX-Redirect"] == "/ssh-keys"
     signed_in.cookies.set(FLASH_COOKIE, _flash_value(response))
     page = signed_in.get(response.headers["HX-Redirect"])
