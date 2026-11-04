@@ -449,17 +449,17 @@ def targets(queue_factory, ansible_worker, ssh_targets, fresh_targets, short_art
     )
     set_setting(queue_factory, "inventory.manual_ssh_user", "cdeploy")
     set_setting(queue_factory, "inventory.manual_ssh_port", target.ssh_port)
-    return SimpleNamespace(
-        factory=queue_factory,
-        targets=ssh_targets,
-        build_worker=lambda **overrides: ansible_worker(
-            queue_factory,
-            ansible_ssh_key=ssh_targets.client_key,
-            known_hosts_file=ssh_targets.known_hosts,
-            artifacts_root=short_artifacts,
-            **overrides,
-        ),
-    )
+
+    def build_worker(**overrides):
+        """The live-target worker: the target stack's key and pinned ``known_hosts`` unless overridden."""
+        values = {
+            "ansible_ssh_key": ssh_targets.client_key,
+            "known_hosts_file": ssh_targets.known_hosts,
+            "artifacts_root": short_artifacts,
+        }
+        return ansible_worker(queue_factory, **(values | overrides))
+
+    return SimpleNamespace(factory=queue_factory, targets=ssh_targets, build_worker=build_worker)
 
 
 def test_a_manual_only_discovery_connects_to_a_real_target(targets):
