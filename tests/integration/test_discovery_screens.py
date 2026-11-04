@@ -19,7 +19,7 @@ from tests.integration.conftest import add_server, set_setting
 
 NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 NO_KNOWN_HOSTS = "Discovery and deploy are unavailable: the worker has no known_hosts file"
-NO_INVENTORY = "No inventory repository is configured"
+NO_INVENTORY = "No inventory: add a host in Inventory or configure a repository."
 REPO = "https://git.example.test/inventory.git"
 INCOMPLETE = "incomplete chain: no configured file holds this leaf's issuer"
 HOSTILE = "<script>alert('x')</script>"
@@ -226,7 +226,7 @@ def test_a_worker_that_has_not_reported_is_a_hint_not_a_block(signed_in, discove
 def test_inventory_unconfigured_disables_discovery(signed_in, web_factory, ready_worker, discovered_server):
     set_setting(web_factory, "inventory.repo_url", "")
     page = signed_in.get("/servers").text
-    assert NO_INVENTORY in page and 'disabled title="No inventory repository is configured' in page
+    assert NO_INVENTORY in page and f'disabled title="{NO_INVENTORY}' in page
     assert 'action="/servers/discover"' not in page and 'data-banner="capability"' not in page
     detail = signed_in.get(f"/servers/{discovered_server.id}").text
     assert NO_INVENTORY in detail and f'action="/servers/{discovered_server.id}/discover"' not in detail

@@ -24,7 +24,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.ansible.discovery import HostDiscovery, discover_hosts, is_safe_name
-from app.ansible.runner import build_env
 from app.jobs.handlers.ansible_context import AnsibleJob, LockBusy, ansible_job
 from app.jobs.queue import RETRY_POLICY, SYSTEM_ACTOR, JobFailure, JobRequeued, enqueue
 from app.jobs.worker import JobContext
@@ -37,7 +36,7 @@ from app.services.discovery import (
     record_host_failure,
     sync_inventory_servers,
 )
-from app.services.inventory import InventoryHost, inventory_source, list_inventory, revision_result
+from app.services.inventory import InventoryHost, inventory_result
 
 __all__ = ["ON_DEMAND_PRIORITY", "discover", "request_discovery", "validate_discover_payload"]
 
@@ -118,7 +117,7 @@ def request_discovery(db: Session, payload: Mapping[str, JSONValue], actor: Acto
 
 def discover(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[str, JSONValue]:
     try:
-        with ansible_job(context) as job:
+        with ansible_job(context, require_repository=False) as job:
             return _discover(context, payload, job)
     except LockBusy:
         # A reset of the inventory checkout is in progress. Nothing ran, so the claim is simply handed back.
@@ -126,7 +125,7 @@ def discover(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[s
 
 
 def _discover(context: JobContext, payload: Mapping[str, JSONValue], job: AnsibleJob) -> Mapping[str, JSONValue]:
-    if job.revision is None or job.config is None or job.inventory_path is None:
+    if job.config is not None and (job.revision is None or job.inventory_path is None):
         raise JobFailure("internal", "the inventory was not prepared")
     with context.factory() as db:
         row = db.get(Job, context.job_id)
@@ -138,13 +137,12 @@ def _discover(context: JobContext, payload: Mapping[str, JSONValue], job: Ansibl
         source = "scheduled" if row.requested_by is None else "manual"
         has_rows = bool(db.scalar(select(func.count()).select_from(JobHost).where(JobHost.job_id == context.job_id)))
 
-    inventory = list_inventory(
-        job.inventory_path,
-        webserver_var=job.config.webserver_var,
-        env=build_env(job.runner.secrets, job.runner.run_dir),
-    )
+    # The effective inventory: the repository listing plus the manual hosts it lacks (contract §7.1).
+    inventory = list(job.hosts)
     with context.factory.begin() as db:
-        sync = sync_inventory_servers(db, inventory, inventory_source(job.config, job.revision.rev), actor, context.clock())
+        sync = sync_inventory_servers(
+            db, inventory, job.source, actor, context.clock(), manual=job.manual_hostnames
+        )
 
     retrying = attempt > 1 and has_rows
     targets = _scope(context, payload, inventory, retry_only=retrying)
@@ -176,7 +174,7 @@ def _discover(context: JobContext, payload: Mapping[str, JSONValue], job: Ansibl
         if summary.auth:
             raise JobFailure("auth", f"{_AUTH_TEXT} ({summary.auth} of {summary.total} hosts)")
         raise JobFailure("transient_network", f"no host could be discovered ({summary.total} in scope)")
-    return {**revision_result(job.revision), **totals}
+    return {**inventory_result(job.revision), **totals}
 
 
 # --- scope and rows ---------------------------------------------------------------------------------
