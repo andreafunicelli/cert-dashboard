@@ -238,7 +238,7 @@ with the pull request that delivered each group of changes.
   never the value; `rotate-master-key` rewraps the stored credentials with the private keys and TOTP
   seeds.
 
-**Slice B foundation: manual-first inventory, users and SSH keys**
+**Slice B foundation: manual-first inventory, users and SSH keys (PR #94)**
 
 - Manual hosts, local users and trusted SSH host keys are managed in the dashboard; a Git inventory
   repository stays optional. The new `ssh_host_key` trust store (migration `0003_ssh_host_key`,
