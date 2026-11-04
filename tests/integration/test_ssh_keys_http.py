@@ -91,6 +91,22 @@ def test_add_public_key_registers_it_with_a_fingerprint_and_an_audit_row(signed_
     assert row.fingerprint_sha256 in page.text
 
 
+def test_htmx_add_navigates_and_shows_the_success_note(signed_in, csrf, web_factory):
+    """htmx cannot observe a 303: success answers HX-Redirect so the browser lands on the list and its flash."""
+    response = signed_in.post(
+        "/ssh-keys",
+        data={"csrf_token": csrf, "label": "Ansible production", "public_key": _public(_key())},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/ssh-keys"
+    assert response.cookies.get("cd_flash")
+    page = signed_in.get("/ssh-keys")
+    assert 'data-banner="flash"' in page.text
+    assert "registered" in page.text
+
+
 def test_an_invalid_key_is_an_inline_error_and_writes_nothing(signed_in, csrf, web_factory):
     response = _add(signed_in, csrf, "Broken", "not a key")
     assert response.status_code == 422

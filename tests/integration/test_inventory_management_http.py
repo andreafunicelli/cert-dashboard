@@ -6,6 +6,8 @@ Discovery reconciliation keeps manual hosts active — that half is exercised th
 ``sync_inventory_servers`` so a future change to the exemption fails here.
 """
 
+import re
+
 import pytest
 from sqlalchemy import select
 
@@ -126,6 +128,88 @@ def test_htmx_post_returns_the_fragment_it_would_swap(signed_in, csrf):
     )
     assert response.status_code == 422
     assert 'id="inventory-panel"' in response.text and "data-inventory-errors" in response.text
+
+
+@pytest.mark.parametrize("headers", [{}, {"HX-Request": "true"}], ids=["native", "htmx"])
+def test_edit_error_reopens_that_rows_form_with_the_attempted_values(signed_in, csrf, web_factory, headers):
+    """A refused edit belongs to the row's Edit host form, not to the Add host form above it."""
+    _create(signed_in, csrf)
+    server = _server(web_factory)
+    assert server is not None
+    response = signed_in.post(
+        f"/inventory/{server.id}/edit",
+        data={"csrf_token": csrf, **_fields({"hostname": "-bad", "display_name": "Attempted"})},
+        headers=headers,
+        follow_redirects=False,
+    )
+    assert response.status_code == 422
+    assert 'data-inventory-errors="true"' in response.text
+    row = re.search(rf'<tr data-server-id="{server.id}".*?</tr>', response.text, re.DOTALL)
+    assert row is not None
+    row_html = row.group(0)
+    assert '<details class="inventory-row-actions" open>' in row_html
+    assert f'id="edit-{server.id}-hostname" name="hostname" value="-bad"' in row_html
+    assert f'id="edit-{server.id}-display_name" name="display_name" value="Attempted"' in row_html
+    assert '<p class="form-error" data-field="hostname" role="alert">' in row_html
+    # The create form is not the one that was refused: it stays closed and shows neither the input nor the error.
+    create = re.search(r'<details class="inventory-create" id="add-host".*?</details>', response.text, re.DOTALL)
+    assert create is not None
+    create_html = create.group(0)
+    assert "open" not in create_html.split(">", 1)[0]
+    assert "-bad" not in create_html
+    assert 'data-field="hostname"' not in create_html
+
+
+def test_edit_refusal_from_the_service_reopens_the_row_form_with_its_error(signed_in, csrf, web_factory):
+    """A uniqueness refusal from ``update_entry`` is rendered on the row that was being edited too."""
+    _create(signed_in, csrf)
+    assert _create(signed_in, csrf, {"hostname": "web02.example.internal"}).status_code == 303
+    server = _server(web_factory)
+    assert server is not None
+    response = signed_in.post(
+        f"/inventory/{server.id}/edit",
+        data={"csrf_token": csrf, **_fields({"hostname": "WEB02.example.internal", "display_name": "Attempted"})},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 422
+    row = re.search(rf'<tr data-server-id="{server.id}".*?</tr>', response.text, re.DOTALL)
+    assert row is not None
+    assert f'id="edit-{server.id}-hostname" name="hostname" value="WEB02.example.internal"' in row.group(0)
+    assert '<p class="form-error" data-field="hostname" role="alert">' in row.group(0)
+    assert "already in the inventory" in row.group(0)
+
+
+def test_htmx_create_navigates_and_shows_the_success_note(signed_in, csrf, web_factory):
+    """htmx cannot observe a 303: success answers HX-Redirect so the browser lands on the list and its flash."""
+    response = signed_in.post(
+        "/inventory",
+        data={"csrf_token": csrf, **_fields()},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert response.headers["HX-Redirect"] == "/inventory"
+    assert response.cookies.get("cd_flash")
+    page = signed_in.get("/inventory")
+    assert 'data-banner="flash"' in page.text
+    assert "added to the inventory" in page.text
+
+
+def test_htmx_edit_navigates_and_shows_the_success_note(signed_in, csrf, web_factory):
+    _create(signed_in, csrf)
+    server = _server(web_factory)
+    assert server is not None
+    response = signed_in.post(
+        f"/inventory/{server.id}/edit",
+        data={"csrf_token": csrf, **_fields({"display_name": "Web primary"})},
+        headers={"HX-Request": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200 and response.headers["HX-Redirect"] == "/inventory"
+    page = signed_in.get("/inventory")
+    assert 'data-banner="flash"' in page.text
+    assert "updated" in page.text
 
 
 def test_edit_updates_and_audits_the_before_and_after(signed_in, csrf, web_factory):

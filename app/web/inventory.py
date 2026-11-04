@@ -16,7 +16,7 @@ from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 
 from app.jobs.handlers.discover import request_discovery
 from app.models.enums import JobType, WebserverType
@@ -35,7 +35,7 @@ from app.services.inventory_entries import (
     update_entry,
 )
 from app.services.settings import get_setting
-from app.web.certificates import LIST_DEFAULT_PAGE_SIZE, LIST_MAX_PAGE_SIZE, _query_int
+from app.web.certificates import LIST_DEFAULT_PAGE_SIZE, LIST_MAX_PAGE_SIZE, _is_htmx, _query_int
 from app.web.common import (
     _render,
     _transact,
@@ -158,8 +158,14 @@ def _page(
     values: dict[str, str] | None = None,
     *,
     query: _Query | None = None,
+    edit: dict[str, Any] | None = None,
 ):
-    """Render the list and the panel. ``values`` is the submitted form when one is being re-rendered."""
+    """Render the list and the panel.
+
+    ``values`` re-renders a refused *create* form. ``edit`` re-renders a refused edit
+    (``{"server_id": <int>, "submitted": {...}}``) inside that row, with its attempted input and error,
+    so the form that was submitted — not the Add host form — is the one that reopens.
+    """
     query = query or _query(request)
     with request.app.state.factory() as db:
         page = list_entries(db, query.filters, query.page, query.page_size, query.sort)
@@ -183,6 +189,7 @@ def _page(
         errors=errors or {},
         form=values if values is not None else {name: "" for name in _FORM_KEYS},
         create_open=values is not None or request.query_params.get("create") == "1",
+        edit=edit,
         **extra,
     )
 
@@ -192,18 +199,29 @@ def _submitted(**values: str) -> dict[str, str]:
     return {name: value[: _FORM_LIMITS[name]] for name, value in values.items()}
 
 
-def _done(request: Request, note: str) -> RedirectResponse:
-    response = RedirectResponse("/inventory", status_code=303)
+def _done(request: Request, note: str) -> Response:
+    """Success: htmx navigates with ``HX-Redirect`` (it cannot observe a 303), browsers get a 303."""
+    if _is_htmx(request):
+        response: Response = Response(status_code=200, headers={"HX-Redirect": "/inventory"})
+    else:
+        response = RedirectResponse("/inventory", status_code=303)
     set_flash(response, request.app.state.settings.session_secret, [note])
     return response
 
 
-def _apply(request: Request, work, note: str, values: dict[str, str] | None = None):
+def _apply(
+    request: Request,
+    work,
+    note: str,
+    values: dict[str, str] | None = None,
+    *,
+    edit: dict[str, Any] | None = None,
+):
     """Run ``work(db, actor)`` in one transaction; a typed refusal re-renders the panel with 422."""
     try:
         _transact(request, work)
     except InventoryEntryError as error:
-        return _page(request, 422, {error.field: error.message}, values)
+        return _page(request, 422, {error.field: error.message}, values, edit=edit)
     except InventoryEntryNotFound:
         raise HTTPException(404) from None
     return _done(request, note)
@@ -266,11 +284,13 @@ def register_inventory_routes(app: FastAPI) -> None:
         try:
             fields: EntryFields = parse_entry(submitted)
         except InventoryEntryError as error:
-            return _page(request, 422, {error.field: error.message}, submitted)
+            refused_edit = {"server_id": server_id, "submitted": submitted}
+            return _page(request, 422, {error.field: error.message}, edit=refused_edit)
         return _apply(
             request,
             lambda db, now, actor: update_entry(db, server_id, fields, actor),
             f"“{fields.hostname}” updated.",
+            edit={"server_id": server_id, "submitted": submitted},
         )
 
     @app.post("/inventory/{server_id:int}/active")

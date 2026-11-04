@@ -6,6 +6,7 @@
 {% from "_ui.html.j2" import icon %}
 {% from "inventory/_form.html.j2" import host_form %}
 {% set labels = {'search': 'Search', 'group': 'Group', 'source': 'Source', 'webserver': 'Web server', 'active': 'Hosts'} %}
+{% set edit_focus = edit if edit is defined else none %}
 {% call page_header('Inventory', 'The hosts Ansible manages. Add them here, or import them from a repository — a repository is optional.') %}
   {% if import_reason %}
   <button type="button" disabled title="{{ import_reason }}">Import from repository</button>
@@ -50,9 +51,9 @@
   <ul>{% for field, message in errors.items() %}<li data-field="{{ field }}">{{ message }}</li>{% endfor %}</ul>
 </div>
 {% endif %}
-<details class="inventory-create" id="add-host"{% if create_open %} open{% endif %}>
+<details class="inventory-create" id="add-host"{% if create_open and not edit_focus %} open{% endif %}>
   <summary class="button">{{ 'Add another host' if page.items else 'Add host' }}</summary>
-  {{ host_form('/inventory', form, csrf_token, 'Add host', 'create', errors) }}
+  {{ host_form('/inventory', form, csrf_token, 'Add host', 'create', {} if edit_focus else errors) }}
 </details>
 
 {% if page.items %}
@@ -81,11 +82,16 @@
     <td class="numeric">{% if row.last_discovery_at %}{{ time_tag(row.last_discovery_at, tz) }}{% else %}Never discovered{% endif %}</td>
     <td>
       {% if row.manual %}
-      <details class="inventory-row-actions">
+      {% set row_is_edit_target = edit_focus and edit_focus.server_id == row.id %}
+      <details class="inventory-row-actions"{% if row_is_edit_target %} open{% endif %}>
         <summary>Manage <span class="row-secondary">{{ row.hostname }}</span></summary>
         <h3>Edit host</h3>
+        {% if row_is_edit_target %}
+        {{ host_form('/inventory/' ~ row.id ~ '/edit', edit_focus.submitted, csrf_token, 'Save host', 'edit-' ~ row.id, errors) }}
+        {% else %}
         {% set edit_values = {'hostname': row.hostname, 'display_name': row.display_name or '', 'connection_address': row.connection_address or '', 'webserver': row.webserver or '', 'ansible_groups': row.groups | join(', '), 'notes': row.notes or ''} %}
-        {{ host_form('/inventory/' ~ row.id ~ '/edit', edit_values, csrf_token, 'Save host', 'edit-' ~ row.id, errors) }}
+        {{ host_form('/inventory/' ~ row.id ~ '/edit', edit_values, csrf_token, 'Save host', 'edit-' ~ row.id) }}
+        {% endif %}
         <form class="inline" method="post" action="/inventory/{{ row.id }}/active">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="active" value="{{ 'false' if row.is_active else 'true' }}">
