@@ -425,6 +425,13 @@ def short_artifacts():
     shutil.rmtree(root, ignore_errors=True)
 
 
+def target_host(stack):
+    """The ``ssh-targets`` row for ``WEB01``: ``TargetStack.hosts`` is keyed by compose service name."""
+    match = next((host for host in stack.hosts.values() if host.inventory_name == WEB01), None)
+    assert match is not None, f"{WEB01} is not one of the ssh-targets hosts"
+    return match
+
+
 @pytest.fixture
 def targets(queue_factory, ansible_worker, ssh_targets, fresh_targets, short_artifacts):
     """One manual host that *is* a live SSH target, connecting through the D6 global user/port.
@@ -432,7 +439,7 @@ def targets(queue_factory, ansible_worker, ssh_targets, fresh_targets, short_art
     The D6 defaults are global (per-host user/port is out of scope), so a manual-only discovery can only
     reach one target at a time: each target listens on its own random SSH port.
     """
-    target = ssh_targets.hosts[WEB01]
+    target = target_host(ssh_targets)
     add_host(
         queue_factory,
         WEB01,
@@ -479,7 +486,7 @@ def _bindings(factory, hostname):
 
 def test_a_database_only_host_key_lets_discovery_connect(targets, tmp_path):
     """No mounted known_hosts at all: the dashboard-trusted keys alone must authenticate the targets."""
-    target = targets.targets.hosts[WEB01]
+    target = target_host(targets.targets)
     line = next(line for line in targets.targets.known_hosts.read_text().splitlines() if f":{target.ssh_port} " in line)
     host, key_type, public_key = line.split()[:3]
     add_host_key(targets.factory, host, public_key, key_type)
@@ -493,7 +500,7 @@ def test_a_database_only_host_key_lets_discovery_connect(targets, tmp_path):
 
 def test_deleting_a_duplicated_trusted_row_does_not_revoke_the_mounted_file(targets):
     """Architect checklist case against a real connection: the mounted file's trust survives the row."""
-    target = targets.targets.hosts[WEB01]
+    target = target_host(targets.targets)
     mounted = targets.targets.known_hosts
     before = (hashlib.sha256(mounted.read_bytes()).hexdigest(), stat.S_IMODE(mounted.stat().st_mode))
     line = next(line for line in mounted.read_text().splitlines() if f":{target.ssh_port} " in line)
