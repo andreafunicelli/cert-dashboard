@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Branding asset review · Cert Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="../../../app/static/branding/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="../../../app/static/branding/favicon-32.png">
+  <link rel="stylesheet" href="../../../app/static/app.css">
+  <link rel="stylesheet" href="branding.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<main id="main-content" tabindex="-1">
+<h1>Cert Dashboard identity</h1>
+<p>Static design review, not a working settings screen. Folded certificate with a hexagonal seal; no checkmark or implied trust verdict. Sizes below are CSS pixels, without image stretching.</p>
+<section aria-labelledby="assets-heading">
+<h2 id="assets-heading">Asset contact sheet</h2>
+{% for theme, label in [('dark', 'Operations Dark'), ('light', 'Light background'), ('mono', 'Monochrome on light')] %}
+<section class="swatch {{ theme }}" aria-label="{{ label }}">
+<h3>{{ label }}</h3>
+{% set suffix = '' if theme == 'dark' else '-' ~ theme %}
+<p class="asset-row"><img src="../../../app/static/branding/lockup{{ suffix }}.svg" alt="Cert Dashboard" width="202" height="24"> <span>24px primary lockup / header</span></p>
+<p class="asset-row"><img src="../../../app/static/branding/mark{{ suffix }}.svg" alt="Cert Dashboard mark" width="24" height="24"> <span>24px compact navigation</span></p>
+<p class="asset-row"><img src="../../../app/static/branding/mark{{ suffix }}.svg" alt="Cert Dashboard mark" width="48" height="48"> <span>48px sign-in identity</span></p>
+</section>
+{% endfor %}
+<section class="swatch dark" aria-label="Favicon proof">
+<h3>Browser identity</h3>
+<p class="asset-row"><img src="../../../app/static/branding/favicon.svg" alt="SVG favicon at 16 pixels" width="16" height="16"> <img src="../../../app/static/branding/favicon.svg" alt="SVG favicon at 32 pixels" width="32" height="32"> <img src="../../../app/static/branding/favicon-32.png" alt="PNG favicon at native 32 pixels" width="32" height="32"> <span>SVG 16 / SVG 32 / PNG 32</span></p>
+</section>
+</section>
+<section aria-labelledby="placement-heading">
+<h2 id="placement-heading">Placement annotations</h2>
+<ul>
+<li>Header: 24px lockup, homepage link named “Cert Dashboard home”; minimum 48px hit target. Use light variant in light mode.</li>
+<li>Compact navigation: mark at 24px, same homepage link name. Do not squeeze the wordmark.</li>
+<li>Sign in: 48px mark above the unchanged “Sign in” heading; keep the header lockup rather than adding a second wordmark.</li>
+<li>Favicon: fixed default identity, independent of custom uploads. Dark tile keeps the mark readable on browser light and dark chrome.</li>
+</ul>
+</section>
+<section class="panel wide" aria-labelledby="flow-heading">
+<h2 id="flow-heading">Settings → Branding</h2>
+<p class="help">Annotated flow only. See <code>docs/ui/branding.md</code> for the implementation contract.</p>
+<h3>Default state</h3>
+<p>No custom logo. Cert Dashboard’s default logo is in use.</p>
+<p>Logo image · SVG or PNG, up to 256 KiB. Use a transparent image with a square or wide layout.</p>
+<p><strong>Choose file → Preview logo</strong></p>
+<p class="help">Selecting a file does not upload or save it. Choose Preview logo to check it before saving. Leaving this page discards the preview after 30 minutes.</p>
+<h3>Preview state</h3>
+<p>Preview only. Your current logo has not changed.</p>
+<p>Show the same candidate on dark and light surfaces at 24px and 48px high, with a retained “Cert Dashboard” text label.</p>
+<p><strong>Save logo</strong> (primary) · <strong>Discard preview</strong> (secondary). File chooser remains available to preview another image.</p>
+<h3>Error state</h3>
+<p class="form-error">Logo is too large. Choose an SVG or PNG no larger than 256 KiB. Your current logo has not changed.</p>
+<h3>Reset confirmation</h3>
+<p>Reset to default logo? This removes the custom logo for everyone, including the sign-in page. You cannot undo this without uploading it again.</p>
+<p><strong>Reset logo</strong> (destructive) · <strong>Cancel</strong> (secondary).</p>
+</section>
+</main>
+</body>
+</html>
