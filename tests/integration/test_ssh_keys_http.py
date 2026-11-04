@@ -5,6 +5,7 @@ store works with GitHub/Git unconfigured. The module's ``web_factory`` database 
 fixtures delete the trust rows they create and audit assertions filter by action and target.
 """
 
+import html
 import re
 
 import pytest
@@ -124,6 +125,21 @@ def test_page_works_without_a_repository_and_shows_the_open_add_form(
     assert 'action="/ssh-keys/host-keys"' in page.text
     assert "Only trust a key whose fingerprint you checked with the server itself." in page.text
     assert "ssh-keyscan does not authenticate the server." in page.text
+    hint_match = re.search(r'<p class="hint">(.*?)</p>', page.text, re.DOTALL)
+    assert hint_match, page.text[:1200]
+    hint = hint_match.group(1)
+    assert "`" not in hint  # the hint is HTML, not markdown source
+    assert "<code>ssh-keyscan &lt;host&gt;</code>" in hint
+    assert "<host>" not in hint  # browsers would swallow an unescaped placeholder
+    visible_hint = html.unescape(re.sub(r"</?code>", "", hint))
+    assert visible_hint == (
+        "Only trust a key whose fingerprint you checked with the server itself. Best: paste "
+        "/etc/ssh/ssh_host_ed25519_key.pub copied from the server's console or your provisioning "
+        "system, and enter the host. If you use ssh-keyscan <host>, first compare its fingerprints "
+        "(ssh-keyscan <host> | ssh-keygen -lf -) with "
+        "ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub run on the server: ssh-keyscan does not "
+        "authenticate the server."
+    )
     assert "/static/pages/ssh-keys.css" in page.text
     assert 'id="ssh-host-keys-panel"' in page.text
     assert "checked" not in _verified_input(page.text)
