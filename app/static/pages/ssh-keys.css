@@ -1,0 +1,10 @@
+/* SSH keys page: the trust store table and the add form on the shared management tokens. */
+.host-key-fingerprint code { white-space: nowrap; }
+.host-key-form { margin-block-start: var(--space-6); padding-block-start: var(--space-5); border-block-start: var(--line) solid var(--separator); }
+.host-key-form h3 { margin: var(--space-0) var(--space-0) var(--space-2); }
+.host-key-form .hint { max-width: var(--content-width); color: var(--text-muted); }
+.host-key-form form { max-width: var(--panel-width); }
+.host-key-form textarea { font-family: var(--font-mono, monospace); }
+.host-key-verified { display: flex; gap: var(--space-2); align-items: flex-start; }
+.host-key-verified input { margin-block-start: 0.2em; }
+.host-key-delete { white-space: nowrap; }
