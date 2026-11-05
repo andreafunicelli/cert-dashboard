@@ -1,0 +1,25 @@
+{# Add one or more trusted host keys (contract §6). Public keys only; the checkbox is never pre-checked. #}
+{% from "_management_ui.html.j2" import field_attrs, field_error %}
+<section class="host-key-form" id="add-host-key" aria-labelledby="add-host-key-heading">
+  <h3 id="add-host-key-heading">Add trusted host keys</h3>
+  <p class="hint">Only trust a key whose fingerprint you checked with the server itself. Best: paste <code>/etc/ssh/ssh_host_ed25519_key.pub</code> copied from the server's console or your provisioning system, and enter the host. If you use <code>ssh-keyscan &lt;host&gt;</code>, first compare its fingerprints (<code>ssh-keyscan &lt;host&gt; | ssh-keygen -lf -</code>) with <code>ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub</code> run on the server: ssh-keyscan does not authenticate the server.</p>
+  <form method="post" action="/ssh-keys/host-keys"
+        hx-post="/ssh-keys/host-keys" hx-target="#ssh-host-keys-panel" hx-select="#ssh-host-keys-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="field-entries">Host keys</label>
+    <textarea id="field-entries" name="entries" rows="5" required autocomplete="off" spellcheck="false" {{ field_attrs(errors, 'entries') }}>{{ form.entries }}</textarea>
+    {{ field_error(errors, 'entries') }}
+    <label for="field-hosts">Host (only for public-key lines)</label>
+    <input id="field-hosts" name="hosts" value="{{ form.hosts }}" maxlength="8192" autocomplete="off" placeholder="web01.example.test or [web01.example.test]:2222" {{ field_attrs(errors, 'hosts') }}>
+    {{ field_error(errors, 'hosts') }}
+    <label for="field-comment">Comment (optional, at most 100 characters)</label>
+    <input id="field-comment" name="comment" value="{{ form.comment }}" maxlength="100" autocomplete="off" {{ field_attrs(errors, 'comment') }}>
+    {{ field_error(errors, 'comment') }}
+    <label class="host-key-verified" for="field-verified">
+      <input type="checkbox" id="field-verified" name="verified" value="1" {{ field_attrs(errors, 'verified') }}>
+      I compared these fingerprints with the server's own host keys through a trusted channel.
+    </label>
+    {{ field_error(errors, 'verified') }}
+    <button type="submit">Trust host keys</button>
+  </form>
+</section>
