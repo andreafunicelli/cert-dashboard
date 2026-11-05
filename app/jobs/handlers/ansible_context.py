@@ -5,7 +5,7 @@
 
 1. configuration and preconditions that need no lock: the inventory (a repository, active manual hosts,
    or both — decision D1), and an effective ``known_hosts`` (the mounted file and the dashboard-trusted
-   host keys, contract §7.4);
+   host keys, contract §7.4; a "Test pull" of an ``https://`` repository stages an empty one, spec §8.2);
 2. the caller's *exclusive* locks (``deploy:global``), non-blocking: a held lock is ``LockBusy``;
 3. the SSH key and the effective ``known_hosts`` staged on the tmpfs ``key_staging_dir``
    (``0700``/``0600``, removed on exit);
@@ -30,6 +30,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from app.ansible.runner import RunnerContext, build_env, prepare_run_dir, stage_runner_secrets
 from app.ansible.staging import StagingArea, StagingError
@@ -73,7 +74,12 @@ __all__ = ["AnsibleJob", "LockBusy", "ansible_job"]
 CHECKOUT_DIRECTORY = "repo"
 MANUAL_INVENTORY_FILE = "inventory-manual.yml"
 _NOT_CONFIGURED = "inventory repository is not configured"
-_KNOWN_HOSTS_MISSING = "SSH known_hosts file is missing"
+# UX-02: name where host trust is granted, not only that it is missing (spec §8.2, §10 step 19).
+# ``app.jobs.queue`` carries the same literal in its fixed-message allowlist: the label-based scrubber
+# would otherwise read "keys: trust" as a secret assignment and persist "[REDACTED]".
+_KNOWN_HOSTS_MISSING = (
+    "no trusted SSH host keys: trust them in Infrastructure → SSH keys or mount a known_hosts file"
+)
 _OUTSIDE_CHECKOUT = "inventory path is outside the checkout"
 _UNSAFE_INVENTORY = "the dashboard data cannot be rendered as an inventory"
 _UNSAFE_KEYS = "the dashboard-trusted host keys cannot be rendered as known_hosts"
@@ -147,7 +153,9 @@ def _ansible_job(
             raise JobFailure("config_invalid", _NOT_CONFIGURED)
         if config is None and not manual_hosts:
             raise JobFailure("config_invalid", NO_INVENTORY)
-    known_hosts = _effective_known_hosts(settings.known_hosts_file, host_keys)
+    known_hosts = _effective_known_hosts(
+        settings.known_hosts_file, host_keys, required=_host_trust_required(config, require_repository)
+    )
 
     locks = AdvisoryLocks(context.factory.kw["bind"])
     with ExitStack() as stack:
@@ -202,11 +210,24 @@ def _ansible_job(
         )
 
 
-def _effective_known_hosts(mounted: Path, host_keys: Sequence[HostKey]) -> bytes:
-    """The mounted file (read only) followed by the dashboard-trusted keys; fails when neither exists.
+def _host_trust_required(config: InventoryConfig | None, require_repository: bool) -> bool:
+    """Whether the job needs a non-empty ``known_hosts`` (spec §8.2, UX-02).
+
+    Only testing an HTTPS repository may run with no host trust at all: TLS authenticates the repository and
+    Git never opens an SSH connection, so there is no host key to verify. An ``ssh://`` or scp-like URL, and
+    every discover/deploy job (which connects to the targets), keeps requiring trust — fail closed.
+    """
+    if not require_repository or config is None:
+        return True
+    return urlsplit(config.repo_url).scheme.lower() != "https"
+
+
+def _effective_known_hosts(mounted: Path, host_keys: Sequence[HostKey], *, required: bool) -> bytes:
+    """The mounted file (read only) followed by the dashboard-trusted keys.
 
     Contract §7.4: the "no known_hosts" failure applies only when the file is absent **and** no key is
-    trusted in the dashboard. The mounted file itself is never written: only its bytes are read.
+    trusted in the dashboard. ``required=False`` is the HTTPS test-pull exemption (§8.2): nothing to stage
+    is then an empty file, never a failure. The mounted file itself is never written: only its bytes are read.
     """
     content: bytes | None = None
     if mounted.is_file():
@@ -214,7 +235,7 @@ def _effective_known_hosts(mounted: Path, host_keys: Sequence[HostKey]) -> bytes
             content = mounted.read_bytes()
         except OSError:
             raise JobFailure("config_invalid", _KNOWN_HOSTS_MISSING) from None
-    if content is None and not host_keys:
+    if content is None and not host_keys and required:
         raise JobFailure("config_invalid", _KNOWN_HOSTS_MISSING)
     try:
         return render_known_hosts(content, host_keys)

@@ -35,6 +35,9 @@ WWW = "www.example.internal"
 LONG_AGO = datetime(2020, 1, 1, tzinfo=UTC)
 REVISION = "main:inventory@" + "a" * 40
 NO_INVENTORY = "No inventory: add a host in Inventory or configure a repository."
+MISSING_HOST_TRUST = (
+    "no trusted SSH host keys: trust them in Infrastructure → SSH keys or mount a known_hosts file"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -332,7 +335,22 @@ def test_no_known_hosts_file_and_no_trusted_key_fails_config_invalid(queue_facto
     ansible_worker(queue_factory, known_hosts_file=tmp_path / "absent").run_queued(timeout=120)
     job = job_of(queue_factory, job_id)
     assert (job.status, job.error_class) == (JobStatus.FAILED, "config_invalid")
-    assert job.error_message == "SSH known_hosts file is missing"
+    assert job.error_message == MISSING_HOST_TRUST
+    assert stub.calls == []
+
+
+def test_discover_still_needs_host_trust_for_an_https_repository(queue_factory, ansible_worker, tmp_path, stub):
+    """Only a *test pull* of an HTTPS repository is exempt (§8.2): discover always connects over SSH."""
+    add_host(queue_factory, MANUAL01)
+    set_setting(queue_factory, "inventory.repo_url", "https://git.example.test/inventory.git")
+    job_id = enqueue_discovery(queue_factory)
+    ansible_worker(queue_factory, known_hosts_file=tmp_path / "absent").run_queued(timeout=120)
+    job = job_of(queue_factory, job_id)
+    assert (job.status, job.error_class, job.error_message) == (
+        JobStatus.FAILED,
+        "config_invalid",
+        MISSING_HOST_TRUST,
+    )
     assert stub.calls == []
 
 

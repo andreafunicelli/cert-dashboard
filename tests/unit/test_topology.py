@@ -199,17 +199,31 @@ def test_ssh_targets_are_pinned_profiled_and_loopback_only():
     }
 
 
-def test_ci_builds_ssh_target_images_after_the_pull_and_before_pytest():
-    path = ROOT / ".github/workflows/ci.yml"
+def test_integration_builds_ssh_target_images_after_the_pull_and_before_pytest():
+    """The docker targets belong to the long suite: `verify` must stay fast enough to gate every card."""
+    path = ROOT / ".github/workflows/integration.yml"
     if not path.exists():
         pytest.skip("CI workflow checked in the host checkout")
-    commands = [step.get("run", "") for step in yaml.safe_load(path.read_text())["jobs"]["verify"]["steps"]]
+    commands = [step.get("run", "") for step in yaml.safe_load(path.read_text())["jobs"]["integration"]["steps"]]
     pull = next(i for i, c in enumerate(commands) if "--profile targets pull" in c)
     build = next(i for i, c in enumerate(commands) if "--profile ssh-targets build" in c)
     pytest_run = next(i for i, c in enumerate(commands) if "pytest" in c and not c.startswith("docker run"))
     assert pull < build < pytest_run
     assert commands[build].startswith("docker compose -f docker-compose.test.yml --profile ssh-targets build")
     assert "docker compose -f docker-compose.test.yml --profile ssh-targets config --quiet" in commands
+
+
+def test_the_merge_gate_never_builds_images():
+    """`verify` is the required check on every PR: no docker build, no compose stack, no long suite."""
+    path = ROOT / ".github/workflows/ci.yml"
+    if not path.exists():
+        pytest.skip("CI workflow checked in the host checkout")
+    commands = [step.get("run", "") for step in yaml.safe_load(path.read_text())["jobs"]["verify"]["steps"]]
+    assert not [c for c in commands if c.startswith("docker build")], "the fast gate must not build images"
+    assert not [c for c in commands if c.startswith("docker run ")], "the fast gate must not run containers"
+    assert any("--ignore=tests/integration" in c for c in commands), (
+        "the fast gate must run the database-free suite"
+    )
 
 
 def test_htmx_is_packaged_for_offline_runtime():
@@ -291,17 +305,27 @@ def test_postgres_initializer_is_executable_in_git():
     assert result.stdout.split()[0] == "100755"
 
 
-def test_ci_container_smoke_runs_only_unit_tests():
-    path = ROOT / ".github/workflows/ci.yml"
+def test_integration_container_smoke_runs_only_unit_tests():
+    path = ROOT / ".github/workflows/integration.yml"
     if not path.exists():
         pytest.skip("CI workflow checked in the host checkout")
     workflow = yaml.safe_load(path.read_text())
-    commands = [step.get("run", "") for step in workflow["jobs"]["verify"]["steps"]]
+    commands = [step.get("run", "") for step in workflow["jobs"]["integration"]["steps"]]
     smoke = [command for command in commands if command.startswith("docker run ")]
     assert smoke == ["docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider"]
 
 
-@pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI required; run authoritative suite in Linux")
+pytestmark_needs_image = pytest.mark.skipif(
+    shutil.which("docker") is None
+    or subprocess.run(
+        ["docker", "image", "inspect", "cert-dashboard:test"], check=False, capture_output=True
+    ).returncode
+    != 0,
+    reason="needs the test image built by the integration workflow",
+)
+
+
+@pytestmark_needs_image
 def test_runtime_dump_client_matches_postgres16():
     result = subprocess.run(
         ["docker", "run", "--rm", "--pull=never", "--entrypoint", "pg_dump", "cert-dashboard:test", "--version"],
@@ -310,7 +334,7 @@ def test_runtime_dump_client_matches_postgres16():
     assert result.stdout.startswith("pg_dump (PostgreSQL) 16.")
 
 
-@pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI required; run authoritative suite in Linux")
+@pytestmark_needs_image
 def test_install_secrets_applies_actual_owner_and_modes_in_isolated_container():
     script = ROOT / "scripts/install-secrets.sh"
     assert script.exists(), "Missing secret ownership installer"
@@ -345,7 +369,7 @@ print('secret ownership and modes verified')
     assert "secret ownership and modes verified" in result.stdout
 
 
-@pytest.mark.skipif(shutil.which("docker") is None, reason="Docker CLI required; run authoritative suite in Linux")
+@pytestmark_needs_image
 def test_database_bootstrap_limits_runtime_role_and_uses_distinct_owner_password(tmp_path):
     import os
     import secrets

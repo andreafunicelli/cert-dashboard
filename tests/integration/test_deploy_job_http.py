@@ -742,6 +742,25 @@ def test_failure_banner_names_the_host_that_stopped_the_rollout(signed_in, deplo
             "No host stopped the rollout: certificate trust changed since the deploy was planned; plan it again.",
         ),
         (
+            "no trusted SSH host keys: trust them in Infrastructure → SSH keys or mount a known_hosts file",
+            "config_invalid",
+            (
+                "No host stopped the rollout: no trusted SSH host keys: trust them in Infrastructure"
+                " → SSH keys or mount a known_hosts file."
+            ),
+        ),
+        (
+            # historical job rows: the wording the worker wrote before B-W2 stays renderable
+            "SSH known_hosts file is missing",
+            "config_invalid",
+            "No host stopped the rollout: SSH known_hosts file is missing.",
+        ),
+        (
+            "No inventory: add a host in Inventory or configure a repository.",
+            "config_invalid",
+            "No host stopped the rollout: No inventory: add a host in Inventory or configure a repository.",
+        ),
+        (
             "Job exceeded its time limit or its worker stopped responding.",
             "timeout",
             "No host stopped the rollout: Job exceeded its time limit or its worker stopped responding.",
