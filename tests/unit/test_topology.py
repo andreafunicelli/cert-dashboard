@@ -221,7 +221,9 @@ def test_the_merge_gate_never_builds_images():
     commands = [step.get("run", "") for step in yaml.safe_load(path.read_text())["jobs"]["verify"]["steps"]]
     assert not [c for c in commands if c.startswith("docker build")], "the fast gate must not build images"
     assert not [c for c in commands if c.startswith("docker run ")], "the fast gate must not run containers"
-    assert any("pytest -q tests/unit" in c for c in commands), "the fast gate must run the unit suite"
+    assert any("--ignore=tests/integration" in c for c in commands), (
+        "the fast gate must run the database-free suite"
+    )
 
 
 def test_htmx_is_packaged_for_offline_runtime():

@@ -45,7 +45,10 @@ jobs:
       # preview and styling contract tests at the root of tests/. Integration lives in the other workflow.
       - name: DB-free suite with coverage for the security-critical paths
         run: |
-          uv run pytest -q --ignore=tests/integration --cov=app --cov-report=json --cov-report=
+          # The project floor (70%) is measured on the full suite; here only the security-critical
+          # paths are gated, so the global floor is disabled explicitly rather than silently lower.
+          uv run pytest -q --ignore=tests/integration --cov=app --cov-report=json --cov-report= \
+            --cov-fail-under=0
           uv run coverage report --fail-under=85 --include='app/crypto/*'
           uv run coverage report --fail-under=85 --include='app/ansible/parse_*'
       - run: uv run pip-audit
