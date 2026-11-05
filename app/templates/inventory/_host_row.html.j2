@@ -1,0 +1,64 @@
+{#
+  One inventory host row (Slice B contract §4): read columns plus the row actions.
+
+  The inline editor is a real form per row, so its field and error ids are namespaced with the server id
+  (``host_form(..., suffix='-<id>')``); callers pass errors already keyed ``<field>-<id>`` so the shared
+  ``error_summary`` links reach the right input. Repository rows only expose display name and notes (D5).
+#}
+{% from "_management_ui.html.j2" import confirm_action, source_badge, state_badge %}
+{% from "inventory/_host_form.html.j2" import host_form, repository_form %}
+
+{% macro host_row(host, csrf_token, return_to, tz, values=None, errors=None, editing=False) -%}
+{% set suffix = "-" ~ host.id %}
+<tr data-server-id="{{ host.id }}"{% if not host.is_active %} class="row-inactive"{% endif %}>
+  <td><a class="row-identity" href="/servers/{{ host.id }}">{{ host.hostname }}</a>
+    {% if host.notes %}<small class="row-secondary">{{ host.notes | truncate(80, true, '…') }}</small>{% endif %}</td>
+  <td>{{ host.display_name or "—" }}</td>
+  <td>{{ host.connection_address or "—" }}</td>
+  <td>{{ host.groups | join(", ") or "—" }}</td>
+  <td>{{ host.webserver or "auto" }}</td>
+  <td>{{ source_badge(host.source) }}</td>
+  <td>{{ state_badge(host.is_active) }}</td>
+  <td>
+    {% if host.last_discovery_at %}<p>{{ time_tag(host.last_discovery_at, tz) }}</p>{% endif %}
+    <span class="row-secondary">{% if host.last_discovery_status %}{{ host.last_discovery_status }}{% elif not host.last_discovery_at %}Never discovered{% endif %}</span>
+  </td>
+  <td class="numeric">{{ host.binding_count }}</td>
+  <td>
+    <div class="host-row-actions">
+      <details class="row-editor"{% if editing %} open{% endif %}>
+        <summary>Edit host</summary>
+        {% if host.manual %}
+        {{ host_form('/inventory/' ~ host.id ~ '/edit', csrf_token, values or host.form_values(), errors or {},
+                     'Save host', return_to, suffix) }}
+        {% else %}
+        {{ repository_form('/inventory/' ~ host.id ~ '/edit', csrf_token, values or host.form_values(), errors or {},
+                           'Save changes', return_to, suffix) }}
+        {% endif %}
+      </details>
+      {% if host.manual %}
+        {% if host.is_active %}
+        <form method="post" action="/inventory/{{ host.id }}/deactivate"
+              hx-post="/inventory/{{ host.id }}/deactivate" hx-target="#inventory-panel"
+              hx-select="#inventory-panel" hx-swap="outerHTML" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <button class="button-secondary" type="submit">Deactivate</button>
+        </form>
+        {% else %}
+        <form method="post" action="/inventory/{{ host.id }}/activate"
+              hx-post="/inventory/{{ host.id }}/activate" hx-target="#inventory-panel"
+              hx-select="#inventory-panel" hx-swap="outerHTML" class="inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <button class="button-secondary" type="submit">Reactivate</button>
+        </form>
+        {% endif %}
+        {{ confirm_action('/inventory/' ~ host.id ~ '/delete', 'Delete host',
+                          'Deletes the host from the dashboard. A host with discovery or deploy history cannot be deleted; deactivate it instead.',
+                          csrf_token) }}
+      {% endif %}
+    </div>
+  </td>
+</tr>
+{%- endmacro %}

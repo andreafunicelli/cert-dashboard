@@ -1,0 +1,22 @@
+/* Inventory hosts page (Slice B INV): the one form per row, its actions and the source panel. */
+.inventory-table td { vertical-align: top; }
+.host-row-actions { display: flex; flex-direction: column; gap: var(--space-2); align-items: flex-start; }
+.host-row-actions form.inline { margin: var(--space-0); }
+.row-editor summary,
+.connection-editor summary,
+.inventory-add-host summary { cursor: pointer; font-weight: 600; }
+.row-editor .host-form { margin-block-start: var(--space-3); max-width: var(--panel-width); }
+.host-form { display: flex; flex-direction: column; gap: var(--space-3); }
+.form-field { display: flex; flex-direction: column; gap: var(--space-1); }
+.form-field .field-error { margin: var(--space-0); }
+.form-actions { display: flex; gap: var(--space-2); }
+.inventory-add-host { margin-block: var(--space-4); }
+.inventory-add-host .host-form,
+.connection-editor .host-form { margin-block-start: var(--space-3); }
+.editing-heading { margin-block: var(--space-4) var(--space-2); }
+.source-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; margin-block-start: var(--space-3); }
+.source-actions .hint { margin: var(--space-0); }
+.inventory-table .row-secondary { display: block; color: var(--text-muted); font-size: var(--text-sm); }
+.inventory-table .row-inactive td { color: var(--text-muted); }
+.confirmation { margin-block-start: var(--space-1); }
+.confirmation form { margin-block-start: var(--space-2); }

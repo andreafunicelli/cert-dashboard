@@ -239,16 +239,39 @@ def test_csrf_error_page_offers_the_main_region_selected_by_the_403_rule():
     assert "Your form expired. Reload the page and try again." in region.group(1)
 
 
-def test_inventory_skeleton_renders_the_empty_state_without_a_repository():
+def test_inventory_page_renders_the_empty_state_without_a_repository():
+    """INV now owns this page; the context mirrors ``app/web/inventory.py::_page`` for an empty inventory."""
     html = environment().get_template("inventory/list.html.j2").render(
         **(
             _page_context("/inventory")
             | {
-                "hosts": [],
-                "manual_hosts": 0,
-                "repository_configured": False,
+                "page": SimpleNamespace(items=[], total=0, page=1, page_size=50),
+                "pages": 1,
+                "values": {},
+                "groups": [],
+                "source": {"configured": False, "url": "", "ref": "", "revision": None, "last_pull": None},
+                "import_reason": "No inventory repository is configured: set the repository URL first.",
                 "manual_ssh_user": "",
                 "manual_ssh_port": 22,
+                "total_hosts": 0,
+                "manual_hosts": 0,
+                "connection_warning": False,
+                "form_values": {
+                    "hostname": "",
+                    "display_name": "",
+                    "connection_address": "",
+                    "webserver": "",
+                    "groups": "",
+                    "notes": "",
+                },
+                "errors": {},
+                "edit": None,
+                "extra_row": None,
+                "action_error": None,
+                "connection_values": {"ssh_user": "", "ssh_port": "22"},
+                "connection_errors": {},
+                "add_open": True,
+                "page_url": lambda number: "/inventory",
             }
         )
     )
