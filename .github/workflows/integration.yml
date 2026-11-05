@@ -14,21 +14,28 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - ".github/workflows/**"
       - "app/auth/**"
       - "app/crypto/**"
       - "app/ansible/**"
       - "app/jobs/**"
+      - "app/models/**"
+      - "app/migrations/**"
       - "app/services/deploy.py"
       - "app/services/certificates.py"
+      - "app/services/renewals.py"
       - "app/secrets.py"
-      - "alembic/**"
       - "docker-compose*.yml"
       - "Dockerfile"
+      - "pyproject.toml"
+      - "uv.lock"
 permissions:
   contents: read
+# Only a superseded PR run may be cancelled. A push to main or the nightly must finish:
+# cancelling those is how a red post-merge run silently disappears.
 concurrency:
   group: integration-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   integration:
     runs-on: ubuntu-latest

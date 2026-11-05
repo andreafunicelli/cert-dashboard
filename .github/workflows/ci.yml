@@ -41,6 +41,11 @@ jobs:
           print("rendered tmpfs entries:", entries)
           PY
       - run: docker compose -f docker-compose.test.yml config --quiet
-      # Unit tests only: no database, no docker targets, no SSH fixtures.
-      - run: uv run pytest -q tests/unit
+      # Everything that needs no database, no docker target and no SSH fixture: tests/unit plus the
+      # preview and styling contract tests at the root of tests/. Integration lives in the other workflow.
+      - name: DB-free suite with coverage for the security-critical paths
+        run: |
+          uv run pytest -q --ignore=tests/integration --cov=app --cov-report=json --cov-report=
+          uv run coverage report --fail-under=85 --include='app/crypto/*'
+          uv run coverage report --fail-under=85 --include='app/ansible/parse_*'
       - run: uv run pip-audit
