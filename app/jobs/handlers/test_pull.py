@@ -31,7 +31,9 @@ def validate_test_pull_payload(payload: Mapping[str, JSONValue]) -> dict[str, JS
 
 def test_pull(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[str, JSONValue]:
     try:
-        with ansible_job(context) as job:
+        # ``require_repository=True`` also selects the HTTPS exemption from host trust (spec §8.2): a
+        # repository reached over TLS has no SSH host to verify, so "Test pull" must not fail on known_hosts.
+        with ansible_job(context, require_repository=True) as job:
             if job.revision is None or job.config is None or job.inventory_path is None:
                 raise JobFailure("internal", "the inventory was not prepared")
             hosts = list_inventory(
