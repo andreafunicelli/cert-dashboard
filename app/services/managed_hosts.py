@@ -88,6 +88,10 @@ def _host_token(value: str) -> str:
     """Lower-cased hostname or IP literal; raises ``ValueError`` for anything else."""
     if len(value) > HOSTNAME_MAX:
         raise ValueError("too long")
+    if "%" in value:
+        # Contract §3.1 allows an IP literal, not a scoped literal: ``ip_address`` accepts
+        # ``fe80::1%<scope>`` and the scope id is free text (spaces, newlines, shell syntax).
+        raise ValueError("scoped literal")
     try:
         return str(ip_address(value))
     except ValueError:
@@ -107,12 +111,6 @@ def normalize_hostname(raw: object) -> str:
     value = raw.strip() if isinstance(raw, str) else ""
     if not value:
         raise HostError("hostname", HOSTNAME_EMPTY)
-    if "@" in value or "/" in value or ":" in value:
-        # ':' belongs to an IPv6 literal, which ``ip_address`` accepts before this check.
-        try:
-            return str(ip_address(value))
-        except ValueError:
-            raise HostError("hostname", HOSTNAME_SYNTAX) from None
     try:
         return _host_token(value)
     except ValueError:

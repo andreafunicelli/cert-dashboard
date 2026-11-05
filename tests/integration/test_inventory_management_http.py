@@ -196,8 +196,16 @@ def test_create_htmx_navigates_and_shows_the_flash_on_the_next_page(signed_in, w
     [
         ({"hostname": ""}, "Enter a hostname."),
         ({"hostname": "-bad"}, "Use letters, digits, dots, hyphens or underscores (or an IP address)"),
+        (
+            {"hostname": "fe80::1%x y"},
+            "Use letters, digits, dots, hyphens or underscores (or an IP address)",
+        ),
         ({"display_name": "x" * 201}, "Display name must be at most 200 characters"),
         ({"connection_address": "user@web01"}, "Enter a hostname or IP address without a user or port."),
+        (
+            {"connection_address": "::1%-oProxyCommand=id"},
+            "Enter a hostname or IP address without a user or port.",
+        ),
         ({"groups": "web-prod"}, "Group names use letters, digits and underscores"),
         ({"groups": "all"}, '"all" and "ungrouped" are reserved by Ansible.'),
         ({"groups": " ".join(f"g{index}" for index in range(65))}, "At most 64 groups."),

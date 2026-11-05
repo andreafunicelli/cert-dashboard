@@ -59,10 +59,17 @@ def _message(call, field):
         ("192.0.2.10", "192.0.2.10"),
         ("2001:DB8::1", "2001:db8::1"),
         ("::1", "::1"),
+        ("fe80::1", "fe80::1"),
     ],
 )
 def test_hostname_normalizes_to_lower_case_and_keeps_ip_literals(raw, expected):
     assert normalize_hostname(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["fe80::1%eth0", "fe80::1%x y", "fe80::1%a\nb", "::1%-oProxyCommand=id"])
+def test_hostname_refuses_ipv6_scope_ids(raw):
+    """Contract §3.1 allows an IP literal, not a scoped literal: the scope id is free text (CVE-shaped)."""
+    assert _message(lambda: normalize_hostname(raw), "hostname") == HOSTNAME_SYNTAX
 
 
 @pytest.mark.parametrize(
@@ -104,10 +111,16 @@ def test_empty_hostname_has_its_own_message():
         ("web01.example.test", "web01", "web01.example.test"),
         ("192.0.2.10", "web01", "192.0.2.10"),
         ("2001:DB8::2", "web01", "2001:db8::2"),
+        ("fe80::1", "web01", "fe80::1"),
     ],
 )
 def test_connection_address_is_normalized_and_dropped_when_equal_to_hostname(raw, hostname, expected):
     assert normalize_connection_address(raw, hostname) == expected
+
+
+@pytest.mark.parametrize("raw", ["fe80::1%eth0", "fe80::1%x y", "fe80::1%a\nb", "::1%-oProxyCommand=id"])
+def test_connection_address_refuses_ipv6_scope_ids(raw):
+    assert _message(lambda: normalize_connection_address(raw, "web01"), "connection_address") == CONNECTION_SYNTAX
 
 
 @pytest.mark.parametrize("raw", ["user@web01", "web01:22", "https://web01/x", "-bad", "web 01", "web01/path"])
