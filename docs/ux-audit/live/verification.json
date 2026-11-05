@@ -1,0 +1,191 @@
+[
+  {
+    "step": "Certificate metadata",
+    "result": "Persisted edited owner after reload"
+  },
+  {
+    "step": "Certificate-detail links",
+    "links": [
+      {
+        "text": "Skip to content",
+        "href": "#main-content"
+      },
+      {
+        "text": "Cert Dashboard",
+        "href": "/"
+      },
+      {
+        "text": "Overview",
+        "href": "/"
+      },
+      {
+        "text": "Certificates",
+        "href": "/certificates"
+      },
+      {
+        "text": "Infrastructure",
+        "href": "/servers"
+      },
+      {
+        "text": "Operations",
+        "href": "/scans"
+      },
+      {
+        "text": "Administration",
+        "href": "/administration"
+      },
+      {
+        "text": "Overview",
+        "href": "/"
+      },
+      {
+        "text": "Certificates",
+        "href": "/certificates"
+      },
+      {
+        "text": "Import",
+        "href": "/certificates/import"
+      },
+      {
+        "text": "Renewals",
+        "href": "/renewals"
+      },
+      {
+        "text": "Servers",
+        "href": "/servers"
+      },
+      {
+        "text": "Bindings",
+        "href": "/bindings"
+      },
+      {
+        "text": "Discovery",
+        "href": "/servers#discovery-actions"
+      },
+      {
+        "text": "Scans",
+        "href": "/scans"
+      },
+      {
+        "text": "Deploy",
+        "href": "/deploy"
+      },
+      {
+        "text": "Jobs",
+        "href": "/deploy/jobs"
+      },
+      {
+        "text": "Administration",
+        "href": "/administration"
+      },
+      {
+        "text": "Users",
+        "href": "/users"
+      },
+      {
+        "text": "Audit",
+        "href": "/audit"
+      },
+      {
+        "text": "Settings",
+        "href": "/settings"
+      },
+      {
+        "text": "My account",
+        "href": "/account"
+      },
+      {
+        "text": "Certificates",
+        "href": "/certificates"
+      },
+      {
+        "text": "Import",
+        "href": "/certificates/import"
+      },
+      {
+        "text": "Renewals",
+        "href": "/renewals"
+      },
+      {
+        "text": "",
+        "href": "/account"
+      },
+      {
+        "text": "",
+        "href": "/users"
+      },
+      {
+        "text": "All certificates",
+        "href": "/certificates"
+      },
+      {
+        "text": "Edit details",
+        "href": "/certificates/7/edit"
+      },
+      {
+        "text": "Download certificate",
+        "href": "/certificates/7/leaf.pem"
+      },
+      {
+        "text": "Download full chain",
+        "href": "/certificates/7/fullchain.pem"
+      },
+      {
+        "text": "Start renewal",
+        "href": "/renewals/new?from=7"
+      },
+      {
+        "text": "Deploy",
+        "href": "/deploy?certificate_id=7"
+      },
+      {
+        "text": "Review trust anchors in Settings",
+        "href": "/settings?tab=trust"
+      },
+      {
+        "text": "Download certificate",
+        "href": "/certificates/7/leaf.pem"
+      },
+      {
+        "text": "Import missing intermediates",
+        "href": "#chain-panel"
+      },
+      {
+        "text": "Review enabled trust anchors",
+        "href": "/settings?tab=trust"
+      },
+      {
+        "text": "Add endpoint",
+        "href": "/scans?expected_certificate_id=7#add-endpoint"
+      },
+      {
+        "text": "Every renewal awaiting an issued certificate",
+        "href": "/renewals?state=awaiting_certificate"
+      },
+      {
+        "text": "All renewals",
+        "href": "/renewals"
+      },
+      {
+        "text": "",
+        "href": "/certificates/7#summary-panel"
+      },
+      {
+        "text": "",
+        "href": "/certificates/7#validation-panel"
+      }
+    ]
+  },
+  {
+    "step": "CSRF rejected",
+    "javascript": true,
+    "status": 403,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nadmin\nScans\n\nRead the latest endpoint verdict and observation age; open an endpoint for evidence and history.\n\nScan all\nMore actions\nSearch\nSearch\nFilters\n1 endpoint \u00b7 Stored results, not live probes.\nEndpoint / SNI\tServer\tStatus\tLast observation\tActions\n\nmismatch.example.test:8443\nDefault SNI\n\t\nManual endpoint\n\t\nFindings: mismatch\t14 h ago\n2026-11-03 10:02 CET\n\t\nActions\nPage 1 of 1\nAdd endpoint\n\nEndpoints found by server discovery appear here on their own; add one by hand to watch a host that is not discovered. Endpoints are never deleted, only deactivated.\n\nHost name or IP address\nPort\nSNI server name (optional)\nExpected certificate (optional)\nNone\napi.example.test (#2, expires 2026-11-05)\n*.apps.example.test (#5, expires 2027-12-05)\nlegacy.example.test (#4, expires 2026-10-19)\nportal.example.test (#3, expires 2026-11-22)\nportal.example.test (#6, expires 2027-05-28)\nuxaudit-expected.example.test (#7, expires 2027-05-22)\nuxaudit-expired.example.test (#9, expires 2026-10-22)\nuxaudit-expiring.example.test (#8, expires 2026-11-08)\nweb.example.test (#1, expires 2027-05-19)\nAdd endpoint"
+  },
+  {
+    "step": "CSRF rejected",
+    "javascript": false,
+    "status": 403,
+    "text": "Skip to content\nCert Dashboard\nOverview\nCertificates\nInfrastructure\nOperations\nAdministration\nScans\nDeploy\nJobs\nadmin\nYour form expired. Reload the page and try again.\n\n Error 403\n\nRequest ID: 13f964db2f743bab882bdebfdcbddc49\n\nReturn to dashboard"
+  }
+]
