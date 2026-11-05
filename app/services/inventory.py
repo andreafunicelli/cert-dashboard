@@ -15,16 +15,20 @@ import re
 import shlex
 import subprocess
 import sys
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from sqlalchemy import select
+
 from app.ansible.runner import GIT_ASKPASS
 from app.jobs.queue import SYSTEM_ACTOR, JobFailure
+from app.models import Server, SshHostKey
 from app.models.enums import WebserverType
 from app.services.audit import record
+from app.services.inventory_sources import DEFAULT_SSH_PORT, MANUAL_SOURCE, HostKey, ManualHost
 from app.services.settings import get_setting
 
 if TYPE_CHECKING:
@@ -102,6 +106,118 @@ def load_inventory_config(db: Session) -> InventoryConfig | None:
 def inventory_source(config: InventoryConfig, rev: str) -> str:
     """``<ref or HEAD>:<path or .>@<rev>`` — never the repository URL."""
     return f"{config.ref or 'HEAD'}:{config.path or '.'}@{rev}"
+
+
+def inventory_result(revision: InventoryRevision | None) -> dict[str, JSONValue]:
+    """The result keys of a job's inventory: the revision, or the manual marker when there is none.
+
+    A repository is optional (decision D1): a job that ran against manual hosts alone has no ``inventory_rev``.
+    """
+    return revision_result(revision) if revision is not None else {"inventory_source": MANUAL_SOURCE}
+
+
+def has_active_manual_hosts(db: Session) -> bool:
+    """True when at least one manual host is active: an inventory exists without any repository."""
+    return (
+        db.scalar(
+            select(Server.id)
+            .where(Server.inventory_source == MANUAL_SOURCE, Server.is_active.is_(True))
+            .limit(1)
+        )
+        is not None
+    )
+
+
+def has_trusted_host_keys(db: Session) -> bool:
+    """True when the dashboard itself trusts at least one host key (the mounted file is separate)."""
+    return db.scalar(select(SshHostKey.id).limit(1)) is not None
+
+
+@dataclass(frozen=True)
+class ManualInventorySettings:
+    """What the manual-host inventory renderer reads from the settings (D6 plus the webserver variable)."""
+
+    webserver_var: str
+    ssh_user: str | None
+    ssh_port: int
+
+
+def manual_inventory_settings(db: Session) -> ManualInventorySettings:
+    """The ``inventory.manual_ssh_user``/``port`` defaults and the ``inventory.webserver_var`` name."""
+    variable = get_setting(db, "inventory.webserver_var")
+    user = get_setting(db, "inventory.manual_ssh_user")
+    port = get_setting(db, "inventory.manual_ssh_port")
+    return ManualInventorySettings(
+        variable if isinstance(variable, str) and variable else "webserver_type",
+        user if isinstance(user, str) and user else None,
+        port if type(port) is int else DEFAULT_SSH_PORT,
+    )
+
+
+def load_manual_hosts(db: Session) -> list[ManualHost]:
+    """The active manual hosts, in hostname order: exactly what every discover/deploy job renders."""
+    rows = db.scalars(
+        select(Server)
+        .where(Server.inventory_source == MANUAL_SOURCE, Server.is_active.is_(True))
+        .order_by(Server.hostname, Server.id)
+    )
+    return [
+        ManualHost(
+            row.hostname,
+            tuple(row.ansible_groups or ()),
+            row.connection_address,
+            row.webserver.value if row.webserver is not None else None,
+        )
+        for row in rows
+    ]
+
+
+def manual_ssh_defaults(db: Session) -> tuple[str | None, int]:
+    """The D6 connection defaults: the SSH user (``None`` = Ansible's default) and the port."""
+    user = get_setting(db, "inventory.manual_ssh_user")
+    port = get_setting(db, "inventory.manual_ssh_port")
+    return (
+        user if isinstance(user, str) and user else None,
+        port if type(port) is int else DEFAULT_SSH_PORT,
+    )
+
+
+def load_host_keys(db: Session) -> list[HostKey]:
+    """Every dashboard-trusted host key, in ``(host, key_type)`` order."""
+    rows = db.execute(
+        select(SshHostKey.host, SshHostKey.key_type, SshHostKey.public_key).order_by(SshHostKey.host, SshHostKey.key_type)
+    )
+    return [HostKey(host, key_type, public_key) for host, key_type, public_key in rows]
+
+
+def _webserver(name: str | None) -> WebserverType | None:
+    try:
+        return WebserverType(name) if name is not None else None
+    except ValueError:
+        return None
+
+
+def merge_inventory(
+    git_hosts: Sequence[InventoryHost], manual_hosts: Sequence[ManualHost]
+) -> tuple[list[InventoryHost], frozenset[str]]:
+    """Git's listing ∪ the manual hosts whose hostname it lacks, sorted by hostname (contract §7.1).
+
+    Git stays authoritative for every hostname it lists (decision D1): a manual row of the same name is
+    not added twice, so the next reconciliation can adopt it. The second value is the set of hostnames
+    that really come from manual rows, which the reconciliation must keep on ``inventory_source='manual'``.
+    """
+    listed = {host.hostname for host in git_hosts}
+    added = [
+        InventoryHost(
+            host.hostname,
+            tuple(name for name in host.groups if name not in _PSEUDO_GROUPS),
+            None if host.connection_address == host.hostname else host.connection_address,
+            _webserver(host.webserver),
+        )
+        for host in manual_hosts
+        if host.hostname not in listed
+    ]
+    return sorted([*git_hosts, *added], key=lambda host: host.hostname), frozenset(host.hostname for host in added)
 
 
 def revision_result(revision: InventoryRevision) -> dict[str, JSONValue]:
@@ -422,20 +538,26 @@ def _group_members(groups: Mapping[str, Mapping[str, object]]) -> dict[str, set[
 
 
 def list_inventory(
-    inventory: Path, *, webserver_var: str, env: Mapping[str, str], timeout_seconds: int = 120
+    inventory: Path | Sequence[Path], *, webserver_var: str, env: Mapping[str, str], timeout_seconds: int = 120
 ) -> list[InventoryHost]:
     """Hosts, groups, ``ansible_host`` and the webserver variable from ``ansible-inventory --list``.
 
-    Runs under the runner environment (so vaulted vars decrypt through the vault client) from the worker's
-    own home directory, so an ``ansible.cfg`` inside the repository is never read. Only four fields are
-    kept; stdout and stderr are discarded.
+    ``inventory`` is one path or several (a Git inventory plus the rendered manual hosts), each passed as
+    its own ``-i`` exactly like the playbook receives them. Runs under the runner environment (so vaulted
+    vars decrypt through the vault client) from the worker's own home directory, so an ``ansible.cfg``
+    inside the repository is never read. Only four fields are kept; stdout and stderr are discarded.
     """
-    if not inventory.exists():
+    paths = [inventory] if isinstance(inventory, Path) else list(inventory)
+    if not paths or any(not path.exists() for path in paths):
         raise JobFailure("config_invalid", _UNREADABLE)
     binary = Path(sys.executable).parent / "ansible-inventory"
+    arguments = [str(binary)]
+    for path in paths:
+        arguments += ["-i", str(path)]
+    arguments.append("--list")
     try:
         done = subprocess.run(
-            [str(binary), "-i", str(inventory), "--list"],
+            arguments,
             cwd=env.get("HOME", "/"),
             env=dict(env),
             capture_output=True,

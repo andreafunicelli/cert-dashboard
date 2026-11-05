@@ -24,6 +24,8 @@ from app.auth.sessions import CSRF_REJECTED, login_csrf_token
 from app.jobs.worker import worker_capabilities
 from app.models.enums import JobType
 from app.services.audit import Actor
+from app.services.inventory import has_active_manual_hosts, has_trusted_host_keys
+from app.services.inventory_sources import NO_INVENTORY
 from app.services.settings import get_setting
 from app.services.worker_credentials import SSH_PRIVATE_KEY, credential_configured
 
@@ -182,33 +184,42 @@ def unsupported_reason(registry, plan: str, *required: tuple[JobType, str]) -> s
 
 NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 NO_KNOWN_HOSTS = "Discovery and deploy are unavailable: the worker has no known_hosts file"
-NO_INVENTORY = "No inventory repository is configured: set the repository URL first."
+# ``NO_INVENTORY`` is the one sentence contract §7.2 shares with the worker and the status warning.
 # The only screens that carry the capability banner (spec 9.2): where discovery and deploy are started or configured.
 _CAPABILITY_SCREENS = ("/servers", "/bindings", "/deploy", "/settings")
 
 
 def ansible_unavailable_reason(db: Session, now: datetime) -> str:
-    """Why discovery and deploy cannot run, or "" when a live worker holds the SSH key and ``known_hosts``.
+    """Why discovery and deploy cannot run, or "" when a live worker holds the SSH key and known hosts.
 
     A worker that has not reported (none alive, or one that started before it wrote its start row) is a
     hint rather than a reason: a dead worker already raises its own banner, and the jobs simply wait.
     The key counts when the database holds it *now* — read live, so a removal takes effect on the next
     page load — or when the worker reported a mounted file. The effective startup flag is not used:
     it is true for a database-held key too, so it would outlive the row it came from.
+
+    Known hosts follow contract §7.4: the effective file is the mounted one plus the dashboard-trusted
+    keys, so the banner appears only while the mounted file is absent **and** no key is trusted here.
     """
     capabilities = worker_capabilities(db, now)
     if capabilities is None:
         return ""
     if capabilities.ssh_key_file_present is not True and not credential_configured(db, SSH_PRIVATE_KEY):
         return NO_SSH_KEY
-    if not capabilities.known_hosts_present:
+    if not capabilities.known_hosts_present and not has_trusted_host_keys(db):
         return NO_KNOWN_HOSTS
     return ""
 
 
 def inventory_unconfigured_reason(db: Session) -> str:
-    """"" when an inventory repository URL is set; discovery and test pull cannot work without one."""
-    return "" if get_setting(db, "inventory.repo_url") else NO_INVENTORY
+    """The §7.2 sentence when neither a repository nor an active manual host exists, else "".
+
+    A repository is optional (decision D1): the discovery and deploy buttons stay enabled while the
+    dashboard itself holds hosts to run against.
+    """
+    if get_setting(db, "inventory.repo_url") or has_active_manual_hosts(db):
+        return ""
+    return NO_INVENTORY
 
 
 def _capability_banner(request: Request) -> str:
