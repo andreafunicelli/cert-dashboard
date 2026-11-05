@@ -1,0 +1,105 @@
+{#
+  Inventory host forms (Slice B contract §3.1, C1–C4).
+
+  Every form is native first and carries the htmx attributes of C4 (same server render for both). The
+  ``suffix`` namespaces the field and error ids so the inline editor of each row stays unique on a page
+  that shows one form per host: callers pass errors keyed ``<field>-<server id>`` for a row and plain
+  ``<field>`` for the create form, and the shared ``error_summary`` links line up either way.
+#}
+{% from "_management_ui.html.j2" import field_attrs, field_error %}
+
+{% macro host_form(action, csrf_token, values, errors, submit_label, return_to=None, suffix="") -%}
+<form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#inventory-panel"
+      hx-select="#inventory-panel" hx-swap="outerHTML" class="host-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+  <div class="form-field">
+    <label for="field-hostname{{ suffix }}">Hostname</label>
+    <input id="field-hostname{{ suffix }}" name="hostname" value="{{ values.hostname }}" maxlength="253"
+           autocomplete="off" spellcheck="false" required {{ field_attrs(errors, "hostname" ~ suffix) }}>
+    {{ field_error(errors, "hostname" ~ suffix) }}
+    <p class="hint">Hostname or IP address. It is stored lower-case and is unique across manual and repository hosts.</p>
+  </div>
+  <div class="form-field">
+    <label for="field-display_name{{ suffix }}">Display name</label>
+    <input id="field-display_name{{ suffix }}" name="display_name" value="{{ values.display_name }}" maxlength="200"
+           {{ field_attrs(errors, "display_name" ~ suffix) }}>
+    {{ field_error(errors, "display_name" ~ suffix) }}
+  </div>
+  <div class="form-field">
+    <label for="field-connection_address{{ suffix }}">Connection address</label>
+    <input id="field-connection_address{{ suffix }}" name="connection_address"
+           value="{{ values.connection_address }}" maxlength="253" autocomplete="off" spellcheck="false"
+           {{ field_attrs(errors, "connection_address" ~ suffix) }}>
+    {{ field_error(errors, "connection_address" ~ suffix) }}
+    <p class="hint">Optional, when SSH reaches the host on another address. No user, no port.</p>
+  </div>
+  <div class="form-field">
+    <label for="field-webserver{{ suffix }}">Web server</label>
+    <select id="field-webserver{{ suffix }}" name="webserver" {{ field_attrs(errors, "webserver" ~ suffix) }}>
+      <option value=""{% if not values.webserver %} selected{% endif %}>Auto-detect</option>
+      <option value="nginx"{% if values.webserver == "nginx" %} selected{% endif %}>nginx</option>
+      <option value="apache"{% if values.webserver == "apache" %} selected{% endif %}>apache</option>
+    </select>
+    {{ field_error(errors, "webserver" ~ suffix) }}
+  </div>
+  <div class="form-field">
+    <label for="field-groups{{ suffix }}">Ansible groups</label>
+    <input id="field-groups{{ suffix }}" name="groups" value="{{ values.groups }}" maxlength="3000"
+           {{ field_attrs(errors, "groups" ~ suffix) }}>
+    {{ field_error(errors, "groups" ~ suffix) }}
+    <p class="hint">Comma or space separated; letters, digits and underscores, not starting with a digit.</p>
+  </div>
+  <div class="form-field">
+    <label for="field-notes{{ suffix }}">Notes</label>
+    <textarea id="field-notes{{ suffix }}" name="notes" rows="3" maxlength="2000"
+              {{ field_attrs(errors, "notes" ~ suffix) }}>{{ values.notes }}</textarea>
+    {{ field_error(errors, "notes" ~ suffix) }}
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ submit_label }}</button></div>
+</form>
+{%- endmacro %}
+
+{% macro repository_form(action, csrf_token, values, errors, submit_label, return_to=None, suffix="") -%}
+<form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#inventory-panel"
+      hx-select="#inventory-panel" hx-swap="outerHTML" class="host-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% if return_to %}<input type="hidden" name="return_to" value="{{ return_to }}">{% endif %}
+  <p class="hint">Hostname, connection address, groups and web server come from the Git inventory and are
+  read-only here. Display name and notes are never written by discovery, so they stay editable.</p>
+  <div class="form-field">
+    <label for="field-display_name{{ suffix }}">Display name</label>
+    <input id="field-display_name{{ suffix }}" name="display_name" value="{{ values.display_name }}" maxlength="200"
+           {{ field_attrs(errors, "display_name" ~ suffix) }}>
+    {{ field_error(errors, "display_name" ~ suffix) }}
+  </div>
+  <div class="form-field">
+    <label for="field-notes{{ suffix }}">Notes</label>
+    <textarea id="field-notes{{ suffix }}" name="notes" rows="3" maxlength="2000"
+              {{ field_attrs(errors, "notes" ~ suffix) }}>{{ values.notes }}</textarea>
+    {{ field_error(errors, "notes" ~ suffix) }}
+  </div>
+  <div class="form-actions"><button class="button" type="submit">{{ submit_label }}</button></div>
+</form>
+{%- endmacro %}
+
+{% macro connection_form(csrf_token, values, errors) -%}
+<form method="post" action="/inventory/connection" hx-post="/inventory/connection" hx-target="#inventory-connection"
+      hx-select="#inventory-connection" hx-swap="outerHTML" class="host-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="form-field">
+    <label for="field-ssh_user">SSH user</label>
+    <input id="field-ssh_user" name="ssh_user" value="{{ values.ssh_user }}" maxlength="32" autocomplete="off"
+           spellcheck="false" {{ field_attrs(errors, "ssh_user") }}>
+    {{ field_error(errors, "ssh_user") }}
+    <p class="hint">Leave empty to use the worker's default SSH user.</p>
+  </div>
+  <div class="form-field">
+    <label for="field-ssh_port">SSH port</label>
+    <input id="field-ssh_port" name="ssh_port" value="{{ values.ssh_port }}" inputmode="numeric" maxlength="5"
+           {{ field_attrs(errors, "ssh_port") }}>
+    {{ field_error(errors, "ssh_port") }}
+  </div>
+  <div class="form-actions"><button class="button" type="submit">Save connection defaults</button></div>
+</form>
+{%- endmacro %}
