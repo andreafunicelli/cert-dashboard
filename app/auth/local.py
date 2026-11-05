@@ -473,7 +473,7 @@ class UserAdminError(Exception):
     """Typed refusal of an administration request; `code` is safe control-flow metadata.
 
     Codes: duplicate_username, policy, invalid_email, invalid_username, invalid_display_name,
-    last_active_user, not_supported, not_found, already_inactive.
+    last_active_user, not_supported, not_found, already_inactive, already_active.
     """
 
     def __init__(self, code: str, message: str = ""):
@@ -587,6 +587,28 @@ def deactivate_user(db: Session, user_id: int, actor: Actor, now: datetime) -> N
     user.is_active = False
     revoke_sessions(db, user.id, now)
     record(db, actor, "user.deactivate", "user", str(user.id), {"username": user.username})
+
+
+def reactivate_user(db: Session, user_id: int, new_password: str, actor: Actor, now: datetime) -> User:
+    """Reactivate an inactive local user with a new temporary password (Slice B, D3).
+
+    Like deactivation this takes the administration lock first: the target's state and the new
+    password hash commit in the same transaction as the ``user.reactivate`` audit row. Password
+    actions do not exist for directory-backed accounts, so reactivation is refused there.
+    """
+    lock_user_admin(db)
+    user = _admin_target(db, user_id)
+    if user.auth_backend != BackendName.LOCAL:
+        raise UserAdminError("not_supported", "The password of this account is managed by its directory.")
+    if user.is_active:
+        raise UserAdminError("already_active", "This user is already active.")
+    user.password_hash = _hash_for_admin(new_password)
+    user.is_active = True
+    user.must_change_password = True
+    user.failed_attempts, user.locked_until = 0, None
+    revoke_sessions(db, user.id, now)
+    record(db, actor, "user.reactivate", "user", str(user.id), {"username": user.username})
+    return user
 
 
 def reset_password(db: Session, user_id: int, new_password: str, actor: Actor, now: datetime) -> None:

@@ -8,3 +8,22 @@
 .users details input { max-width: 100%; }
 .users details[open] { min-width: var(--field-width); }
 .user-action-name { display: block; font-size: var(--text-sm); color: var(--text-muted); }
+
+/* Slice B (USR): full-width per-user management page. */
+.user-detail .management-panel { max-width: var(--content-width); }
+.user-detail h3 { margin-block: var(--space-5) var(--space-3); }
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--filter-width), 1fr));
+  gap: var(--space-4);
+  margin: var(--space-0);
+}
+.detail-grid dt { color: var(--text-muted); font-size: var(--text-sm); }
+.detail-grid dd { margin: var(--space-1) var(--space-0) var(--space-0); overflow-wrap: anywhere; }
+.detail-grid .badge { white-space: nowrap; }
+.user-detail-actions { display: grid; gap: var(--space-3); }
+.user-detail-actions .confirmation { margin-block: var(--space-0); }
+.user-detail-actions form { max-width: var(--panel-width); }
+.user-detail-actions fieldset { border: var(--line) solid var(--separator); border-radius: var(--radius-panel); padding: var(--space-4); }
+.history-list { margin: var(--space-0); padding-inline-start: var(--space-5); }
+.history-list li { margin-block-end: var(--space-2); }

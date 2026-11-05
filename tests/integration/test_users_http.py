@@ -207,6 +207,7 @@ def test_list_shows_columns_and_never_secrets(signed_in, web_factory, web_settin
     with web_factory.begin() as db:
         db.execute(update(User).where(User.id == other.id).values(locked_until=clock() + timedelta(hours=1)))
     directory = _make(web_factory, "dave", backend="ldap")
+    _make(web_factory, "retired", is_active=False)
     page = signed_in.get("/users")
     assert page.status_code == 200
     html = unescape(page.text)
@@ -214,14 +215,14 @@ def test_list_shows_columns_and_never_secrets(signed_in, web_factory, web_settin
         "Username",
         "Display name",
         "Email",
-        "Backend",
-        "Active",
+        "Sign-in",
         "2FA",
-        "Must change password",
+        "State",
         "Last login",
-        "Locked until",
+        "Manage",
     ):
         assert heading in html
+    assert "Must change password" in html and "Locked until" in html and "Inactive" in html
     assert "&lt;b&gt;carol&lt;/b&gt;" in page.text and "<b>carol</b>" not in page.text
     assert "admin@example.test" in html and directory.username in html
     with web_factory() as db:
@@ -403,9 +404,9 @@ def test_edit_rejects_invalid_email_and_unknown_user(signed_in, csrf, web_factor
     bad = _post(signed_in, csrf, f"/users/{target.id}/edit", email="nope", display_name="x")
     assert bad.status_code == 422 and _user(web_factory, target.id).email == "gina@example.test"
     missing = _post(signed_in, csrf, "/users/999999/edit", email="a@example.test", display_name="x")
-    assert missing.status_code == 422
+    assert missing.status_code == 404
     huge = _post(signed_in, csrf, f"/users/{2**70}/edit", email="a@example.test", display_name="x")
-    assert huge.status_code == 422
+    assert huge.status_code == 404
     assert _audit(web_factory, "user.update") == []
 
 
@@ -528,10 +529,11 @@ def test_ldap_user_password_reset_is_disabled_in_html_and_refused_by_server(
     signed_in, csrf, web_factory, sole_admin
 ):
     target = _make(web_factory, "kim", backend="ldap")
-    page = signed_in.get("/users")
-    row = re.search(rf'<tr[^>]*data-user-id="{target.id}".*?</tr>', page.text, re.DOTALL)
-    assert row is not None
-    reset_form = re.search(r"<form[^>]*reset-password.*?</form>", row.group(0), re.DOTALL)
+    page = signed_in.get(f"/users/{target.id}")
+    assert page.status_code == 200
+    reset_form = re.search(
+        rf"<form[^>]*action=\"/users/{target.id}/reset-password\".*?</form>", page.text, re.DOTALL
+    )
     assert reset_form is not None and "disabled" in reset_form.group(0)
     response = _post(
         signed_in,
@@ -629,12 +631,21 @@ def test_last_active_user_survives_when_the_other_is_inactive(signed_in, csrf, w
     assert not _user(web_factory, other.id).is_active
 
 
-def test_there_is_no_hard_delete_or_reactivation_route(signed_in, csrf, web_factory):
+def test_there_is_no_hard_delete_route(signed_in, csrf, web_factory):
     target = _make(web_factory, "pam")
-    for path in (f"/users/{target.id}/delete", f"/users/{target.id}/reactivate", f"/users/{target.id}"):
-        assert signed_in.post(path, data={"csrf_token": csrf}).status_code in (404, 405)
-    assert signed_in.delete(f"/users/{target.id}", headers={"X-CSRF-Token": csrf}).status_code in (404, 405)
+    assert (
+        signed_in.post(
+            f"/users/{target.id}/delete", data={"csrf_token": csrf}, follow_redirects=False
+        ).status_code
+        in (404, 405)
+    )
+    assert signed_in.delete(f"/users/{target.id}", headers={"X-CSRF-Token": csrf}).status_code in (
+        404,
+        405,
+    )
     assert _user(web_factory, target.id) is not None
+    # The management page is a GET-only surface for an existing user.
+    assert signed_in.get(f"/users/{target.id}").status_code == 200
 
 
 # --- re-authentication -----------------------------------------------------------------------------
