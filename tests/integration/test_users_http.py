@@ -174,7 +174,7 @@ def test_two_concurrent_deactivations_preserve_one_active_user(queue_factory):
 # --- list ------------------------------------------------------------------------------------------
 
 
-def test_administration_landing_count_and_direct_creation(signed_in, web_factory, sole_admin):
+def test_administration_hub_counts_and_links_to_users(signed_in, web_factory, sole_admin):
     _make(web_factory, "inactive-admin", is_active=False)
     _make(web_factory, "directory-admin", backend="ldap")
     with web_factory() as db:
@@ -182,8 +182,9 @@ def test_administration_landing_count_and_direct_creation(signed_in, web_factory
     response = signed_in.get("/administration")
     assert response.status_code == 200
     assert 'no-store' in response.headers['cache-control']
-    assert f'<span class="mono">{active}</span> users can sign in' in response.text
-    assert 'href="/users?create=1#create-heading"' in response.text
+    assert f'{active} active users' in response.text
+    assert '1 inactive' in response.text
+    assert 'href="/users"' in response.text
     creation = signed_in.get('/users?create=1')
     assert '<details class="user-create" open>' in creation.text
     assert '<details class="user-create" open>' not in signed_in.get('/users').text

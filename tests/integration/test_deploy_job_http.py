@@ -957,7 +957,7 @@ def test_refused_control_swaps_visibly_for_htmx(signed_in, deploy_job_world):
     config = re.search(r'<meta name="htmx-config" content=\'(.*?)\'', page)
     assert config is not None
     handling = json.loads(config.group(1))["responseHandling"]
-    assert {"code": "422", "swap": True, "error": False} in handling
+    assert {"code": "422", "swap": True, "error": True} in handling
     # the form targets the region the refusal replaces, so the swap lands where the reason is rendered
     assert 'hx-target="#deploy-job-live"' in page
     refusal = signed_in.post(

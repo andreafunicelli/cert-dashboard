@@ -1,6 +1,5 @@
 """Shipped-template contracts: no database, preview files or browser required."""
 
-import json
 import re
 from datetime import UTC, datetime, timedelta
 from html.parser import HTMLParser
@@ -91,18 +90,10 @@ def test_grouping_keeps_identifier_copy_text_exact_and_escaped():
     assert "<img" not in hostile and "&lt;" in hostile
 
 
-def test_vendored_htmx_handles_422_declaratively():
-    html = str(macros().enhanced_forms())
-    content = re.search(r"content='([^']+)'", html).group(1)
-    rules = json.loads(content)["responseHandling"]
-    assert next(rule for rule in rules if re.fullmatch(rule["code"], "422")) == {
-        "code": "422",
-        "swap": True,
-        "error": False,
-    }
-    for status in ("403", "404", "500"):
-        rule = next(rule for rule in rules if re.fullmatch(rule["code"], status))
-        assert not rule["swap"] and rule["error"]
+def test_vendored_htmx_config_lives_in_the_shell_only():
+    # A1 moved the single config into base.html.j2 (it must be the first such meta). A page-level
+    # meta here would sit after the global one and be ignored by htmx.
+    assert "htmx-config" not in str(macros().enhanced_forms())
     assert "responseHandling" in (ROOT / "app/static/htmx.min.js").read_text()
 
 

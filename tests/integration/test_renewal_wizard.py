@@ -927,7 +927,7 @@ def test_step_pages_wire_htmx_forms_with_a_panel_target(signed_in, wizard):
     assert 'method="post"' in page.text  # non-JS forms still work
     config = re.search(r"<meta name=\"htmx-config\" content='([^']+)'", page.text)
     assert config is not None
-    assert {"code": "422", "swap": True, "error": False} in json.loads(config.group(1))["responseHandling"]
+    assert {"code": "422", "swap": True, "error": True} in json.loads(config.group(1))["responseHandling"]
     assert "<script>" not in page.text  # 422 handling uses vendored HTMX, not inline JS
 
 

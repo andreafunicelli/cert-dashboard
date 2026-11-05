@@ -4,17 +4,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="htmx-config" content='{{ htmx_config }}'>
   <title>{% block title %}Cert Dashboard{% endblock %}</title>
+  <link rel="icon" type="image/svg+xml" href="{{ brand.favicon_svg }}">
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ brand.favicon_png }}">
   <link rel="stylesheet" href="/static/app.css">{% block extra_css %}{% endblock %}
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
-<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cert Dashboard home">
+    <picture class="brand-lockup"><source srcset="{{ brand.lockup_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.lockup }}" alt="" width="202" height="24"></picture>
+    <picture class="brand-mark"><source srcset="{{ brand.mark_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.mark }}" alt="" width="24" height="24"></picture>
+  </a>
   {% include "_navigation.html.j2" %}
   {% if user %}<details class="user-menu"><summary>{{ user.display_name }}</summary>
     <div class="user-menu-links">
       <a href="/account">My account</a>
+      <a href="/administration">Administration</a>
       <a href="/users">Users</a>
     </div>
   </details>{% endif %}
@@ -23,7 +31,7 @@
 {% if status_banner %}<aside role="status" class="banner banner-warning">{{ icon('warn') }} <strong>Warning:</strong> {{ status_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}
 {% if request is defined and request.state.worker_stale %}<aside role="status" class="banner banner-critical" data-banner="worker">{{ icon('danger') }} <strong>Critical:</strong> Worker is not running (last heartbeat > 5 minutes) <a href="/settings?tab=status">Details</a></aside>{% endif %}
 {% endblock %}
-{% block capability_banner %}{% if capability_banner is defined and capability_banner %}<aside role="alert" class="banner banner-critical" data-banner="capability">{{ icon('danger') }} <strong>Critical:</strong> {{ capability_banner }} {% if capability_banner == 'Discovery and deploy are unavailable: no SSH key is configured.' %}<a href="/settings?tab=worker">Configure it in Settings → Worker.</a>{% else %}<a href="/settings?tab=status">Details</a>{% endif %}</aside>{% endif %}{% endblock %}
+{% block capability_banner %}{% if capability_banner is defined and capability_banner %}<aside role="alert" class="banner banner-critical" data-banner="capability">{{ icon('danger') }} <strong>Critical:</strong> {{ capability_banner }} {% if capability_banner == 'Discovery and deploy are unavailable: no SSH key is configured.' %}<a href="/settings?tab=worker">Configure it in Settings → Worker.</a>{% elif capability_banner == 'Discovery and deploy are unavailable: the worker has no known_hosts file' %}<a href="/ssh-keys">Trust host keys in Infrastructure → SSH keys.</a>{% else %}<a href="/settings?tab=status">Details</a>{% endif %}</aside>{% endif %}{% endblock %}
 {% if flash is defined and flash %}<aside role="status" class="notice banner banner-info" data-banner="flash"><p>{{ icon() }} <strong>Notes on the last action:</strong></p><ul>{% for note in flash %}<li>{{ note }}</li>{% endfor %}</ul></aside>{% endif %}
 <main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}

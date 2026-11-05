@@ -4,13 +4,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"403","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"404","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"500","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"503","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"[45]..","swap":false,"error":true}]}'>
   <title>Administration · Cert Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="../../../app/static/branding/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="../../../app/static/branding/favicon-32.png">
   <link rel="stylesheet" href="../../../app/static/app.css">
   <script src="../../../app/static/htmx.min.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
-<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cert Dashboard home">
+    <picture class="brand-lockup"><source srcset="../../../app/static/branding/lockup-light.svg" media="(prefers-color-scheme: light)"><img src="../../../app/static/branding/lockup.svg" alt="" width="202" height="24"></picture>
+    <picture class="brand-mark"><source srcset="../../../app/static/branding/mark-light.svg" media="(prefers-color-scheme: light)"><img src="../../../app/static/branding/mark.svg" alt="" width="24" height="24"></picture>
+  </a>
 
 
 
@@ -18,20 +25,20 @@
 
 <div class="desktop-navigation">
   <nav aria-label="Main">
-
-
-
-  <span><a href="/">Overview</a></span>
-    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/administration">Administration</a></span>
+    <span><a href="/">Overview</a></span><span><a href="/certificates">Certificates</a></span><span><a href="/inventory">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/administration">Administration</a></span>
   </nav>
 </div>
 <details class="mobile-navigation">
   <summary>Menu · Administration</summary>
   <nav aria-label="All pages">
 
+    <section>
+      <h2>
 
 
-  <span><a href="/">Overview</a></span>
+  <span><a href="/">Overview</a></span></h2>
+
+    </section>
 
     <section>
       <h2>Certificates</h2>
@@ -82,20 +89,20 @@
     </section>
 
     <section class="active-area">
-      <h2>
-
-
-  <span aria-current="page"><a href="/administration">Administration</a></span></h2>
+      <h2>Administration</h2>
       <div class="navigation-pages">
+
+
+  <span aria-current="page"><a href="/administration">Administration</a></span>
 
 
   <span><a href="/users">Users</a></span>
 
 
-  <span><a href="/audit">Audit</a></span>
-
-
   <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
 
 
   <span><a href="/account">My account</a></span></div>
@@ -108,13 +115,16 @@
 
 
 
+  <span aria-current="page"><a href="/administration">Administration</a></span>
+
+
   <span><a href="/users">Users</a></span>
 
 
-  <span><a href="/audit">Audit</a></span>
-
-
   <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
 
 
   <span><a href="/account">My account</a></span>
@@ -123,6 +133,7 @@
   <details class="user-menu"><summary>Fixture operator</summary>
     <div class="user-menu-links">
       <a href="/account">My account</a>
+      <a href="/administration">Administration</a>
       <a href="/users">Users</a>
     </div>
   </details>
@@ -136,20 +147,87 @@
 <main id="main-content" tabindex="-1">
 
 <header class="page-header">
-  <div><h1>Administration</h1><p class="page-subtitle">Manage sign-in access, review actions and configure this installation.</p></div>
+  <div><h1>Administration</h1><p class="page-subtitle">What is configured, what is missing and where to change it.</p></div>
 
 </header>
-<dl class="fields">
-  <dt><a href="/users">Users</a></dt>
-  <dd><span class="mono">0</span> users can sign in. <a href="/users?create=1#create-heading">Create user</a>.</dd>
-  <dt><a href="/audit">Audit</a></dt>
-  <dd>The append-only record of actions.</dd>
-  <dt><a href="/settings">Settings</a></dt>
-  <dd>SMTP, inventory, discovery, deploy guardrails and trust anchors.</dd>
-  <dt><a href="/account">My account</a></dt>
-  <dd>Your password, two-factor authentication and sessions.</dd>
-</dl>
-<p class="hint">The user count includes active local and directory users already known to this installation. Temporary sign-in lockouts still apply.</p>
+
+<section class="hub-group" aria-labelledby="hub-group-1">
+  <h2 id="hub-group-1">People and access</h2>
+  <dl class="fields">
+
+    <dt><a href="/users">Users</a></dt>
+    <dd>1 active users · 0 inactive</dd>
+
+    <dt><a href="/account">My account</a></dt>
+    <dd>Two-factor authentication on</dd>
+
+  </dl>
+</section>
+
+<section class="hub-group" aria-labelledby="hub-group-2">
+  <h2 id="hub-group-2">Servers and access</h2>
+  <dl class="fields">
+
+    <dt><a href="/inventory">Inventory hosts</a></dt>
+    <dd>No hosts yet · <a href="/inventory">Add a host</a></dd>
+
+    <dt><a href="/settings?tab=inventory">Inventory repository (optional)</a></dt>
+    <dd>Not configured — optional</dd>
+
+    <dt><a href="/settings?tab=worker">Worker credentials</a></dt>
+    <dd>SSH key: missing · Vault password: not set · Git token: not set</dd>
+
+    <dt><a href="/ssh-keys">SSH host keys</a></dt>
+    <dd>0 trusted in the dashboard · Mounted known_hosts: absent</dd>
+
+  </dl>
+</section>
+
+<section class="hub-group" aria-labelledby="hub-group-3">
+  <h2 id="hub-group-3">Alerts and email</h2>
+  <dl class="fields">
+
+    <dt><a href="/settings?tab=smtp">SMTP</a></dt>
+    <dd>Configured</dd>
+
+    <dt><a href="/settings?tab=alerts">Alerts</a></dt>
+    <dd>Thresholds: 60, 30, 14, 7, 1, 0 days · No recipients</dd>
+
+  </dl>
+</section>
+
+<section class="hub-group" aria-labelledby="hub-group-4">
+  <h2 id="hub-group-4">Operations policy</h2>
+  <dl class="fields">
+
+    <dt><a href="/settings?tab=deployment">Deployment</a></dt>
+    <dd>Batch 10% · concurrency 5 · canary pause on</dd>
+
+    <dt><a href="/settings?tab=schedule">Schedule and scans</a></dt>
+    <dd>Nightly discovery 01:00 · scan timeout 10 s</dd>
+
+    <dt><a href="/settings?tab=trust">Trust anchors</a></dt>
+    <dd>0 uploaded roots · public bundle included</dd>
+
+  </dl>
+</section>
+
+<section class="hub-group" aria-labelledby="hub-group-5">
+  <h2 id="hub-group-5">System</h2>
+  <dl class="fields">
+
+    <dt><a href="/settings?tab=status">Status</a></dt>
+    <dd>0 warnings</dd>
+
+    <dt><a href="/settings?tab=maintenance">System and maintenance</a></dt>
+    <dd>Job retention: 90 days</dd>
+
+    <dt><a href="/audit">Audit</a></dt>
+    <dd>Append-only record of actions</dd>
+
+  </dl>
+</section>
+
 </main>
 
 </body>

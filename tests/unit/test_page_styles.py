@@ -11,10 +11,17 @@ HOOK = "{% block extra_css %}{% endblock %}"
 
 
 def environment(overrides=None):
-    return Environment(
+    from markupsafe import Markup
+
+    from app.web.administration import DEFAULT_BRAND, HTMX_CONFIG_JSON
+
+    env = Environment(
         loader=ChoiceLoader([DictLoader(overrides or {}), FileSystemLoader(TEMPLATES)]),
         autoescape=True,
     )
+    env.globals["brand"] = DEFAULT_BRAND
+    env.globals["htmx_config"] = Markup(HTMX_CONFIG_JSON)
+    return env
 
 
 @pytest.mark.parametrize("page", ["login", "bootstrap"])

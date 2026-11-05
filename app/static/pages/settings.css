@@ -17,6 +17,10 @@
 .credential-replace form { padding: var(--space-4); }
 .credential-replace textarea { font-family: var(--font-mono); }
 [data-settings-secret].is-dirty { border-color: var(--warn); }
+.settings-sections { display: none; }
+.settings-sections > summary { color: var(--accent); border: var(--line) solid var(--border); border-radius: var(--radius); padding: var(--space-2) var(--space-3); }
 @media (max-width: 719px) {
+  .settings-sections-desktop { display: none; }
+  .settings-sections { display: block; }
   .settings-form { grid-template-columns: minmax(0, 1fr); }
 }

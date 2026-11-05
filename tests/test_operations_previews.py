@@ -70,7 +70,7 @@ def test_error_configuration_is_head_only_and_preserves_server_errors():
         elements = Elements(rendered(name)).elements
         config = next(a['content'] for t, a in elements if t == 'meta' and a.get('name') == 'htmx-config')
         handling = json.loads(config)['responseHandling']
-        assert {'code': '422', 'swap': True, 'error': False} in handling
+        assert {'code': '422', 'swap': True, 'error': True} in handling
         assert {'code': '[45]..', 'swap': False, 'error': True} in handling
         assert 'htmx:beforeSwap' not in rendered(name)
     assert 'Without JavaScript, unsaved changes are lost when switching tabs.' in rendered('settings-smtp')

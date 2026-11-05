@@ -17,11 +17,15 @@ def overview(**overrides):
     ("/certificates/42", "Certificates", "/certificates"),
     ("/certificates/import", "Certificates", "/certificates/import"),
     ("/renewals/fixture", "Certificates", "/renewals"),
+    ("/inventory", "Infrastructure", "/inventory"),
+    ("/inventory/42/edit", "Infrastructure", "/inventory"),
     ("/servers/42", "Infrastructure", "/servers"),
     ("/bindings/help", "Infrastructure", "/bindings"),
+    ("/ssh-keys", "Infrastructure", "/ssh-keys"),
     ("/scans/42", "Operations", "/scans"),
     ("/deploy/fixture", "Operations", "/deploy"),
     ("/deploy/jobs", "Operations", "/deploy/jobs"),
+    ("/administration", "Administration", "/administration"),
     ("/users", "Administration", "/users"),
     ("/audit", "Administration", "/audit"),
     ("/settings", "Administration", "/settings"),
@@ -41,14 +45,9 @@ def test_area_and_exact_page_are_marked_without_rewriting_anchors(path, area, le
     assert '/servers#discovery-actions' in html
 
 
-@pytest.mark.parametrize("url, area, leaf", [
-    ("/certificates", "Certificates", "Certificates"),
-    ("/servers", "Infrastructure", "Servers"),
-    ("/scans", "Operations", "Scans"),
-    ("/settings", "Administration", "Settings"),
-])
+@pytest.mark.parametrize("url, area", [("/certificates", "Certificates"), ("/scans", "Operations")])
 @pytest.mark.parametrize("active", [False, True])
-def test_disabled_capability_keeps_reason_and_cannot_be_activated(url, area, leaf, active):
+def test_disabled_group_entry_keeps_reason_and_cannot_be_activated(url, area, active):
     context = fixtures()["overview"][1]
     reason = "Handler unavailable"
     navigation = [item | {"enabled": False, "reason": reason}
@@ -58,21 +57,58 @@ def test_disabled_capability_keeps_reason_and_cannot_be_activated(url, area, lea
     html = overview(navigation=navigation, request=request)
     main = re.search(r'<nav aria-label="Main">(.*?)</nav>', html, re.DOTALL)[1]
     assert f'href="{url}"' not in main
+    assert f'aria-disabled="true" title="{reason}">{area}</span>' in main
     mobile = re.search(r'<nav aria-label="All pages">(.*?)</nav>', html, re.DOTALL)[1]
     assert f'href="{url}"' not in mobile
     if active:
         subnav = re.search(r'<nav class="area-navigation".*?</nav>', html, re.DOTALL)[0]
         assert f'href="{url}"' not in subnav
-    if area == "Administration":
-        # Settings is no longer the area's landing page; its failure must not
-        # hide the independent Administration index or the other sections.
-        assert '<a href="/administration">Administration</a>' in main
-    else:
-        assert f'aria-disabled="true" title="{reason}">{area}</span>' in main
-    assert f'<span aria-disabled="true" title="{reason}">{leaf}</span>' in html
     # A disabled area landing page does not hide its other supported subpages.
     assert 'href="/deploy"' in html
     assert 'href="/certificates/import"' in html
+
+
+@pytest.mark.parametrize("url, area, leaf, group_href", [
+    ("/servers", "Infrastructure", "Servers", "/inventory"),
+    ("/settings", "Administration", "Settings", "/administration"),
+])
+def test_disabled_page_entry_keeps_its_new_group_entry_reachable(url, area, leaf, group_href):
+    """Servers and Settings are pages, not group links, since the IA rebuild (§2.1 N2/N3)."""
+    context = fixtures()["overview"][1]
+    reason = "Handler unavailable"
+    navigation = [item | {"enabled": False, "reason": reason}
+                  if item["url"] == url else item for item in context["navigation"]]
+    request = SimpleNamespace(url=SimpleNamespace(path=url), state=SimpleNamespace(worker_stale=False))
+    html = overview(navigation=navigation, request=request)
+    main = re.search(r'<nav aria-label="Main">(.*?)</nav>', html, re.DOTALL)[1]
+    assert f'href="{url}"' not in main
+    assert f'<a href="{group_href}">' in main
+    subnav = re.search(r'<nav class="area-navigation".*?</nav>', html, re.DOTALL)[0]
+    assert f'href="{url}"' not in subnav
+    assert f'<span aria-disabled="true" title="{reason}">{leaf}</span>' in html
+    assert f'aria-label="{area} pages"' in subnav
+
+
+def test_overview_is_one_main_entry_without_an_area_bar():
+    request = SimpleNamespace(url=SimpleNamespace(path="/"), state=SimpleNamespace(worker_stale=False))
+    html = overview(request=request)
+    main = re.search(r'<nav aria-label="Main">(.*?)</nav>', html, re.DOTALL)[1]
+    assert '<span class="active-area" aria-current="location"><a href="/">Overview</a></span>' in main
+    assert 'aria-current="page"' not in main
+    assert '<nav class="area-navigation"' not in html
+
+
+def test_desktop_main_entries_and_narrow_menu_match_the_ia():
+    request = SimpleNamespace(url=SimpleNamespace(path="/"), state=SimpleNamespace(worker_stale=False))
+    html = overview(request=request)
+    main = re.search(r'<nav aria-label="Main">(.*?)</nav>', html, re.DOTALL)[1]
+    assert re.findall(r'<a href="[^"]+">([^<]+)</a>', main) == [
+        "Overview", "Certificates", "Infrastructure", "Operations", "Administration"]
+    mobile = re.search(r'<nav aria-label="All pages">(.*?)</nav>', html, re.DOTALL)[1]
+    for href in ["/", "/certificates", "/certificates/import", "/renewals", "/inventory", "/servers",
+                 "/bindings", "/servers#discovery-actions", "/ssh-keys", "/scans", "/deploy",
+                 "/deploy/jobs", "/administration", "/users", "/settings", "/audit", "/account"]:
+        assert f'href="{href}"' in mobile, href
 
 
 def test_attention_is_at_most_four_rows_with_exact_count_destinations():

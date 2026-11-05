@@ -124,7 +124,14 @@ td .identifier { max-width: var(--identifier-width); }
 .skip-link { position: absolute; top: var(--space-2); left: var(--space-4); transform: translateY(-200%); padding: var(--space-3); background: var(--surface-raised); z-index: 2; }
 .skip-link:focus { transform: translateY(0); }
 .site-header { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-5); padding: var(--space-4) var(--space-6); background: var(--surface-raised); border-bottom: var(--line) solid var(--separator); }
-.brand { color: var(--text); font-size: var(--text-brand); font-weight: var(--weight-bold); text-decoration: none; white-space: nowrap; }
+.brand { color: var(--text); font-size: var(--text-brand); font-weight: var(--weight-bold); text-decoration: none; white-space: nowrap; display: inline-flex; align-items: center; gap: var(--space-1); min-height: var(--control-height); }
+.brand img { display: block; }
+.brand-lockup { display: inline-flex; }
+.brand-lockup img { width: 202px; height: 24px; }
+.brand-mark { display: none; }
+.brand-mark img { width: 24px; height: 24px; }
+.auth-mark { display: flex; justify-content: center; margin-bottom: var(--space-3); }
+.auth-mark img { width: 48px; height: 48px; }
 .site-header nav { display: flex; flex-wrap: wrap; gap: var(--space-1); }
 .site-header nav a, .site-header nav > span[aria-disabled="true"] { display: inline-block; padding: var(--space-2); min-height: var(--control-height); }
 .site-header nav a { color: var(--text-muted); text-decoration: none; border-bottom: var(--focus-width) solid transparent; }
@@ -276,6 +283,8 @@ table.users fieldset { margin: var(--space-0); padding: var(--space-0) var(--spa
   .filter-search input { width: 100%; }
   .filter-disclosure { flex-basis: 100%; }
   .site-header { flex-direction: column; align-items: stretch; gap: var(--space-3); padding: var(--space-4); }
+  .brand-lockup { display: none; }
+  .brand-mark { display: inline-flex; }
   .desktop-navigation, .site-header .area-navigation { display: none; }
   .mobile-navigation { display: block; }
   .mobile-navigation > summary { border: var(--line) solid var(--border); border-radius: var(--radius); }

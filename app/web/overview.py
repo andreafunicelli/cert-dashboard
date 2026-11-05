@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from app.services.certificates import expiry_counts, has_certificates
 from app.services.overview import overview_snapshot, queue_counts
 from app.services.servers import unknown_bindings
+from app.services.setup_status import setup_status, setup_steps
 from app.web.common import _render, display_timezone, install_template_helpers
 
 # (counter key, label, list query): the list filter uses exactly the ranges the counters count.
@@ -44,6 +45,8 @@ def register_overview_routes(app: FastAPI) -> None:
             queue = queue_counts(db, now)
             unknown = unknown_bindings(db)
             timezone_name = display_timezone(db)
+            setup = setup_status(db, now)
+            steps = setup_steps(setup)
         counters = [
             {"key": key, "label": label, "count": counts[key], "href": f"/certificates?{query}"}
             for key, label, query in COUNTERS
@@ -54,5 +57,6 @@ def register_overview_routes(app: FastAPI) -> None:
         ]
         return _render(
             request, "overview.html.j2", counters=counters, empty=empty, snapshot=snapshot, queue=queue,
-            tls_counters=tls_counters, unknown=unknown, tz=timezone_name,
+            tls_counters=tls_counters, unknown=unknown, tz=timezone_name, setup=setup,
+            setup_steps=steps,
         )

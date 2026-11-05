@@ -30,8 +30,14 @@ SECRET = b"fixture-management-flash-secret"
 
 
 def environment() -> Environment:
+    from markupsafe import Markup
+
+    from app.web.administration import DEFAULT_BRAND, HTMX_CONFIG_JSON
+
     env = Environment(loader=FileSystemLoader(str(ROOT / "app/templates")), autoescape=True)
     env.globals["management_head"] = management_head
+    env.globals["brand"] = DEFAULT_BRAND
+    env.globals["htmx_config"] = Markup(HTMX_CONFIG_JSON)
     return env
 
 
