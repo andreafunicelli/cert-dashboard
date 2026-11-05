@@ -1,0 +1,63 @@
+name: Integration
+# The long suite: docker targets, SSH fixtures, database, full coverage gates.
+# It is NOT the merge gate (that would put 40 minutes on every card). It runs:
+#   - after every push to main, so a regression is caught immediately, not at release;
+#   - nightly, to catch drift in third-party images;
+#   - on pull requests that touch security, crypto, deployment or migrations, where the
+#     risk of a quiet break is worth the wait;
+#   - on demand.
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "15 2 * * *"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "app/auth/**"
+      - "app/crypto/**"
+      - "app/ansible/**"
+      - "app/jobs/**"
+      - "app/services/deploy.py"
+      - "app/services/certificates.py"
+      - "app/secrets.py"
+      - "alembic/**"
+      - "docker-compose*.yml"
+      - "Dockerfile"
+permissions:
+  contents: read
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: "0.13.1"
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - run: docker compose -f docker-compose.test.yml pull db
+      - run: docker compose -f docker-compose.test.yml --profile targets pull tls-nginx tls-apache
+      - run: docker compose -f docker-compose.test.yml --profile ssh-targets build ssh-nginx-1 ssh-apache
+      - run: docker build --target test -t cert-dashboard:test .
+      - run: docker build -t cert-dashboard:local -t cert-dashboard:ci .
+      - name: Full suite with coverage
+        run: uv run pytest -q --cov=app --cov-report=term-missing --cov-report=json --cov-fail-under=70
+      - name: Crypto and renewal coverage gates
+        run: |
+          uv run coverage report --fail-under=85 --include='app/crypto/*'
+          uv run coverage report --fail-under=85 --include='app/ansible/parse_*'
+          if [ -f app/services/renewals.py ]; then
+            uv run coverage report --fail-under=85 --include='app/services/renewals.py'
+          fi
+          if [ -f app/services/deploy.py ]; then
+            uv run coverage report --fail-under=85 --include='app/services/deploy.py'
+          fi
+      - run: docker compose -f docker-compose.test.yml --profile targets config --quiet
+      - run: docker compose -f docker-compose.test.yml --profile ssh-targets config --quiet
+      - run: docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider
