@@ -21,6 +21,7 @@ from app.jobs.queue import ALLOWED_ERROR_CLASSES, TIMEOUT_MESSAGE
 from app.models import Binding, Certificate, Job, JobHost, JSONValue, PrivateKey, Renewal, Server, User
 from app.models.enums import CertificateStatus, JobHostStatus, JobStatus, JobType, RenewalState
 from app.services.deploy import _EXCLUDED_MATCH_STATES, pause_deadline
+from app.services.inventory_sources import NO_INVENTORY
 from app.services.settings import get_setting
 
 # ``_EXCLUDED_MATCH_STATES`` is the one authoritative definition of "never a deploy target" (Contract
@@ -92,8 +93,12 @@ JOB_FAILURE_REASONS = frozenset(
         "the certificate and its stored private key do not match",
         "the inventory was not prepared",
         "job not found",
-        # the shared Ansible context (app.jobs.handlers.ansible_context, Contract decision 7)
+        # the shared Ansible context (app.jobs.handlers.ansible_context, Contract decision 7). The
+        # known_hosts text was reworded by B-W2 (spec §8.2); the old wording stays so existing job rows,
+        # persisted before the change, still render verbatim instead of the generic frame.
         "inventory repository is not configured",
+        NO_INVENTORY,
+        "no trusted SSH host keys: trust them in Infrastructure → SSH keys or mount a known_hosts file",
         "SSH known_hosts file is missing",
         "the worker has no ansible_ssh_key",
         "inventory path is outside the checkout",
