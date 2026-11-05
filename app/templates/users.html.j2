@@ -1,8 +1,8 @@
 {% extends "base.html.j2" %}
 {% from "_ui.html.j2" import icon %}
+{% from "_management_ui.html.j2" import empty_state, state_badge %}
 {% block title %}Users · Cert Dashboard{% endblock %}
 {% block extra_css %}<link rel="stylesheet" href="/static/pages/users.css">{% endblock %}
-{% macro errors(message) %}{% if message %}<p class="form-error" role="alert">{{ message }}</p>{% endif %}{% endmacro %}
 {% block content %}
 {% from "_operations_ui.html.j2" import page_header, more_actions %}
 {% call page_header('Users', 'Who can sign in, and with which second factor.') %}
@@ -13,42 +13,42 @@
   {% call more_actions() %}<a href="/audit?target_type=user">User audit history</a><a href="/account">My account</a>{% endcall %}
 {% endcall %}
 <p>Every active user is an administrator. Security actions ask for <strong>your</strong> current password and sign the affected user out immediately.</p>
-{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
-{{ errors(error) }}
 
-
-
-<h2>User access</h2>
-{% if users %}
+{% if only_user %}
+{% call empty_state('You are the only user', 'Add another administrator so the dashboard is never locked out.') %}
+  <a class="button" href="/users?create=1#create-heading">Add user</a>
+{% endcall %}
+{% elif users %}
 <div class="table-wrap">
 <table class="users">
   <thead><tr>
     <th scope="col">Username</th>
     <th scope="col">Display name</th>
     <th scope="col">Email</th>
-    <th scope="col">Backend</th>
-    <th scope="col">Active</th>
+    <th scope="col">Sign-in</th>
     <th scope="col">2FA</th>
-    <th scope="col">Must change password</th>
+    <th scope="col">State</th>
     <th scope="col">Last login</th>
-    <th scope="col">Locked until</th>
-    <th scope="col">Actions</th>
+    <th scope="col">Manage</th>
   </tr></thead>
   <tbody>
   {% for item in users %}
   <tr data-user-id="{{ item.id }}"{% if not item.is_active %} class="row-inactive"{% endif %}>
-    <td>{{ item.username }}{% if item.id == current_user_id %} <small>(you)</small>{% endif %}</td>
+    <td><a href="/users/{{ item.id }}">{{ item.username }}</a>{% if item.id == current_user_id %} <small>(you)</small>{% endif %}</td>
     <td>{{ item.display_name or "—" }}</td>
     <td>{{ item.email }}</td>
     <td>{{ item.backend }}</td>
-    <td><span class="badge {{ 'badge-ok' if item.is_active else 'badge-danger' }}">{{ icon('ok' if item.is_active else 'danger') }} {{ "Yes" if item.is_active else "No" }}</span></td>
     <td><span class="badge {{ 'badge-ok' if item.totp_enabled else 'badge-warn' }}">{{ icon('ok' if item.totp_enabled else 'warn') }} {{ "Enabled" if item.totp_enabled else "Off" }}</span></td>
-    <td>{% if item.must_change %}<span class="badge badge-warn">{{ icon('warn') }} Yes</span>{% else %}No{% endif %}</td>
-    <td>{{ time_tag(item.last_login_at, tz) }}</td>
-    <td>{{ time_tag(item.locked_until, tz) }}</td>
     <td>
-      <details{% if error %} open{% endif %}>
-        <summary>Manage <span class="user-action-name">{{ item.username }}</span></summary>
+      {{ state_badge(item.is_active) }}
+      {% if item.locked_until %}<span class="badge badge-warn">{{ icon('warn') }} Locked until {{ time_tag(item.locked_until, tz) }}</span>{% endif %}
+      {% if item.must_change %}<span class="badge badge-warn">{{ icon('warn') }} Must change password</span>{% endif %}
+    </td>
+    <td>{{ time_tag(item.last_login_at, tz) }}</td>
+    <td>
+      <a href="/users/{{ item.id }}">Manage</a>
+      <details class="user-quick-actions">
+        <summary>Quick actions</summary>
 
         <form method="post" action="/users/{{ item.id }}/edit">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -70,7 +70,7 @@
           </fieldset>
           {% if not item.local %}<p class="hint">Password is managed by the directory.</p>{% endif %}
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/{{ item.id }}">Open the user page</a></details>
 
         <details class="confirmation"><summary>Reset two-factor authentication</summary>
         <p>Removes the authenticator and recovery codes and signs this user out everywhere. Future sign-ins will require only a password until the user chooses to set up two-factor authentication again.</p>
@@ -79,17 +79,23 @@
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit">Reset two-factor authentication</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/{{ item.id }}">Open the user page</a></details>
 
         <details class="confirmation"><summary>Deactivate user</summary>
-        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is not available here.</p>
+        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is available on the user page.</p>
         {% if item.id == current_user_id %}<p class="warning-note">This is your account. You will be signed out immediately.</p>{% endif %}
         <form method="post" action="/users/{{ item.id }}/deactivate">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit"{% if not item.is_active %} disabled title="Already inactive"{% endif %}>Deactivate</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/{{ item.id }}">Open the user page</a></details>
+
+        {% if item.is_active %}
+        <p class="hint">Reactivation is available on the user page after deactivation.</p>
+        {% else %}
+        <a class="button-secondary" href="/users/{{ item.id }}">Reactivate on the user page</a>
+        {% endif %}
       </details>
     </td>
   </tr>
@@ -98,7 +104,9 @@
 </table>
 </div>
 {% else %}
-<section class="empty-state"><h3>No users to display</h3><p><a href="/users?create=1#create-heading">Create user</a> to grant administrator access. Directory users appear after sign-in.</p></section>
+{% call empty_state('No users to display', 'Create a user to grant administrator access. Directory users appear after sign-in.') %}
+  <a class="button" href="/users?create=1#create-heading">Create user</a>
+{% endcall %}
 {% endif %}
 <p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
 
