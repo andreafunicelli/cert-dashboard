@@ -1,18 +1,33 @@
 {% extends "base.html.j2" %}
 {% from "_operations_ui.html.j2" import page_header %}
-{% from "_management_ui.html.j2" import empty_state, panel %}
+{% from "_management_ui.html.j2" import confirm_action, empty_state, error_summary, field_error, panel %}
 {% block title %}SSH keys · Cert Dashboard{% endblock %}
-{% block extra_css %}{{ management_head() }}{% endblock %}
+{% block extra_css %}{{ management_head('/static/pages/ssh-keys.css') }}{% endblock %}
 {% block content %}
+{% set worker_key = worker_key if worker_key is defined else none %}
+{% set known_hosts_present = known_hosts_present if known_hosts_present is defined else none %}
+{% set errors = errors if errors is defined else {} %}
+{% set form = form if form is defined else {} %}
+{% set delete_consequence = delete_consequence if delete_consequence is defined else "" %}
 {{ page_header('SSH keys', "The worker's client key and the host keys the dashboard trusts.") }}
 <div class="management-page">
 
-<section class="management-panel" aria-label="Worker client key">
+<section class="management-panel" aria-label="Worker client key" id="worker-key">
   <h2>Worker client key</h2>
-  <p>The private key is managed in <a href="/settings?tab=worker">Settings → Worker</a> and is never read by this page.</p>
+  <dl class="connection-defaults">
+    <div><dt>Status</dt><dd>{% if worker_key.configured %}Configured{% else %}Not configured{% endif %}</dd></div>
+    <div><dt>Source</dt><dd>{% if worker_key.source == 'database' %}Dashboard{% elif worker_key.source == 'file' %}Mounted file{% else %}—{% endif %}</dd></div>
+    <div><dt>Key type</dt><dd>{{ worker_key.key_type or "—" }}</dd></div>
+    <div><dt>Public fingerprint (DER SPKI)</dt><dd>{% if worker_key.fingerprint_sha256 %}<code>{{ worker_key.fingerprint_sha256 }}</code>{% else %}—{% endif %}</dd></div>
+    <div><dt>Mounted known_hosts file</dt><dd>{% if known_hosts_present is none %}Unknown (no worker has reported recently){% elif known_hosts_present %}Present{% else %}Absent{% endif %}</dd></div>
+  </dl>
+  <p>The private key is never read by this page. <a href="/settings?tab=worker">Replace or remove in Settings → Worker</a>.</p>
 </section>
 
 {% call panel('ssh-host-keys-panel', 'Trusted host keys', 'Keys are trusted only after you verify their fingerprints with the server through an independent channel.') %}
+{{ error_summary(errors) }}
+{% if errors.confirm %}<div id="field-confirm">{{ field_error(errors, 'confirm') }}</div>{% endif %}
+
 {% if host_keys %}
 <div class="table-wrap">
 <table class="management-table">
@@ -22,15 +37,25 @@
     <th scope="col">Fingerprint</th>
     <th scope="col">Comment</th>
     <th scope="col">Added</th>
+    <th scope="col">Actions</th>
   </tr></thead>
   <tbody>
   {% for key in host_keys %}
   <tr data-host-key-id="{{ key.id }}">
     <td>{{ key.host }}</td>
-    <td>{{ key.key_type }}</td>
-    <td><code>{{ key.fingerprint_sha256 }}</code></td>
+    <td><code>{{ key.key_type }}</code></td>
+    <td class="host-key-fingerprint"><code>{{ key.fingerprint_sha256 }}</code></td>
     <td>{{ key.comment or "—" }}</td>
     <td>{{ time_tag(key.created_at, tz) }}{% if key.created_by %} by {{ key.created_by }}{% endif %}</td>
+    <td>
+      {# ``confirm_action`` is shared (F-owned) and renders no htmx attributes; ``hx-boost`` makes the
+         descendant form submit with its own action/method, so the effective hx-post is that action and
+         the confirmation value is included, while the panel target/select/swap are inherited (C4). #}
+      <div class="host-key-delete" data-host-key-id="{{ key.id }}"
+           hx-boost="true" hx-target="#ssh-host-keys-panel" hx-select="#ssh-host-keys-panel" hx-swap="outerHTML">
+        {{ confirm_action('/ssh-keys/host-keys/' ~ key.id ~ '/delete', 'Delete key', delete_consequence, csrf_token) }}
+      </div>
+    </td>
   </tr>
   {% endfor %}
   </tbody>
@@ -38,9 +63,11 @@
 </div>
 {% else %}
 {% call empty_state('No host keys trusted in the dashboard yet.', 'Discovery and deploy refuse to connect to a host whose key is not trusted.') %}
-  <a class="button" href="/settings?tab=worker">Configure the worker key</a>
+  <a href="#add-host-key">Add the first host key</a>
 {% endcall %}
 {% endif %}
+
+{% include "ssh_keys/_host_key_form.html.j2" %}
 {% endcall %}
 
 </div>
