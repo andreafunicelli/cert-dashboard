@@ -642,14 +642,20 @@ def test_overview_counters_link_to_the_exact_list_ranges(signed_in, inventory, w
 
 def test_overview_empty_state_offers_setup_links(signed_in):
     page = signed_in.get("/")
-    assert page.status_code == 200 and 'data-empty-state="setup"' in page.text
-    assert 'href="/certificates/import"' in page.text
-    assert "SMTP" in page.text and "inventory" in page.text.lower()
+    assert page.status_code == 200
+    assert '<details class="setup-checklist" data-setup-done="0" open>' in page.text
+    assert "Setup: 0 of 6 steps done" in page.text
+    for href in ("/certificates/import", "/inventory", "/settings?tab=worker", "/ssh-keys",
+                 "/settings?tab=smtp", "/servers#discovery-actions", "/settings?tab=inventory"):
+        assert f'href="{href}"' in page.text, href
     assert page.text.count('data-counter="') == 5
 
 
-def test_overview_hides_the_checklist_once_certificates_exist(signed_in, inventory):
-    assert 'data-empty-state="setup"' not in signed_in.get("/").text
+def test_overview_checklist_collapses_once_certificates_exist(signed_in, inventory):
+    text = signed_in.get("/").text
+    assert 'class="setup-checklist"' in text
+    tag = text.split('class="setup-checklist"', 1)[1].split('>', 1)[0]
+    assert 'data-setup-done="0"' not in tag and " open" not in tag
 
 
 def test_navigation_enables_implemented_areas_only(signed_in):

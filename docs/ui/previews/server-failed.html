@@ -4,13 +4,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"403","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"404","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"500","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"503","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"[45]..","swap":false,"error":true}]}'>
   <title>unreachable.ops.example.test · Servers · Cert Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="../../../app/static/branding/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="../../../app/static/branding/favicon-32.png">
   <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/servers.css"><link rel="stylesheet" href="../../../app/static/pages/bindings.css">
   <script src="../../../app/static/htmx.min.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
-<header class="site-header"><a class="brand" href="/">Cert Dashboard</a>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cert Dashboard home">
+    <picture class="brand-lockup"><source srcset="../../../app/static/branding/lockup-light.svg" media="(prefers-color-scheme: light)"><img src="../../../app/static/branding/lockup.svg" alt="" width="202" height="24"></picture>
+    <picture class="brand-mark"><source srcset="../../../app/static/branding/mark-light.svg" media="(prefers-color-scheme: light)"><img src="../../../app/static/branding/mark.svg" alt="" width="24" height="24"></picture>
+  </a>
 
 
 
@@ -18,20 +25,20 @@
 
 <div class="desktop-navigation">
   <nav aria-label="Main">
-
-
-
-  <span><a href="/">Overview</a></span>
-    <span><a href="/certificates">Certificates</a></span><span class="active-area" aria-current="location"><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span><a href="/administration">Administration</a></span>
+    <span><a href="/">Overview</a></span><span><a href="/certificates">Certificates</a></span><span class="active-area" aria-current="location"><a href="/inventory">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span><a href="/administration">Administration</a></span>
   </nav>
 </div>
 <details class="mobile-navigation">
   <summary>Menu · Infrastructure</summary>
   <nav aria-label="All pages">
 
+    <section>
+      <h2>
 
 
-  <span><a href="/">Overview</a></span>
+  <span><a href="/">Overview</a></span></h2>
+
+    </section>
 
     <section>
       <h2>Certificates</h2>
@@ -82,20 +89,20 @@
     </section>
 
     <section>
-      <h2>
-
-
-  <span><a href="/administration">Administration</a></span></h2>
+      <h2>Administration</h2>
       <div class="navigation-pages">
+
+
+  <span><a href="/administration">Administration</a></span>
 
 
   <span><a href="/users">Users</a></span>
 
 
-  <span><a href="/audit">Audit</a></span>
-
-
   <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
 
 
   <span><a href="/account">My account</a></span></div>
@@ -126,6 +133,7 @@
   <details class="user-menu"><summary>Fixture operator</summary>
     <div class="user-menu-links">
       <a href="/account">My account</a>
+      <a href="/administration">Administration</a>
       <a href="/users">Users</a>
     </div>
   </details>

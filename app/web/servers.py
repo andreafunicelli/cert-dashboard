@@ -15,6 +15,7 @@ from starlette.concurrency import run_in_threadpool
 from app.jobs.handlers.discover import request_discovery, validate_discover_payload
 from app.models import Server
 from app.models.enums import JobType, WebserverType
+from app.services.managed_hosts import count_hosts
 from app.services.servers import (
     BINDING_SORTS,
     EXPORT_LIMIT,
@@ -297,8 +298,10 @@ def register_server_routes(app: FastAPI) -> None:
             timezone_name = display_timezone(db)
             groups = _group_names(db)
             discovery = _discovery_context(request, db)
+            total_hosts = count_hosts(db)
         pages = max(1, math.ceil(page.total / page.page_size))
         paging = {k: v for k, v in query.params.items() if k != "page"}
+        filtered = any(request.query_params.get(name) for name in ("search", "group", "active"))
         return _render(
             request,
             "servers/list.html.j2",
@@ -308,6 +311,8 @@ def register_server_routes(app: FastAPI) -> None:
             values=query.params,
             sort_state=query.sort,
             tz=timezone_name,
+            total_hosts=total_hosts,
+            filtered=filtered,
             **discovery,
             page_url=lambda number: _url(
                 "/servers", {**paging, "page": str(number)} if number > 1 else paging

@@ -14,6 +14,9 @@ from urllib.parse import urlencode
 from jinja2 import Environment, FileSystemLoader
 from markupsafe import Markup
 
+from app.services.setup_status import setup_steps
+from app.web.administration import DEFAULT_BRAND, HTMX_CONFIG_JSON
+
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "docs/ui/previews"
 
@@ -24,7 +27,9 @@ def environment():
         autoescape=True,
     )
     env.globals.update(
-        time_tag=preview_time, expiry_chip=preview_expiry, hostport=lambda host, port: f"{host}:{port}"
+        time_tag=preview_time, expiry_chip=preview_expiry,
+        hostport=lambda host, port: f"{host}:{port}",
+        htmx_config=Markup(HTMX_CONFIG_JSON), brand=DEFAULT_BRAND,
     )
     env.filters['datetime'] = lambda value, tz='UTC': value.strftime('%Y-%m-%d %H:%M UTC')
     return env
@@ -64,7 +69,24 @@ def operator_fixtures():
     queue = {"certificates_expired": 2, "certificates_expiring_7d": 3, "endpoints_mismatch": 2,
              "deploy_jobs_failed": 2, "deploy_jobs_rolled_back": 1, "renewals_awaiting_certificate": 1,
              "scans_running": 2, "deploys_running": 1}
+
+    def setup_fixture(**overrides):
+        values = {"certificates": True, "hosts": True, "host_counts": (12, 4, 8), "ssh_key": True,
+                  "host_trust": False, "worker_reporting": True, "smtp": True, "discovered": True}
+        values.update(overrides)
+        values["done"] = sum(values[key] for key in
+                             ("certificates", "hosts", "ssh_key", "host_trust", "smtp", "discovered"))
+        values["complete"] = values["done"] == 6
+        status = SimpleNamespace(**values)
+        return status, setup_steps(status)
+
+    setup, steps = setup_fixture()
+    empty_setup, empty_steps = setup_fixture(
+        certificates=False, hosts=False, host_counts=(0, 0, 0), ssh_key=False, host_trust=False,
+        worker_reporting=False, smtp=False, discovered=False,
+    )
     overview = {"queue": queue, "counters": counters, "tls_counters": tls, "empty": False, "tz": "UTC",
+                    "setup": setup, "setup_steps": steps,
                     "snapshot": {"status": status, "recent_jobs": jobs,
                                   "renewals": [{"id": "fixture-renewal", "common_name": "api.example.test", "state": "submitted", "age_days": 10}]},
                     "unknown": [{"id": 1, "server_id": 1, "server": "edge.example.test", "vhost_name": "api.example.test",
@@ -83,17 +105,52 @@ def operator_fixtures():
                            "utc": "2026-10-19T12:00:00Z", "local": "2026-10-19 12:00 UTC", "ip": "2001:db8::1",
                            "details_json": json.dumps({"common_name": "api.example.test", "path": "/etc/tls/" + "long-path-" * 45,
                                                     "note": "<script>fixture escaping check</script>"}, indent=2)})
+    def hub_groups(empty=False):
+        host_status = (Markup('No hosts yet · <a href="/inventory">Add a host</a>') if empty
+                       else "12 active hosts (4 manual, 8 repository)")
+        repository = ("Not configured — optional" if empty
+                      else "ssh://git@example.test/inventory.git @ main")
+        credentials = ("SSH key: missing · Vault password: not set · Git token: not set" if empty
+                       else "SSH key: configured (Ed25519, SHA256:0123456789abcdef) · Vault password: set · Git token: not set")
+        return [
+            {"name": "People and access", "entries": [
+                {"label": "Users", "href": "/users", "status": "1 active users · 0 inactive"},
+                {"label": "My account", "href": "/account", "status": "Two-factor authentication on"},
+            ]},
+            {"name": "Servers and access", "entries": [
+                {"label": "Inventory hosts", "href": "/inventory", "status": host_status},
+                {"label": "Inventory repository (optional)", "href": "/settings?tab=inventory", "status": repository},
+                {"label": "Worker credentials", "href": "/settings?tab=worker", "status": credentials},
+                {"label": "SSH host keys", "href": "/ssh-keys", "status": "0 trusted in the dashboard · Mounted known_hosts: absent"},
+            ]},
+            {"name": "Alerts and email", "entries": [
+                {"label": "SMTP", "href": "/settings?tab=smtp", "status": "Configured"},
+                {"label": "Alerts", "href": "/settings?tab=alerts", "status": "Thresholds: 60, 30, 14, 7, 1, 0 days · No recipients"},
+            ]},
+            {"name": "Operations policy", "entries": [
+                {"label": "Deployment", "href": "/settings?tab=deployment", "status": "Batch 10% · concurrency 5 · canary pause on"},
+                {"label": "Schedule and scans", "href": "/settings?tab=schedule", "status": "Nightly discovery 01:00 · scan timeout 10 s"},
+                {"label": "Trust anchors", "href": "/settings?tab=trust", "status": "0 uploaded roots · public bundle included"},
+            ]},
+            {"name": "System", "entries": [
+                {"label": "Status", "href": "/settings?tab=status", "status": "0 warnings"},
+                {"label": "System and maintenance", "href": "/settings?tab=maintenance", "status": "Job retention: 90 days"},
+                {"label": "Audit", "href": "/audit", "status": "Append-only record of actions"},
+            ]},
+        ]
+
     return {
         "overview": ("overview.html.j2", overview),
         "overview-clear": ("overview.html.j2", overview | {"queue": {key: 0 for key in queue}}),
-        "overview-empty": ("overview.html.j2", overview | {"empty": True, "unknown": [],
+        "overview-empty": ("overview.html.j2", overview | {"empty": True, "unknown": [], "setup": empty_setup,
+            "setup_steps": empty_steps,
             "queue": {key: 0 for key in queue},
             "counters": [item | {"count": 0} for item in counters], "tls_counters": [item | {"count": 0} for item in tls],
             "snapshot": {"recent_jobs": [], "renewals": [], "status": {"worker": "stale", "last_heartbeat_at": None,
                 "last_discovery_at": None,
                 "inventory_rev": None, "inventory_rev_age_hours": None, "last_digest_at": None}}}),
-        "administration": ("administration.html.j2", {"active_user_count": 1}),
-        "administration-empty": ("administration.html.j2", {"active_user_count": 0}),
+        "administration": ("administration.html.j2", {"setup": setup, "groups": hub_groups()}),
+        "administration-empty": ("administration.html.j2", {"setup": empty_setup, "groups": hub_groups(empty=True)}),
         "account": ("account.html.j2", account),
         "account-enrollment": ("account.html.j2", account | {"totp_enabled": False, "totp_pending": True,
             "enrollment": {"secret": "PREVIEW-KEY-NOT-A-REAL-SECRET", "provisioning_uri": "otpauth://totp/preview-only",
@@ -152,7 +209,7 @@ def fixtures():
             ]
         ],
         "request": SimpleNamespace(
-            url=SimpleNamespace(path="/login"), state=SimpleNamespace(worker_stale=False)
+            url=SimpleNamespace(path="/login"), state=SimpleNamespace(worker_stale=False), headers={}
         ),
         "user": None,
         "status_banner": "",
@@ -568,7 +625,7 @@ def operations_fixtures():
             current.batches = [current.hosts]
         pages['deploy-' + name] = ('deploy/job.html.j2', {"view": current, "errors": {}, "hours_left": 23,
                                                            "tz": 'UTC', "request": request})
-    tabs = [('smtp', 'SMTP'), ('alerts', 'Alerts'), ('inventory', 'Inventory'), ('deployment', 'Deployment'),
+    tabs = [('smtp', 'SMTP'), ('alerts', 'Alerts'), ('inventory', 'Inventory repository'), ('deployment', 'Deployment'),
             ('scanning', 'Scanning'), ('schedule', 'Schedule'), ('general', 'General'),
             ('trust', 'Trust anchors'), ('status', 'Status'), ('maintenance', 'Maintenance'), ('worker', 'Worker')]
     rows_by_tab = {
@@ -665,6 +722,7 @@ def infrastructure_fixtures():
     base = {"server": server, "detail": detail, "summary": summary, "tz": "UTC",
             "values": {key: "" for key in ("search", "group", "active", "certificate_id", "server_id", "vhost", "webserver", "match_state")},
             "groups": ["production", "edge"], "discovery_reason": "", "pages": 1, "sort_state": "hostname",
+            "total_hosts": len(servers), "filtered": False,
             "page": ns(items=servers, total=len(servers), page=1, page_size=50),
             "sort_url": lambda key: "/servers?" + urlencode({"sort": key}),
             "page_url": lambda page: f"/servers?page={page}", "export_url": "/servers/export.json",
@@ -680,7 +738,8 @@ def infrastructure_fixtures():
     empty_detail = ns(**(vars(detail) | {"server": never, "bindings": [], "discovery_history": [], "dump_summary": None}))
     return {
         "server-list": ("servers/list.html.j2", base),
-        "server-list-empty": ("servers/list.html.j2", base | {"page": ns(items=[], total=0, page=1, page_size=50)}),
+        "server-list-empty": ("servers/list.html.j2", base | {"page": ns(items=[], total=0, page=1, page_size=50),
+            "total_hosts": 0, "filtered": False}),
         "server-detail": ("servers/detail.html.j2", base),
         "server-failed": ("servers/detail.html.j2", base | {"server": servers[1],
             "detail": ns(**(vars(detail) | {"server": servers[1], "discovery_history": [failed]}))}),
@@ -790,6 +849,7 @@ def render(output=OUTPUT):
         html = env.get_template(template).render(context)
         html = html.replace('href="/static/', 'href="../../../app/static/')
         html = html.replace('src="/static/', 'src="../../../app/static/')
+        html = html.replace('srcset="/static/', 'srcset="../../../app/static/')
         html = "\n".join(line.rstrip() for line in html.splitlines()).rstrip() + "\n"
         (output / f"{name}.html").write_text(html, encoding="utf-8")
         print(f"Rendered {name}.html")

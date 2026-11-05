@@ -45,19 +45,23 @@
   <div><strong>Worker</strong> <span class="badge {{ 'badge-ok' if status.worker == 'ok' else 'badge-warn' }}">{{ icon('ok' if status.worker == 'ok' else 'warn') }} {{ status.worker }}</span></div>
   <div><strong>Last discovery</strong> <span data-last-discovery>{% if status.last_discovery_at %}{{ time_tag(status.last_discovery_at, tz) }}{% else %}never{% endif %}</span></div>
   <div><strong>Last digest</strong> {% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</div>
-  <div><strong>Inventory revision</strong> {% if status.inventory_rev %}<code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %}no inventory revision recorded yet{% endif %}</div>
+  <div><strong>Inventory</strong> <span class="mono">{{ setup.host_counts[0] }}</span> active hosts (<span class="mono">{{ setup.host_counts[1] }}</span> manual, <span class="mono">{{ setup.host_counts[2] }}</span> repository){% if status.inventory_rev %}, revision <code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %} No repository (optional){% endif %}</div>
 </section>
 {% endblock %}
-{% if empty %}
-<section class="setup-checklist" data-empty-state="setup">
-  <h2>Get started</h2>
-  <p>No certificates are in the inventory yet. Work through this checklist:</p>
+{% if setup is defined and not setup.complete %}
+<details class="setup-checklist" data-setup-done="{{ setup.done }}"{% if not setup.certificates %} open{% endif %}>
+  <summary>Setup: {{ setup.done }} of 6 steps done</summary>
   <ol>
-    <li><a href="/certificates/import">Import a certificate</a> from a file, a paste or a live server.</li>
-    <li><a href="/settings?tab=smtp">Configure SMTP</a> for expiry alerts and the daily digest.</li>
-    <li><a href="/servers">Review servers and discovery</a> to find deployed certificates.</li>
+    {% for step in setup_steps %}
+    <li data-setup-step="{{ loop.index }}" data-done="{{ 'true' if step.done else 'false' }}">
+      <span class="badge {{ 'badge-ok' if step.done else 'badge-info' }}">{{ icon('ok' if step.done else 'info') }}{{ 'Done' if step.done else 'To do' }}</span>
+      {% if (step.worker_fact | default(false)) and not setup.worker_reporting %}<span class="hint">Worker not reporting</span> · {% endif %}
+      <span>{{ step.label }}</span>
+      {% if not step.done %} · <a href="{{ step.href }}">{{ step.action }}</a>{% if step.secondary | default(false) %} · <a href="{{ step.secondary[1] }}">{{ step.secondary[0] }}</a>{% endif %}{% endif %}
+    </li>
+    {% endfor %}
   </ol>
-</section>
+</details>
 {% endif %}
 <details class="filter-disclosure overview-details">
 <summary>Inventory and history · all counters and recent work</summary>

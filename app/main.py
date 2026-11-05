@@ -52,6 +52,7 @@ from app.models import User
 from app.models.enums import JobType
 from app.services.audit import SecretRedactionFilter, record
 from app.services.certificates import missing_master_key_versions
+from app.web.administration import register_administration_routes
 from app.web.audit import register_audit_routes
 from app.web.certificates import register_certificate_routes
 from app.web.common import (
@@ -705,6 +706,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     register_deploy_routes(app)
     register_inventory_routes(app)
     register_overview_routes(app)
+    register_administration_routes(app)
     register_renewal_routes(app)
     register_audit_routes(app)
     register_user_routes(app)

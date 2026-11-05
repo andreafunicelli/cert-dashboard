@@ -256,7 +256,7 @@ def test_overview_page_fills_every_slot_and_links_filters(signed_in, web_world):
     assert f'href="/renewals/{web_world.stalled}"' in stalled and "submitted" in stalled and "10 days" in stalled
     assert "2 days" in _row(page.text, "data-renewal-id", web_world.fresh) and page.text.count("data-renewal-id=") == 2
     strip = _row(page.text, "data-status-strip", "true")
-    assert "no inventory revision recorded yet" in strip and "2026-10-19" in strip and "ok" in strip
+    assert "No repository (optional)" in strip and "2026-10-19" in strip and "ok" in strip
     assert "10:00" in strip  # last digest 2 h before the 12:00 fixture clock (UTC display)
 
 

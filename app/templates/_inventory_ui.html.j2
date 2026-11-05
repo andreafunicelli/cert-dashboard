@@ -1,8 +1,10 @@
 {# Presentation only: no lifecycle or trust decisions are changed here. #}
 {% from "_ui.html.j2" import icon %}
 
+{# The shell owns the single htmx-config meta (base.html.j2, sourced from app/web/administration.py).
+   Keep this hook so the certificate/import/renewal pages do not have to change their extra_css block;
+   a page-level meta here would come after the global one and be ignored by htmx (it reads the first). #}
 {% macro enhanced_forms() -%}
-<meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"422","swap":true,"error":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}' id="inventory-htmx-config">
 {%- endmacro %}
 
 {% macro certificate_state(cert, now, compact=false) -%}

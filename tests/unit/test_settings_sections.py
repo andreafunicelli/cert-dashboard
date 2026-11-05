@@ -90,7 +90,7 @@ def test_canonical_section_tabs_omit_the_legacy_tabs_and_carry_the_group_labels(
     assert settings_web._SECTION_TABS == [
         {"name": "smtp", "label": "SMTP"},
         {"name": "alerts", "label": "Alerts"},
-        {"name": "inventory", "label": "Inventory"},
+        {"name": "inventory", "label": "Inventory repository"},
         {"name": "deployment", "label": "Deployment"},
         {"name": "schedule", "label": "Schedule and scans"},
         {"name": "trust", "label": "Trust anchors"},
@@ -98,6 +98,15 @@ def test_canonical_section_tabs_omit_the_legacy_tabs_and_carry_the_group_labels(
         {"name": "maintenance", "label": "System and maintenance"},
         {"name": "worker", "label": "Worker"},
     ]
+
+
+def test_inventory_repository_copy_and_the_shared_no_inventory_sentence():
+    from app.services.inventory_sources import NO_INVENTORY
+
+    assert settings_web._TAB_LABELS["inventory"] == "Inventory repository"
+    assert settings_web._NO_INVENTORY == NO_INVENTORY
+    assert settings_web._WARNINGS["inventory_not_configured"] == NO_INVENTORY
+    assert NO_INVENTORY == "No inventory: add a host in Inventory or configure a repository."
 
 
 def test_legacy_tabs_keep_every_entry_scanning_and_general_included():

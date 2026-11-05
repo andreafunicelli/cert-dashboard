@@ -80,6 +80,7 @@ from app.jobs.worker import worker_capabilities
 from app.models import Certificate, Job, JSONValue, TrustAnchor, User
 from app.models.enums import JobStatus, JobType
 from app.services.audit import record
+from app.services.inventory_sources import NO_INVENTORY
 from app.services.notifications import MAX_NOTIFICATION_ATTEMPTS
 from app.services.scans import ON_DEMAND_PRIORITY
 from app.services.settings import (
@@ -227,7 +228,7 @@ _TAB_FIELDS: dict[str, tuple[_Field, ...]] = {
 _TAB_LABELS = {
     "smtp": "SMTP",
     "alerts": "Alerts",
-    "inventory": "Inventory",
+    "inventory": "Inventory repository",
     "deployment": "Deployment",
     "scanning": "Scanning",
     "schedule": "Schedule",
@@ -246,7 +247,7 @@ _TAB_LINKS = [{"name": name, "label": label} for name, label in _TAB_LABELS.item
 _SECTION_LABELS = {
     "smtp": "SMTP",
     "alerts": "Alerts",
-    "inventory": "Inventory",
+    "inventory": "Inventory repository",
     "deployment": "Deployment",
     "schedule": "Schedule and scans",
     "trust": "Trust anchors",
@@ -352,14 +353,14 @@ _WARNINGS = {
     "smtp_not_configured": "SMTP is not configured: alert and digest e-mails cannot be sent.",
     "smtp_failing": "Recent alert or digest mail could not be delivered.",
     "smtp_tls_unverified": "SMTP TLS certificate verification is disabled (unsafe).",
-    "inventory_not_configured": "No inventory repository is configured: discovery cannot run.",
+    "inventory_not_configured": NO_INVENTORY,
     "no_alert_recipients": "No alert recipients are set and some active certificates have no owner e-mail.",
     "missing_key_versions": "Stored key material refers to master-key versions that are not in the keyring.",
     "worker_stale": "The worker has not sent a heartbeat for more than 5 minutes.",
 }
 
 
-_NO_INVENTORY = "No inventory repository is configured: set the repository URL first."
+_NO_INVENTORY = NO_INVENTORY
 _NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 _REVISION = re.compile(r"[0-9a-f]{40}")
 

@@ -47,7 +47,14 @@
 </table>
 </div>
 {% else %}
-<section class="empty-state"><h2>No servers match these filters</h2><p><a href="/servers">Clear the filters</a>. Servers appear once discovery has run: use “Discover all” below.</p></section>
+<section class="empty-state" data-empty-state="{{ 'never-configured' if not total_hosts and not filtered else 'filtered' }}">
+{% if not total_hosts and not filtered %}
+<h2>No servers yet</h2><p>Servers are the hosts in your inventory. Add hosts in Inventory, or connect an optional Git repository and import them.</p>
+<nav class="actions" aria-label="Add hosts"><a class="button" href="/inventory">Add hosts</a><a class="button button-secondary" href="/settings?tab=inventory">Connect a repository (optional)</a></nav>
+{% else %}
+<h2>No servers match these filters</h2><p><a href="/servers">Clear filters</a>.</p>
+{% endif %}
+</section>
 {% endif %}
 <nav class="pager" aria-label="Pages">
   {% if page.page > 1 %}<a rel="prev" href="{{ page_url(page.page - 1) }}">Previous</a>{% endif %}
