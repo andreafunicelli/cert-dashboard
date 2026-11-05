@@ -51,7 +51,8 @@ class RunnerSecrets:
 @dataclass(frozen=True)
 class RunnerContext:
     secrets: RunnerSecrets
-    inventory: Path
+    # One inventory path, or several (a Git checkout plus the rendered manual hosts) passed as repeated -i.
+    inventory: Path | tuple[Path, ...]
     run_dir: Path
     # The caller's job artifact directory (public outputs such as discovery documents). The
     # runner's own artifacts live under ``run_dir`` so one directory removal discards them all.
@@ -132,16 +133,18 @@ def classify_unreachable(message: str) -> Literal["auth", "transient_network"]:
     return "transient_network"
 
 
-def stage_runner_secrets(settings: Settings, area: StagingArea) -> RunnerSecrets:
-    """Write the SSH key to the staging area; known_hosts and the vault password pass through."""
+def stage_runner_secrets(settings: Settings, area: StagingArea, *, known_hosts: Path | None = None) -> RunnerSecrets:
+    """Write the SSH key (and the effective ``known_hosts``, when given) to the staging area.
+
+    ``known_hosts`` is the file composed from the mounted file and the dashboard-trusted keys; without
+    one the mounted file path itself is passed through, exactly as before.
+    """
     if settings.ansible_ssh_key is None:
         raise StagingError("no ansible_ssh_key is configured")
     key = settings.ansible_ssh_key
     if not key.endswith(b"\n"):
         key += b"\n"
-    return RunnerSecrets(
-        area.write("ssh_key", key), settings.known_hosts_file, settings.ansible_vault_password
-    )
+    return RunnerSecrets(area.write("ssh_key", key), known_hosts or settings.known_hosts_file, settings.ansible_vault_password)
 
 
 def _resolve_playbook(name: str) -> Path:
@@ -256,6 +259,12 @@ class _Collector:
         return True
 
 
+def _inventory_files(context: RunnerContext) -> tuple[Path, ...]:
+    """The ``-i`` arguments: one path, or a Git inventory and the rendered manual hosts."""
+    inventory = context.inventory
+    return inventory if isinstance(inventory, tuple) else (inventory,)
+
+
 def run_playbook(context: RunnerContext, run: AnsibleRun, *, ident: str) -> RunOutcome:
     from ansible_runner.interface import init_runner
 
@@ -270,7 +279,7 @@ def run_playbook(context: RunnerContext, run: AnsibleRun, *, ident: str) -> RunO
     runner = init_runner(
         private_data_dir=str(run_dir),
         playbook=str(playbook),
-        inventory=str(context.inventory),
+        inventory=[str(path) for path in _inventory_files(context)],
         limit=run.limit,
         extravars=dict(run.extravars),
         envvars=env,

@@ -5,7 +5,7 @@ audit trail, inside the caller's transaction (it locks the server row and never 
 certificates are never imported, and neither servers nor bindings are ever deleted.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
@@ -21,6 +21,7 @@ from app.services.audit import Actor, record
 from app.services.bindings import audit_binding_state, binding_state
 from app.services.endpoints import ensure_binding_endpoint, expect_for_binding, settle_endpoints
 from app.services.inventory import InventoryHost
+from app.services.inventory_sources import MANUAL_SOURCE, is_manual
 from app.services.scans import EndpointInputError
 
 CERTIFICATE_MISSING = "certificate missing or unreadable at discovery"
@@ -70,12 +71,24 @@ def _deactivate_server(db: Session, server: Server, actor: Actor, now: datetime)
 
 
 def sync_inventory_servers(
-    db: Session, hosts: Sequence[InventoryHost], source: str, actor: Actor, now: datetime
+    db: Session,
+    hosts: Sequence[InventoryHost],
+    source: str,
+    actor: Actor,
+    now: datetime,
+    *,
+    manual: Collection[str] = frozenset(),
 ) -> InventorySync:
-    """Insert inventory hosts without a row, refresh the rest, deactivate active rows the inventory lost.
+    """Insert inventory hosts without a row, refresh the rest, deactivate active *repository* rows it lost.
 
     ``webserver`` is the inventory variable when valid, else the value discovery detected (kept as is).
     A removed server keeps its bindings and endpoints, all inactive; a returning one is active again.
+
+    ``manual`` names the hosts that come from dashboard rows (decision D1): they keep
+    ``inventory_source='manual'`` even while a repository is configured and are never deactivated for
+    being absent from Git. A manual row a Git listing does contain is *adopted*: the revision becomes its
+    source (id, bindings, history, ``display_name`` and ``notes`` untouched) and a ``server.update``
+    audit records the change.
     """
     existing = {server.hostname: server for server in db.scalars(select(Server).order_by(Server.id))}
     created = updated = 0
@@ -83,6 +96,8 @@ def sync_inventory_servers(
     for host in hosts:
         groups = [name for name in host.groups if name not in _PSEUDO_GROUPS]
         address = None if host.connection_address == host.hostname else host.connection_address
+        from_manual = host.hostname in manual
+        row_source = MANUAL_SOURCE if from_manual else source
         server = existing.get(host.hostname)
         if server is None:
             server = Server(
@@ -90,7 +105,7 @@ def sync_inventory_servers(
                 ansible_groups=groups,
                 connection_address=address,
                 webserver=host.webserver,
-                inventory_source=source,
+                inventory_source=row_source,
                 is_active=True,
             )
             db.add(server)
@@ -105,24 +120,39 @@ def sync_inventory_servers(
             )
             created += 1
         else:
+            adopted = is_manual(server.inventory_source) and not is_manual(row_source)
             changed = (
                 server.ansible_groups != groups
                 or server.connection_address != address
-                or server.inventory_source != source
+                or server.inventory_source != row_source
                 or (host.webserver is not None and server.webserver != host.webserver)
                 or not server.is_active
             )
             if not server.is_active:
                 server.is_active = True
                 record(db, actor, "server.activate", "server", str(server.id), {"hostname": host.hostname})
+            if adopted:
+                # Git is authoritative for every hostname it lists: the manual row becomes a repository row.
+                record(
+                    db,
+                    actor,
+                    "server.update",
+                    "server",
+                    str(server.id),
+                    {"hostname": host.hostname, "inventory_source": {"from": server.inventory_source, "to": row_source}},
+                )
             server.ansible_groups = groups
             server.connection_address = address
-            server.inventory_source = source
+            server.inventory_source = row_source
             if host.webserver is not None:
                 server.webserver = host.webserver
             updated += changed
         ids[host.hostname] = server.id
-    removed = [server for hostname, server in existing.items() if hostname not in ids and server.is_active]
+    removed = [
+        server
+        for hostname, server in existing.items()
+        if hostname not in ids and server.is_active and not is_manual(server.inventory_source)
+    ]
     for server in removed:
         _deactivate_server(db, server, actor, now)
     db.flush()

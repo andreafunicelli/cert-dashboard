@@ -71,7 +71,7 @@ from app.services.deploy_runtime import (
     revalidate_for_execution,
     skip_pending,
 )
-from app.services.inventory import revision_result
+from app.services.inventory import inventory_result
 from app.services.settings import get_setting
 
 if TYPE_CHECKING:
@@ -194,7 +194,7 @@ def deploy(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[str
     """Execute one confirmed deploy job batch by batch; see the module docstring for the order."""
     pause_after_canary = payload.get("pause_after_canary") is True
     try:
-        with ansible_job(context, exclusive=(DEPLOY_GLOBAL_LOCK,)) as job:
+        with ansible_job(context, exclusive=(DEPLOY_GLOBAL_LOCK,), require_repository=False) as job:
             return _deploy(context, job, pause_after_canary)
     except LockBusy:
         # ``deploy:global`` (another rollout) or the inventory lock (a reset) is held: nothing ran.
@@ -259,8 +259,6 @@ class _HostRun:
 
 
 def _deploy(context: JobContext, job: AnsibleJob, pause_after_canary: bool) -> Mapping[str, JSONValue]:
-    if job.revision is None:
-        raise JobFailure("internal", "the inventory was not prepared")
     now = context.clock()
     with context.factory() as db:
         row = db.get(Job, context.job_id)
@@ -321,14 +319,14 @@ def _deploy(context: JobContext, job: AnsibleJob, pause_after_canary: bool) -> M
         raise JobCancelled(CANCELLED_BY_OPERATOR, _phase_result(job.revision, context, "cancelled"))
     with context.factory() as db:
         totals = deploy_totals(db, context.job_id)
-    return {**revision_result(job.revision), "phase": "done", "totals": totals}
+    return {**inventory_result(job.revision), "phase": "done", "totals": totals}
 
 
-def _phase_result(revision: InventoryRevision, context: JobContext, phase: str) -> dict[str, JSONValue]:
+def _phase_result(revision: InventoryRevision | None, context: JobContext, phase: str) -> dict[str, JSONValue]:
     """The result of a non-terminal outcome: the inventory revision and the totals so far."""
     with context.factory() as db:
         totals = deploy_totals(db, context.job_id)
-    return {**revision_result(revision), "phase": phase, "totals": totals}
+    return {**inventory_result(revision), "phase": phase, "totals": totals}
 
 
 def _cancelled(context: JobContext) -> bool:

@@ -567,7 +567,11 @@ def status_snapshot(
     if get_setting(db, "smtp.tls_verify") is False:
         warnings.append("smtp_tls_unverified")
     if not get_setting(db, "inventory.repo_url"):
-        warnings.append("inventory_not_configured")
+        # Local import: ``app.services.inventory`` imports ``get_setting`` from this module.
+        from app.services.inventory import has_active_manual_hosts
+
+        if not has_active_manual_hosts(db):  # a manual host is an inventory of its own (decision D1)
+            warnings.append("inventory_not_configured")
     if not get_setting(db, "alert.recipients") and db.scalar(
         select(Certificate.id)
         .where(
