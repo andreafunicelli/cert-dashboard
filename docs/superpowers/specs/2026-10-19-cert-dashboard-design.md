@@ -749,6 +749,10 @@ Host public keys trusted by an administrator in the dashboard (amended, `docs/sl
 
 Unique `(host, key_type)`.
 
+### 4.20 `branding_asset` and `branding_draft`
+
+The instance logo (amended, `docs/ux-spec.md` §6 A2-D1, `docs/ui/branding.md`; additive migration `0004_branding`). `branding_asset` is a singleton (`id = 1`) holding the sanitized SVG/PNG bytes, MIME type, dimensions, SHA-256 revision, display file name, update time and actor; no row means the default logo. `branding_draft` holds one session-owned preview candidate (keyed by the SHA-256 of a random token, FK `user_session` with cascade, 30-minute expiry, `consumed_at` as the save receipt). Public material only; the audit log records save/reset with dimensions, MIME and revision, never bytes or file names.
+
 ---
 
 ## 5. Key handling & security
@@ -1109,7 +1113,7 @@ Part of every `discover` and `deploy` job's preflight rather than a separate use
 
 ## 8. Screens
 
-Server-rendered Jinja2 with htmx for partial updates. Every list has server-side pagination, sorting, and filters encoded in the query string, so a view can be bookmarked. Forms post normally and work with JavaScript disabled; htmx only adds in-place updates and progress polling. Navigation: Overview, Certificates, Servers, Deploy, Scans, Audit, Settings.
+Server-rendered Jinja2 with htmx for partial updates. Every list has server-side pagination, sorting, and filters encoded in the query string, so a view can be bookmarked. Forms post normally and work with JavaScript disabled; htmx only adds in-place updates and progress polling. Navigation: Overview, Certificates, Infrastructure, Operations, Administration, each with its pages (amended, `docs/ux-spec.md` §2.1).
 
 ### 8.1 Login (`/login`, `/login/2fa`)
 
@@ -1124,7 +1128,7 @@ Server-rendered Jinja2 with htmx for partial updates. Every list has server-side
 - Recent jobs (last 10) with type, target summary, status, duration, actor, and a link; a failed/rolled-back job is visually distinct.
 - Renewals in flight: state and age, so a stalled `submitted` renewal is visible.
 - Worker/SMTP/inventory status strip: last heartbeat, last inventory pull revision and age, last digest time.
-- Empty state: a short setup checklist (set SMTP, set inventory repo, run discovery, import a certificate).
+- Setup checklist while any setup step is incomplete: import a certificate, add hosts (Git repository optional), worker SSH key, trusted host keys, SMTP, first discovery (amended, `docs/ux-spec.md` §2.2).
 
 ### 8.3 Certificates list (`/certificates`)
 
@@ -1164,6 +1168,7 @@ Re-entry points: each step is a URL, and the wizard shows the current state, so 
 - A binding row with `key_mismatch` or `missing_file` has a persistent warning badge and a link to the fix instructions (the app does not fix them).
 
 - Inventory (`/inventory`) and SSH keys (`/ssh-keys`): create/edit/deactivate/delete manual hosts, optional repository import, trusted host keys and the worker key summary — routes, fields and states in `docs/slice-b-contract.md` §4 and §6.
+- Empty Servers list: "no servers yet" (with links to Inventory and the optional repository setting) is distinct from "no servers match these filters" (amended, `docs/ux-spec.md` §5.4).
 
 ### 8.7 Deploy (`/deploy`, `/deploy/{job_id}`)
 
@@ -1195,7 +1200,7 @@ Job screen (live, polls `/jobs/{id}/progress` every 2 s):
 
 ### 8.10 Users & settings (`/settings`, `/users`)
 
-- Settings tabs: SMTP (with test send), Alerts (thresholds, recipients, digest on/off), Inventory (repo URL, ref, path, webserver var, "Test pull" button), Deployment (default batch percent, concurrency, pause-after-canary, pause timeout, backup retention days, per-host timeout), Scanning (timeout, daily time), Schedule (daily times), General (display timezone, retention), Trust anchors (include-public-bundle toggle, pinned certifi version, uploaded internal roots), Status (worker heartbeat, keyring version, DB size, queue depth, last runs).
+- Settings tabs: SMTP (with test send), Alerts (thresholds, recipients, digest on/off), Inventory (repo URL, ref, path, webserver var, "Test pull" button), Deployment (default batch percent, concurrency, pause-after-canary, pause timeout, backup retention days, per-host timeout), Scanning (timeout, daily time), Schedule (daily times), General (display timezone, retention), Trust anchors (include-public-bundle toggle, pinned certifi version, uploaded internal roots), Status (worker heartbeat, keyring version, DB size, queue depth, last runs). Amended (`docs/ux-spec.md` §2.3, §6): the Inventory tab is labelled "Inventory repository" (optional), a Worker tab holds the worker credentials, a Branding tab replaces the logo (`docs/ui/branding.md`), and the Administration hub (`/administration`) summarizes every setting area with links.
 - Dangerous actions are isolated in a "Maintenance" panel with a typed confirmation: rotate master key instructions (the actual rotation is a CLI command, with the UI showing the current state and required steps), prune old jobs.
 - Users: list, create (local), edit email/display name, deactivate, reactivate (with a new temporary password), reset password, reset 2FA, view last login, managed on a per-user page `/users/{id}` (`docs/slice-b-contract.md` §5). Deactivating the last active user is refused. The UI names the auth backend per user and disables password actions for non-local backends.
 - Every settings change is audited with the before/after values (excluding secrets, which are not settable here).
@@ -1284,6 +1289,7 @@ Ansible-level errors that are not host-related (playbook syntax, missing collect
 - HTML routes: styled `403`, `404`, `422`, `500`, `503` pages with a request id and a link back.
 - JSON/htmx endpoints: `{"error": {"class": "...", "message": "...", "request_id": "..."}}`, never a stack trace, never a secret.
 - Session expiry during an htmx request returns `401` with `HX-Redirect: /login`, so the browser navigates instead of injecting a login form into a fragment.
+- An htmx request refused with `403` (including a stale CSRF token), `404`, `500` or `503` replaces `#main-content` with the styled error page, so the refusal is visible; one global htmx configuration in the shell defines this (amended, `docs/ux-spec.md` §5.5).
 - Request id (`X-Request-ID`, generated if absent) is logged with the user id, route, status, and duration; it is shown in the error page so a user report can be correlated with logs.
 
 ### 9.9 Logging and observability
