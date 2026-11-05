@@ -47,13 +47,13 @@ from app.web.common import (
     ansible_unavailable_reason,
     display_timezone,
     install_template_helpers,
-    inventory_unconfigured_reason,
     unsupported_reason,
 )
 from app.web.management import done, install_management_helpers
 
 _DISCOVERY = (JobType.DISCOVER, "default")
 IMPORT_QUEUED = "Discovery queued; repository hosts appear here when the worker finishes."
+REPOSITORY_REQUIRED = "No inventory repository is configured: set the repository URL first."
 CONFIRMATION_REQUIRED = "Confirm the action to continue."
 _FORM_FIELDS = ("hostname", "display_name", "connection_address", "webserver", "groups", "notes")
 _MAX_FIELD = 4000
@@ -127,11 +127,15 @@ def _source_status(db) -> dict:
 
 
 def _import_reason(request: Request, db) -> str:
-    """Why "Import from repository" is unavailable: the same reason ``/servers`` disables discovery."""
-    return (
-        unsupported_reason(request.app.state.job_registry, "Plan 3", _DISCOVERY)
-        or ansible_unavailable_reason(db, request.app.state.clock())
-        or inventory_unconfigured_reason(db)
+    """Why "Import from repository" is unavailable.
+
+    Import reads the Git inventory, so a repository is required even while manual hosts already make
+    discovery possible (D1); after that the same reasons ``/servers`` uses to disable discovery apply.
+    """
+    if not get_setting(db, "inventory.repo_url"):
+        return REPOSITORY_REQUIRED
+    return unsupported_reason(request.app.state.job_registry, "Plan 3", _DISCOVERY) or ansible_unavailable_reason(
+        db, request.app.state.clock()
     )
 
 

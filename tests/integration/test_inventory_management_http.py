@@ -569,6 +569,18 @@ def test_import_is_disabled_without_a_repository_and_a_forced_post_changes_nothi
     assert _discover_jobs(web_factory) == 0
 
 
+def test_import_still_needs_a_repository_while_manual_hosts_make_discovery_possible(
+    signed_in, web_factory, clean_inventory
+):
+    """Manual hosts (D1) make `/servers` runnable; import reads Git, so it still needs the repository."""
+    _seed(web_factory, "web01.example.test")
+    page = signed_in.get(URL).text
+    assert "No inventory repository is configured: set the repository URL first." in page
+    forced = _post(signed_in, "/inventory/import")
+    assert forced.status_code == 409
+    assert _discover_jobs(web_factory) == 0
+
+
 def test_import_with_a_repository_queues_one_discovery(signed_in, web_factory, clean_inventory):
     _configure_repository(web_factory)
     response = _post(signed_in, "/inventory/import")
