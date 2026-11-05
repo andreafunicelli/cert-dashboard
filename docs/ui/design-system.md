@@ -263,7 +263,37 @@ Discovery is the existing `/servers#discovery-actions` section, not a new route
 or an automatic discovery trigger. The server page remains the current page
 because URL fragments are not available to the server. Import-progress URLs
 belong to Import, renewal screens to Renewals, and deployment job lists to Jobs.
-Account/Users remain in the existing utility disclosure as well as Administration.
+My account/Users remain in the existing utility disclosure as well as Administration.
+
+### Administration entry and naming
+
+Administration opens `/administration`, not Settings, on desktop and in the
+native mobile Menu. Its sub-navigation is always Users · Audit · Settings ·
+My account, including on the index itself. The index reuses `page_header` and
+`.fields` for a plain list of destinations: no new component or page palette.
+The live user count is a database aggregate of active local and already-known
+directory users, not all rows including deactivated users; temporary lockouts
+still apply and are explained next to the index. No authentication material is
+loaded for the count. Settings capability availability is independent of this
+new index and still gates the Settings leaf.
+
+Users manages who can sign in and which second factor they use. My account is
+strictly the signed-in operator's password, two-factor authentication and
+sessions; both its heading and every navigation label use that name.
+
+Create user is the primary native disclosure in the Users page header. Its
+single existing form appears in normal flow, ahead of the list, and keeps all
+field names, IDs, CSRF input and POST destinations. `/users?create=1#create-heading`
+opens it from the index in one click without JavaScript; create validation
+responses also keep it open and never refill passwords. Existing `/users` and
+`#create-heading` links continue to resolve. The shared `button`, `panel` and
+focus tokens apply in both themes. No extra script or dependencies are added.
+
+Regenerate previews with `uv run python scripts/render_previews.py`; the shared
+shell affects every HTML page. New fixtures include Administration populated/
+empty and Users creation open/validation error. Structural checks passed;
+visual verification pending on the deployed instance. The static artifacts do
+not prove a database-backed or visually inspected deployment.
 
 The overview reuses `.page-header`, the shared table/status-row/icon/badge
 components and native `.filter-disclosure` instead of a second card system.
@@ -346,7 +376,12 @@ changed. HTMX 422 behaviour uses the existing declarative `enhanced_forms()` mac
   The trust-bundle toggle uses its existing one-shot success flash instead of a
   `saved` URL flag; uploads/deletions do not clear an unrelated pending toggle.
 - Password controls, hidden/file inputs and any field name containing `secret`,
-  `key` or `token` are never read or stored. Repository URLs are also never stored:
+  `key` or `token` never enter draft values or baselines. Explicit Worker
+  `data-settings-secret` controls contribute only an in-memory nonempty flag to
+  dirty warnings; values, lengths and filenames are never stored or displayed by
+  the enhancement. Cancelling tab navigation preserves the entered DOM value;
+  accepting explicitly discards it, with a warning naming secrets/files. Secret
+  drafts cannot be restored across navigation. Repository URLs are also never stored:
   even an invalid URL can contain credentials. Their changes are marked but must
   be saved before switching. Trust uploads, typed destructive confirmations and
   CLI key rotation are not configuration drafts and are not persisted.
@@ -367,6 +402,18 @@ secret exclusion, navigation guard, 422/success and storage-denial tests. Node i
 a test-only tool, not a runtime dependency or a build step.
 
 Structural checks passed; visual verification pending on the deployed instance.
+The Worker tab adds write-only key/password/token forms with native replace and
+typed REMOVE confirmations. One shared partial renders the three sections using
+service-provided metadata only. A key paste area is visible while entering it;
+password/token controls are masked. All inputs start blank, including after 422.
+Success flashes contain only state and the public SHA-256 DER-SPKI fingerprint.
+File-backed credentials are labelled with unavailable setter/time/metadata, not
+invented provenance; web removal deletes only a database override, and its
+confirmation explains mounted-file fallback. The existing capability banner keeps
+its severity/condition/location; only the missing-SSH message links to Worker.
+`worker_fixtures()` supplies configured, absent, mounted, rejected and saved states
+without private material. No palette, dependency or extra script was added.
+
 Static preview inspection is not deployed application, email-client, inbox-delivery
 or complete WCAG proof. On deployment, verify no-HTMX saves/422s, actual SMTP
 results, keyboard focus, both themes, narrow layouts, slow live swaps and canary

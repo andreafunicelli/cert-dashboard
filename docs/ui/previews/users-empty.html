@@ -22,7 +22,7 @@
 
 
   <span><a href="/">Overview</a></span>
-    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/settings">Administration</a></span>
+    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/administration">Administration</a></span>
   </nav>
 </div>
 <details class="mobile-navigation">
@@ -52,13 +52,19 @@
       <div class="navigation-pages">
 
 
+  <span><a href="/inventory">Inventory</a></span>
+
+
   <span><a href="/servers">Servers</a></span>
 
 
   <span><a href="/bindings">Bindings</a></span>
 
 
-  <span><a href="/servers#discovery-actions">Discovery</a></span></div>
+  <span><a href="/servers#discovery-actions">Discovery</a></span>
+
+
+  <span><a href="/ssh-keys">SSH keys</a></span></div>
     </section>
 
     <section>
@@ -76,7 +82,10 @@
     </section>
 
     <section class="active-area">
-      <h2>Administration</h2>
+      <h2>
+
+
+  <span><a href="/administration">Administration</a></span></h2>
       <div class="navigation-pages">
 
 
@@ -89,7 +98,7 @@
   <span><a href="/settings">Settings</a></span>
 
 
-  <span><a href="/account">Account</a></span></div>
+  <span><a href="/account">My account</a></span></div>
     </section>
 
   </nav>
@@ -108,12 +117,12 @@
   <span><a href="/settings">Settings</a></span>
 
 
-  <span><a href="/account">Account</a></span>
+  <span><a href="/account">My account</a></span>
 </nav>
 
   <details class="user-menu"><summary>Fixture operator</summary>
     <div class="user-menu-links">
-      <a href="/account">Account</a>
+      <a href="/account">My account</a>
       <a href="/users">Users</a>
     </div>
   </details>
@@ -127,25 +136,13 @@
 <main id="main-content" tabindex="-1">
 
 <header class="page-header">
-  <div><h1>Users</h1><p class="page-subtitle">Manage administrator access, sign-in security and local accounts.</p></div>
+  <div><h1>Users</h1><p class="page-subtitle">Who can sign in, and with which second factor.</p></div>
   <div class="page-actions">
-  <a class="button" href="#create-heading">Add local user</a>
-  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/audit?target_type=user">User audit history</a><a href="/account">Your account</a></div></details>
-</div>
-</header>
-<p>Every active user is an administrator. Security actions ask for <strong>your</strong> current password and sign the affected user out immediately.</p>
-
-
-
-
-
-<h2>User access</h2>
-
-<section class="empty-state"><h3>No users to display</h3><p><a href="#create-heading">Add a local user</a> to grant administrator access. Directory users appear after sign-in.</p></section>
-
-<p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
-<section class="panel wide user-create" aria-labelledby="create-heading">
-  <h2 id="create-heading">Add local user</h2>
+  <details class="user-create">
+    <summary class="button">Create user</summary>
+    <section class="panel" aria-labelledby="create-heading">
+  <h2 id="create-heading">Create user</h2>
+  <p>Create a local user with administrator access.</p>
   <form method="post" action="/users">
     <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
     <label for="new-username">Username</label>
@@ -158,10 +155,26 @@
     <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" required>
     <label for="new-confirm">Repeat temporary password</label>
     <input id="new-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
-    <button class="button-secondary" type="submit">Create user</button>
+    <button type="submit">Create user</button>
   </form>
   <p class="hint">The user must change this password at first sign-in. The password is never shown again.</p>
 </section>
+  </details>
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/audit?target_type=user">User audit history</a><a href="/account">My account</a></div></details>
+</div>
+</header>
+<p>Every active user is an administrator. Security actions ask for <strong>your</strong> current password and sign the affected user out immediately.</p>
+
+
+
+
+
+<h2>User access</h2>
+
+<section class="empty-state"><h3>No users to display</h3><p><a href="/users?create=1#create-heading">Create user</a> to grant administrator access. Directory users appear after sign-in.</p></section>
+
+<p class="hint">Deactivated users stay in the list and in the audit history; the last active user cannot be deactivated.</p>
+
 </main>
 
 </body>

@@ -255,6 +255,15 @@ def _webserver_var(value: JSONValue) -> JSONValue:
     return value
 
 
+_POSIX_USER = re.compile(r"[a-z_][a-z0-9_.-]{0,31}")
+
+
+def _manual_ssh_user(value: JSONValue) -> JSONValue:
+    if not isinstance(value, str) or (value and not _POSIX_USER.fullmatch(value)):
+        raise ValueError("must be empty or a POSIX user name (lower-case letters, digits, _ . -; at most 32)")
+    return value
+
+
 def _timezone(value: JSONValue) -> JSONValue:
     message = "must be a valid time zone name such as Europe/Rome or UTC"
     if not isinstance(value, str) or not _TIMEZONE_CHARS.fullmatch(value):
@@ -290,6 +299,8 @@ _SETTINGS: dict[str, _Setting] = {
     "discovery.nightly_at": _Setting("03:00", _time_of_day),
     "expiry_check.daily_at": _Setting("07:00", _time_of_day),
     "expiry_check.enabled": _Setting(True, _boolean),
+    "inventory.manual_ssh_port": _Setting(22, _integer(1, 65535)),
+    "inventory.manual_ssh_user": _Setting("", _manual_ssh_user),
     "inventory.path": _Setting("", _checkout_path),
     "inventory.ref": _Setting("", _git_ref),
     "inventory.repo_url": _Setting("", _repo_url),

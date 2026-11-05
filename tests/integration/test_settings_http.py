@@ -154,8 +154,10 @@ def test_every_seeded_key_round_trips_through_get_setting(db, web_factory, admin
 def test_service_defaults_match_the_seeded_migration_defaults():
     from app.services import settings as service
 
-    assert {key: spec.default for key, spec in service._SETTINGS.items()} == DEFAULTS
-    assert service.SETTING_KEYS == set(DEFAULTS)
+    # Slice B decision D4: these two keys live only in the code allowlist (no seed row, no migration).
+    code_only = {"inventory.manual_ssh_user": "", "inventory.manual_ssh_port": 22}
+    assert {key: spec.default for key, spec in service._SETTINGS.items()} == DEFAULTS | code_only
+    assert service.SETTING_KEYS == set(DEFAULTS) | set(code_only)
 
 
 def test_get_setting_of_unknown_key_raises_key_error(db):
@@ -397,6 +399,113 @@ def test_every_configuration_tab_renders(signed_in, tab):
 def test_default_tab_is_smtp_and_unknown_tab_is_404(signed_in):
     assert 'action="/settings/smtp"' in signed_in.get("/settings").text
     assert signed_in.get("/settings?tab=nope").status_code == 404
+
+
+@pytest.mark.parametrize("restart_after_save", [False, True])
+def test_worker_key_save_replace_remove_updates_banner(
+    signed_in, csrf, web_factory, web_settings, clock, tmp_path, restart_after_save
+):
+    from dataclasses import replace
+
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+
+    from app.jobs.worker import record_worker_start
+    from app.services.worker_credentials import SSH_PRIVATE_KEY, validate_credential
+
+    worker_id = "worker-credentials-ui"
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("fixture-host-key\n")
+    worker_settings = replace(web_settings, secrets_dir=tmp_path, known_hosts_file=known_hosts)
+    with web_factory.begin() as db:
+        db.add(WorkerHeartbeat(worker_id=worker_id, started_at=clock(), last_seen_at=clock()))
+    record_worker_start(web_factory, worker_settings, worker_id, clock())
+    page = signed_in.get("/settings?tab=worker")
+    assert page.status_code == 200 and "Discovery and deploy are unavailable" in page.text
+    assert 'href="/settings?tab=worker">Configure it in Settings' in page.text
+    for use_file in (False, True):
+        private = ed25519.Ed25519PrivateKey.generate()
+        pem = private.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.OpenSSH,
+                                    serialization.NoEncryption())
+        fingerprint = validate_credential(SSH_PRIVATE_KEY, pem).fingerprint_sha256
+        response = signed_in.post('/settings/worker/ssh',
+            data={'csrf_token': csrf, **({} if use_file else {'private_key': pem.decode()})},
+            files={'private_key_file': ('key.pem', pem)} if use_file else None,
+            follow_redirects=False)
+        assert response.status_code == 303 and response.headers['location'] == '/settings?tab=worker'
+        saved = signed_in.get(response.headers['location'])
+        assert fingerprint in saved.text and 'Ed25519' in saved.text
+        assert 'Discovery and deploy are unavailable' not in saved.text
+        assert pem.decode() not in saved.text and 'BEGIN OPENSSH PRIVATE KEY' not in saved.text
+        assert pem.decode() not in repr(response.headers)
+        assert 'SSH private key saved.' in saved.text and 'Notes on the last action' in saved.text
+    startup = None
+    if restart_after_save:
+        clock.advance(seconds=1)
+        record_worker_start(web_factory, worker_settings, worker_id, clock())
+        with web_factory() as db:
+            startup = db.scalars(select(AuditLog.details).where(AuditLog.action == 'worker.start')
+                                 .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())).first()
+            assert startup['ssh_key_present'] is True
+            assert startup['ssh_key_file_present'] is False
+        restarted = signed_in.get('/settings?tab=worker')
+        assert 'Discovery and deploy are unavailable' not in restarted.text
+        assert fingerprint in restarted.text and 'Source: encrypted database.' in restarted.text
+    refused = signed_in.post('/settings/worker/ssh/remove', data={'csrf_token': csrf, 'confirm': 'no'})
+    assert refused.status_code == 422
+    assert 'Discovery and deploy are unavailable' not in signed_in.get('/settings?tab=worker').text
+    removed = signed_in.post('/settings/worker/ssh/remove', data={'csrf_token': csrf, 'confirm': 'REMOVE'},
+                             follow_redirects=False)
+    assert removed.status_code == 303
+    empty = signed_in.get('/settings?tab=worker')
+    assert 'Discovery and deploy are unavailable' in empty.text
+    assert 'Source: mounted worker secret.' not in empty.text
+    assert 'Source: encrypted database.' not in empty.text
+    assert fingerprint not in empty.text and 'BEGIN OPENSSH PRIVATE KEY' not in empty.text
+    with web_factory() as db:
+        from app.services.worker_credentials import resolve_worker_settings
+
+        assert resolve_worker_settings(db, worker_settings).ansible_ssh_key is None
+        if restart_after_save:
+            latest = db.scalars(select(AuditLog.details).where(AuditLog.action == 'worker.start')
+                                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())).first()
+            assert latest == startup  # removal must not rewrite the append-only startup evidence
+
+
+@pytest.mark.parametrize('htmx', [False, True])
+@pytest.mark.parametrize('bad,reason', [('ssh-ed25519 SENSITIVE-PUBLIC-KEY', 'this is a public key'),
+                                      ('SENSITIVE-INVALID-PRIVATE-KEY', 'this is not a private key')])
+def test_worker_invalid_key_response_never_echoes_material(signed_in, csrf, htmx, bad, reason):
+    response = signed_in.post('/settings/worker/ssh', data={'csrf_token': csrf, 'private_key': bad},
+                              headers={'HX-Request': 'true'} if htmx else {})
+    assert response.status_code == 422 and reason in response.text
+    assert bad not in response.text and bad not in repr(response.headers)
+    assert '<textarea' in response.text and '>SENSITIVE' not in response.text
+    assert ('<!doctype html>' in response.text) is not htmx
+
+
+@pytest.mark.parametrize('slug,field', [('vault', 'vault_password'), ('inventory-token', 'inventory_token')])
+def test_worker_password_and_token_are_write_only_and_removable(signed_in, csrf, slug, field):
+    secret = 'SENSITIVE-WORKER-CREDENTIAL-123'
+    response = signed_in.post('/settings/worker/' + slug, data={'csrf_token': csrf, field: secret},
+                              follow_redirects=False)
+    assert response.status_code == 303 and secret not in repr(response.headers)
+    page = signed_in.get(response.headers['location'])
+    assert secret not in page.text and 'Configured' in page.text
+    assert f'name="{field}" autocomplete="off"' in page.text
+    invalid = signed_in.post('/settings/worker/' + slug, data={'csrf_token': csrf, field: secret + '\n'})
+    assert invalid.status_code == 422 and secret not in invalid.text
+    removed = signed_in.post('/settings/worker/' + slug + '/remove',
+                             data={'csrf_token': csrf, 'confirm': 'REMOVE'}, follow_redirects=False)
+    assert removed.status_code == 303
+
+
+def test_worker_forms_obey_auth_csrf_and_slug_allowlist(client, signed_in, csrf):
+    for suffix in ('ssh', 'vault', 'inventory-token', 'ssh/remove'):
+        assert signed_in.post('/settings/worker/' + suffix, data={'csrf_token': 'wrong'}).status_code == 403
+    assert signed_in.post('/settings/worker/unknown', data={'csrf_token': csrf}).status_code == 404
+    client.cookies.clear()
+    assert client.get('/settings?tab=worker', follow_redirects=False).status_code == 303
+    assert client.post('/settings/worker/ssh', data={'private_key': 'not authenticated'}).status_code == 403
 
 
 def test_settings_navigation_is_enabled(signed_in):

@@ -98,11 +98,14 @@ rules and transactions live in `app/services/`.
 | `app/web/renewals.py` | `/renewals` (the renewal list: state filter, age and next action), `/renewals/{id}` wizard: edit, generate CSR, `csr.pem`, submit, issued, finalize (now reachable from `deployed`), cancel | `test_renewal_wizard.py`, `test_renewal_list_http.py`, `test_deploy_start_http.py` |
 | `app/web/scans.py` | `/scans`, `/scans/export.json`, `/scans/{id}`, `/scans/{id}/history`, `POST /scans/run` (`scope=all\|endpoint`), `POST /scans/endpoints`, `POST /scans/{id}/expectation`, `POST /scans/{id}/active` | `test_scans_http.py`, `test_endpoints_http.py`, `test_scan_targets.py` |
 | `app/web/servers.py` | `/servers`, `/servers/export.json`, `/servers/{id}`, `/servers/{id}/dump`, `/bindings`, `/bindings/export.json`, `/bindings/help`; discovery actions `POST /servers/discover` (`scope=all\|group`) and `POST /servers/{id}/discover`, enqueue-only and CSRF-protected | `test_servers_http.py`, `test_bindings_http.py`, `test_discovery_screens.py`, `test_discovery_jobs.py` |
+| `app/web/inventory.py` | `/inventory` management: list and filters, optional repository source panel, manual connection defaults, create/edit/deactivate/reactivate/delete a manual host and `POST /inventory/import`; manual hosts need no repository | `test_inventory_management_http.py`, `test_management_pages_http.py` |
+| `app/web/ssh_keys.py` | `/ssh-keys`: the worker client-key card (read from Settings → Worker) and the dashboard trust store for host public keys — `POST /ssh-keys/host-keys`, `POST /ssh-keys/host-keys/{key_id}/delete` | `test_ssh_keys_http.py`, `test_management_pages_http.py` |
 | `app/web/deploy.py` | `GET /deploy` (start screen), `GET /deploy/preview` (htmx fragment), `GET /deploy/jobs` (the job list: outcome/type filters, host totals, paging), `POST /deploy` (plan hash + confirmation), `GET /deploy/{job_id}`, `GET /jobs/{job_id}/progress`, `GET /deploy/{job_id}/report.json`, `POST /deploy/{job_id}/continue`, `POST /deploy/{job_id}/cancel`, `POST /deploy/{job_id}/hosts/{server_id}/retry` | `test_deploy_start_http.py`, `test_deploy_job_http.py`, `test_deploy_controls.py`, `test_job_list_http.py` |
 | `app/web/audit.py` | `/audit` browser and `/audit/export.json` | `test_audit_http.py` |
-| `app/web/users.py` | `/users` administration, password and TOTP resets, deactivation | `test_users_http.py` |
+| `app/web/users.py` | `/users` administration and the `/users/{id}` detail page: create (invite), edit email/display name, password and TOTP resets, deactivation and reactivation (all with the acting administrator's current password where required) | `test_users_http.py`, `test_users_detail_http.py` |
 | `app/web/settings.py` | `/settings` — seven configuration tabs plus trust anchors, status and maintenance; `POST /settings/smtp/test` and `GET /settings/smtp/test/{job_id}` (test-send outcome fragment); `POST /settings/inventory/test-pull` and `GET /settings/inventory/test-pull/{job_id}` (Test pull and its fragment); `POST /settings/trust-anchors/recheck`; the Alerts tab's failure list and the Status tab's SMTP panel | `test_settings_http.py`, `test_smtp_test_send.py`, `test_settings_alerts_status.py`, `test_trust_recheck_job.py`, `test_test_pull.py` |
 | `app/web/common.py` | `require_user`/`require_admin`, error rendering, login rate limit, `unsupported_reason` — no routes | every module above |
+| `app/web/management.py` | Slice B management conventions: `done()` (303 or `HX-Redirect` with one signed flash note), `management_head()` (stylesheets and htmx 422/403 handling), shared with `_management_ui.html.j2` | `test_management_ui.py`, `test_management_pages_http.py` |
 
 `_register_auth_routes(app)` in `app/main.py` owns `/login`, `/login/2fa`, `/logout`
 and `/account` (tests: `test_login_account.py`, `test_sessions_http.py`).
@@ -206,10 +209,10 @@ hard-codes that secret directory. Relevant knobs:
 | --- | --- | --- |
 | `WORKER_CONCURRENCY` | 4 | slots, i.e. maximum concurrently running jobs |
 | `MAX_PARALLEL_JOBS` | 2 | cap on `discover`/`scan` jobs among those slots; the rest stay queued |
-| `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed |
+| `ansible_ssh_key` (secret) | absent | `ssh_available`; without it `discover` and `deploy` are never claimed. The setting `worker.ssh_private_key` (Settings → Worker, encrypted in the database) wins over the file |
 | `known_hosts` → `/etc/ssh/ssh_known_hosts` (`SSH_KNOWN_HOSTS`) | `/etc/ssh/ssh_known_hosts` | pinned SSH host keys; a missing file fails every `discover`/`deploy` with `config_invalid` before any connection |
-| `ansible_vault_password` (secret) | absent | optional Ansible Vault password; reaches the child as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE=app/ansible/vault_client.py` |
-| `inventory_git_token` (secret) | absent | optional HTTPS Git token; reaches `git` through `app/ansible/git_askpass.py` (username `x-access-token`), never stored in `.git/config` |
+| `ansible_vault_password` (secret) | absent | optional Ansible Vault password; reaches the child as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE=app/ansible/vault_client.py`. The setting `worker.vault_password` wins over the file |
+| `inventory_git_token` (secret) | absent | optional HTTPS Git token; reaches `git` through `app/ansible/git_askpass.py` (username `x-access-token`), never stored in `.git/config`. The setting `inventory.git_token` wins over the file |
 | `smtp_password` (secret) | absent | the SMTP password; worker-only, read from `/run/secrets` (the web profile never loads it). Absent means no AUTH is attempted |
 | `DASHBOARD_URL` (environment) | empty | optional absolute `http(s)` base URL that alert and digest e-mails put in front of dashboard paths; without it the mails carry relative paths such as `/certificates/42`. A URL with credentials, a query or a fragment refuses startup |
 
@@ -243,9 +246,13 @@ Discovery shares the two-job `MAX_PARALLEL_JOBS` cap with scans; a deploy job ta
 slot and is serialized instead by `deploy:global` (one deploy at a time) and `deploy.concurrency`
 (hosts per batch). A deploy job also holds `inventory:pull`; a paused deploy holds no claim, no slot,
 no lock and no `timeout_at`, so it is never reaped. At startup the worker writes one `worker.start`
-audit row with the worker id and four presence booleans (`ssh_key_present`, `known_hosts_present`,
-`vault_password_present`, `inventory_token_present`) and never a value; the web enables or disables
-the discovery/deploy controls from the newest row of a worker with a fresh heartbeat.
+audit row with the worker id and never a value: four effective presence booleans (`ssh_key_present`,
+`known_hosts_present`, `vault_password_present`, `inventory_token_present`) and three file-only
+provenance booleans (`ssh_key_file_present`, `vault_password_file_present`,
+`inventory_token_file_present`). The web enables or disables the discovery/deploy controls from the
+newest row of a worker with a fresh heartbeat: it reads the database side live and trusts the file
+provenance only when the worker reported it explicitly — the effective flags say what the worker had
+at startup and are never proof of a mounted file, and a row without provenance is unknown, not file.
 
 ### Shutdown and in-flight writes
 

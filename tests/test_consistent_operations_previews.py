@@ -104,7 +104,7 @@ def test_consolidated_settings_tabs_preserve_independent_native_save_contracts(t
     root = DOM(html).root
     nav = next(n for n in root.iter('nav') if n.get('aria-label') == 'Settings sections')
     links = nav.findall('.//a')
-    assert len(links) == 8
+    assert len(links) == 9
     assert [n.get('href') for n in links if n.get('aria-current') == 'page'] == ['/settings?tab=' + canonical]
     actual = {form['action'] for form in FormContracts(html).forms if form.get('method') == 'post'}
     assert actual == forms

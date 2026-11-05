@@ -1,0 +1,74 @@
+{# Shared management-page partials (Slice B contract §8): import these, never re-implement them. #}
+{% from "_ui.html.j2" import icon %}
+
+{% macro error_summary(errors) -%}
+{% if errors %}
+<div class="error-summary" role="alert" tabindex="-1">
+  <h2>Check the highlighted fields</h2>
+  <ul>
+  {% for name, messages in errors.items() %}
+    {% for message in ([messages] if messages is string else messages) %}
+    <li><a href="#field-{{ name }}">{{ message }}</a></li>
+    {% endfor %}
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+{%- endmacro %}
+
+{% macro field_error(errors, name) -%}
+{% if errors and name in errors %}
+<p class="field-error" id="error-{{ name }}">{% for message in ([errors[name]] if errors[name] is string else errors[name]) %}{{ message }}{% if not loop.last %} {% endif %}{% endfor %}</p>
+{% endif %}
+{%- endmacro %}
+
+{% macro field_attrs(errors, name) -%}
+{%- if errors and name in errors %} aria-invalid="true" aria-describedby="error-{{ name }}"{% endif -%}
+{%- endmacro %}
+
+{% macro confirm_action(url, label, consequence, csrf_token) -%}
+<details class="confirmation">
+  <summary>{{ label }}</summary>
+  <p>{{ consequence }}</p>
+  <form method="post" action="{{ url }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="confirm" value="1">
+    <button class="button-destructive" type="submit">{{ label }}</button>
+  </form>
+</details>
+{%- endmacro %}
+
+{% macro empty_state(title, body, actions=None) -%}
+<section class="empty-state">
+  <h3>{{ title }}</h3>
+  <p>{{ body }}</p>
+  {% if actions %}<div class="empty-state-actions">{{ actions }}</div>
+  {% elif caller is defined %}<div class="empty-state-actions">{{ caller() }}</div>{% endif %}
+</section>
+{%- endmacro %}
+
+{% macro panel(panel_id, heading, description=None) -%}
+<section class="management-panel" id="{{ panel_id }}">
+  <header class="panel-heading">
+    <h2>{{ heading }}</h2>
+    {% if description %}<p class="panel-description">{{ description }}</p>{% endif %}
+  </header>
+  {{ caller() }}
+</section>
+{%- endmacro %}
+
+{% macro source_badge(source) -%}
+{% set base, marker, revision = (source or '').rpartition('@') %}
+{% if source == 'manual' %}
+<span class="badge badge-source" data-source="manual">{{ icon('ok') }} Manual</span>
+{% elif marker %}
+<span class="badge badge-source" data-source="repository">Repository · <code>{{ base }}@{{ revision[:7] }}</code></span>
+{% else %}
+<span class="badge badge-source" data-source="repository">Repository · <code>{{ source }}</code></span>
+{% endif %}
+{%- endmacro %}
+
+{% macro state_badge(is_active) -%}
+{% if is_active %}<span class="badge badge-ok" data-state="active">{{ icon('ok') }} Active</span>
+{% else %}<span class="badge badge-danger" data-state="inactive">{{ icon('danger') }} Inactive</span>{% endif %}
+{%- endmacro %}

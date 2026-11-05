@@ -1,0 +1,17 @@
+{% extends "base.html.j2" %}
+{% block title %}Administration · Cert Dashboard{% endblock %}
+{% block content %}
+{% from "_operations_ui.html.j2" import page_header %}
+{{ page_header('Administration', 'Manage sign-in access, review actions and configure this installation.') }}
+<dl class="fields">
+  <dt><a href="/users">Users</a></dt>
+  <dd><span class="mono">{{ active_user_count }}</span> {{ 'user' if active_user_count == 1 else 'users' }} can sign in. <a href="/users?create=1#create-heading">Create user</a>.</dd>
+  <dt><a href="/audit">Audit</a></dt>
+  <dd>The append-only record of actions.</dd>
+  <dt><a href="/settings">Settings</a></dt>
+  <dd>SMTP, inventory, discovery, deploy guardrails and trust anchors.</dd>
+  <dt><a href="/account">My account</a></dt>
+  <dd>Your password, two-factor authentication and sessions.</dd>
+</dl>
+<p class="hint">The user count includes active local and directory users already known to this installation. Temporary sign-in lockouts still apply.</p>
+{% endblock %}

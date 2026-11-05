@@ -25,6 +25,7 @@ from app.jobs.worker import worker_capabilities
 from app.models.enums import JobType
 from app.services.audit import Actor
 from app.services.settings import get_setting
+from app.services.worker_credentials import SSH_PRIVATE_KEY, credential_configured
 
 # While must_change_password is set, only these (method, path) pairs pass require_user.
 _PASSWORD_CHANGE_ALLOWED = frozenset(
@@ -179,7 +180,7 @@ def unsupported_reason(registry, plan: str, *required: tuple[JobType, str]) -> s
     return f"handler {', '.join(missing)} not registered ({plan})" if missing else ""
 
 
-NO_SSH_KEY = "Discovery and deploy are unavailable: the worker has no ansible_ssh_key"
+NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
 NO_KNOWN_HOSTS = "Discovery and deploy are unavailable: the worker has no known_hosts file"
 NO_INVENTORY = "No inventory repository is configured: set the repository URL first."
 # The only screens that carry the capability banner (spec 9.2): where discovery and deploy are started or configured.
@@ -191,11 +192,14 @@ def ansible_unavailable_reason(db: Session, now: datetime) -> str:
 
     A worker that has not reported (none alive, or one that started before it wrote its start row) is a
     hint rather than a reason: a dead worker already raises its own banner, and the jobs simply wait.
+    The key counts when the database holds it *now* — read live, so a removal takes effect on the next
+    page load — or when the worker reported a mounted file. The effective startup flag is not used:
+    it is true for a database-held key too, so it would outlive the row it came from.
     """
     capabilities = worker_capabilities(db, now)
     if capabilities is None:
         return ""
-    if not capabilities.ssh_key_present:
+    if capabilities.ssh_key_file_present is not True and not credential_configured(db, SSH_PRIVATE_KEY):
         return NO_SSH_KEY
     if not capabilities.known_hosts_present:
         return NO_KNOWN_HOSTS

@@ -31,6 +31,7 @@ from app.models import (
     AuditLog,
     Binding,
     Certificate,
+    EncryptedSetting,
     Endpoint,
     JSONValue,
     PrivateKey,
@@ -42,6 +43,7 @@ from app.models import (
 from app.models.enums import CertificateStatus, ChainStatus, RenewalState
 from app.services.audit import Actor, record
 from app.services.trust_anchors import enabled_anchors
+from app.services.worker_credentials import rotate_credential_row
 
 
 def store_key(
@@ -136,18 +138,27 @@ def missing_master_key_versions(db: Session, keyring: Keyring) -> set[int]:
             .distinct()
         )
     )
+    versions.update(db.scalars(select(EncryptedSetting.keyring_version).distinct()))
     return versions - set(keyring.keys)
 
 
 def stale_master_key_rows(db: Session, keyring: Keyring) -> int:
-    return db.scalar(
-        select(func.count()).select_from(PrivateKey).where(PrivateKey.master_key_version != keyring.active)
-    ) + db.scalar(
-        select(func.count())
-        .select_from(User)
-        .where(
-            User.totp_secret_ciphertext.is_not(None),
-            User.totp_secret_version.is_distinct_from(keyring.active),
+    return (
+        db.scalar(
+            select(func.count()).select_from(PrivateKey).where(PrivateKey.master_key_version != keyring.active)
+        )
+        + db.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(
+                User.totp_secret_ciphertext.is_not(None),
+                User.totp_secret_version.is_distinct_from(keyring.active),
+            )
+        )
+        + db.scalar(
+            select(func.count())
+            .select_from(EncryptedSetting)
+            .where(EncryptedSetting.keyring_version != keyring.active)
         )
     )
 
@@ -203,9 +214,23 @@ def rotate_master_key(db: Session, keyring: Keyring, actor: Actor, batch_size: i
         )
         user.totp_secret_ciphertext, user.totp_secret_nonce = encrypted.ciphertext, encrypted.nonce
         user.totp_secret_version = encrypted.version
+    budget = batch_size - len(keys) - len(users)
+    credentials = (
+        db.scalars(
+            select(EncryptedSetting)
+            .where(EncryptedSetting.keyring_version != keyring.active)
+            .order_by(EncryptedSetting.name)
+            .limit(budget)
+            .with_for_update()
+        ).all()
+        if budget > 0
+        else []
+    )
+    for credential in credentials:
+        rotate_credential_row(credential, keyring)
     db.flush()
     remaining = stale_master_key_rows(db, keyring)
-    if keys or users:
+    if keys or users or credentials:
         record(
             db,
             actor,
@@ -215,6 +240,7 @@ def rotate_master_key(db: Session, keyring: Keyring, actor: Actor, batch_size: i
             {
                 "keys_rotated": len(keys),
                 "users_rotated": len(users),
+                "credentials_rotated": len(credentials),
                 "version": keyring.active,
                 "remaining": remaining,
             },

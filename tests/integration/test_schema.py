@@ -2,11 +2,24 @@
 
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from alembic import command
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import DBAPIError, IntegrityError
+
+
+def expected_head() -> str:
+    """The head of the migration scripts: a new revision must not silently pass the migrate test."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    root = Path(__file__).resolve().parents[2]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "app/migrations"))
+    return ScriptDirectory.from_config(config).get_current_head()
+
 
 # ! = NOT NULL; unspecified fields are nullable. Includes table-specific timestamps.
 COLUMNS = {
@@ -22,14 +35,16 @@ COLUMNS = {
     "user": "id:bigint! username:citext! email:citext! display_name:text auth_backend:auth_backend! password_hash:text totp_secret_ciphertext:bytea totp_secret_nonce:bytea totp_secret_version:integer totp_enabled:boolean! totp_confirmed_at:timestamptz totp_last_used_step:bigint recovery_codes:text[]! is_active:boolean! failed_attempts:integer! locked_until:timestamptz last_login_at:timestamptz must_change_password:boolean!",
     "user_session": "id:char(64)! user_id:bigint! csrf_token:char(64)! last_seen_at:timestamptz! expires_at:timestamptz! ip:text user_agent:text revoked_at:timestamptz authenticated_at:timestamptz",
     "app_setting": "key:text! value:jsonb! updated_by:bigint",
+    "encrypted_setting": "name:text! ciphertext:bytea! nonce:bytea! keyring_version:integer! updated_by:bigint",
     "notification_log": "id:bigint! certificate_id:bigint kind:text! threshold_days:integer recipients:text[]! status:notification_status! error:text sent_at:timestamptz dedupe_key:text! attempts:integer! next_attempt_at:timestamptz last_attempt_at:timestamptz",
     "audit_log": "id:uuid! actor_user_id:bigint actor_label:text! action:text! target_type:text! target_id:text details:jsonb! ip:inet user_agent:text",
     "worker_heartbeat": "worker_id:text! started_at:timestamptz! last_seen_at:timestamptz! current_job_id:uuid",
     "scheduler_state": "key:text! last_run_at:timestamptz",
     "login_rate_limit": "ip:inet! window_start:timestamptz! attempts:integer!",
     "trust_anchor": "id:bigint! subject:text! sha256_fingerprint:char(64)! pem:text! source:trust_anchor_source! notes:text created_by:bigint",
+    "ssh_host_key": "id:bigint! host:text! key_type:text! public_key:text! fingerprint_sha256:text! comment:text created_by:bigint",
 }
-IMMUTABLE = {"audit_log", "scan_result", "trust_anchor"}
+IMMUTABLE = {"audit_log", "scan_result", "trust_anchor", "ssh_host_key"}
 ENUMS = {
     "certificate_status": ["active", "superseded", "revoked"],
     "chain_status": ["trusted", "incomplete", "untrusted_root", "unchecked"],
@@ -123,10 +138,12 @@ FK = {
     "job_host": {"job_id": ("job", "id"), "server_id": ("server", "id"), "binding_id": ("binding", "id")},
     "user_session": {"user_id": ("user", "id")},
     "app_setting": {"updated_by": ("user", "id")},
+    "encrypted_setting": {"updated_by": ("user", "id")},
     "notification_log": {"certificate_id": ("certificate", "id")},
     "audit_log": {"actor_user_id": ("user", "id")},
     "worker_heartbeat": {"current_job_id": ("job", "id")},
     "trust_anchor": {"created_by": ("user", "id")},
+    "ssh_host_key": {"created_by": ("user", "id")},
 }
 UNIQUE = {
     "certificate": {("sha256_fingerprint",), ("issuer_dn", "serial")},
@@ -137,6 +154,7 @@ UNIQUE = {
     "user": {("username",)},
     "notification_log": {("dedupe_key",)},
     "trust_anchor": {("sha256_fingerprint",)},
+    "ssh_host_key": {("host", "key_type")},
 }
 
 
@@ -181,6 +199,7 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
     assert actual == expected
     pk = {
         "app_setting": ["key"],
+        "encrypted_setting": ["name"],
         "worker_heartbeat": ["worker_id"],
         "scheduler_state": ["key"],
         "login_rate_limit": ["ip", "window_start"],
@@ -208,6 +227,12 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
             "ck_private_key_origin",
         },
         "renewal": {"ck_renewal_required_key"},
+        "encrypted_setting": {
+            "ck_encrypted_setting_nonce_length",
+            "ck_encrypted_setting_keyring_version",
+            "ck_encrypted_setting_known_name",
+        },
+        "ssh_host_key": {"ck_ssh_host_key_key_type"},
     }
     assert {c["name"] for c in inspect(engine).get_check_constraints(table)} == expected_checks.get(
         table, set()
@@ -432,7 +457,7 @@ def test_database_readiness_rejects_wrong_head(owner_engine, engine):
             assert_database_ready(engine, timeout_seconds=0)
     finally:
         with owner_engine.begin() as conn:
-            conn.execute(text("UPDATE alembic_version SET version_num='0001_v1_schema'"))
+            conn.execute(text("UPDATE alembic_version SET version_num=:head"), {"head": expected_head()})
 
 
 def test_real_compose_migrate_service_reaches_head_without_app_secrets(tmp_path):
@@ -505,7 +530,7 @@ def test_real_compose_migrate_service_reaches_head_without_app_secrets(tmp_path)
             text=True,
             check=True,
         )
-        assert head.stdout.strip() == "0001_v1_schema"
+        assert head.stdout.strip() == expected_head()
         # Exercise the actual Alembic CLI, rather than only its Python API.
         checked = subprocess.run(
             compose + ["run", "--rm", "--no-deps", "migrate", "alembic", "check"],
@@ -639,6 +664,51 @@ def test_binding_job_host_uniqueness_and_worker_cascade(db, now):
         db.scalar(text("SELECT current_job_id FROM worker_heartbeat WHERE worker_id='fixture-worker'"))
         is None
     )
+
+
+def test_ssh_host_key_unique_check_and_append_only_grants(db, now):
+    from app.models import SshHostKey, User
+
+    user = User(username="host-key-admin", email="host-key@example.test")
+    db.add(user)
+    db.flush()
+    row = SshHostKey(
+        host="web01.example.test",
+        key_type="ssh-ed25519",
+        public_key="AAAAC3NzaC1lZDI1NTE5AAAAIFixtureOnly",
+        fingerprint_sha256="SHA256:fixture-only",
+        comment="lab host",
+        created_by=user.id,
+    )
+    db.add(row)
+    db.flush()
+    assert row.created_at is not None
+    with pytest.raises(IntegrityError), db.begin_nested():
+        db.add(
+            SshHostKey(
+                host="web01.example.test",
+                key_type="ssh-ed25519",
+                public_key="AAAAC3NzaC1lZDI1NTE5AAAAIOther",
+                fingerprint_sha256="SHA256:other",
+            )
+        )
+        db.flush()
+    with pytest.raises(IntegrityError), db.begin_nested():
+        db.add(
+            SshHostKey(
+                host="web02.example.test",
+                key_type="ssh-dss",
+                public_key="AAAAB3NzaC1kc3MAAACB",
+                fingerprint_sha256="SHA256:refused",
+            )
+        )
+        db.flush()
+    # Rows are immutable for the runtime role: trust is added or deleted, never rewritten.
+    with pytest.raises(DBAPIError) as exc, db.begin_nested():
+        db.execute(text("UPDATE ssh_host_key SET comment='changed' WHERE id=:id"), {"id": row.id})
+    assert exc.value.orig.sqlstate == "42501"
+    db.execute(text("DELETE FROM ssh_host_key WHERE id=:id"), {"id": row.id})
+    assert db.scalar(text("SELECT count(*) FROM ssh_host_key WHERE host='web01.example.test'")) == 0
 
 
 def test_trust_anchor_uniqueness_defaults_and_session_cascade(db, now):

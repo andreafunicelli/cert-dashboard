@@ -325,27 +325,28 @@ backup first (4.1).
    docker compose up -d --force-recreate web worker
    ```
 
-3. Re-encrypt every key and TOTP seed. The command works in batches of 100 rows, each batch in its
-   own transaction with a counts-only audit, prints `remaining=N` and is idempotent and resumable.
-   It exits non-zero, with metadata only, if anything is still on an old version or still refers to
-   a missing version:
+3. Re-encrypt every key, TOTP seed and stored worker credential. The command works in batches of 100
+   rows, each batch in its own transaction with a counts-only audit, prints `remaining=N` and is
+   idempotent and resumable. It exits non-zero, with metadata only, if anything is still on an old
+   version or still refers to a missing version:
 
    ```sh
    docker compose run --rm web python -m app.cli rotate-master-key
    ```
 
-4. Verify that both counts are `0` (the same figures are shown as "Rows not yet on the active version"
-   in **Settings → Status** and **Settings → Maintenance**, section 9), then verify one keyed
+4. Verify that all three counts are `0` (the same figures are shown as "Rows not yet on the active
+   version" in **Settings → Status** and **Settings → Maintenance**, section 9), then verify one keyed
    certificate (it prints metadata only):
 
    ```sh
    docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT count(*) FROM private_key WHERE master_key_version <> 2"
    docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT count(*) FROM \"user\" WHERE totp_secret_ciphertext IS NOT NULL AND totp_secret_version IS DISTINCT FROM 2"
+   docker compose exec -T db psql -U db_owner -d cert_dashboard -c "SELECT count(*) FROM encrypted_setting WHERE keyring_version <> 2"
    docker compose run --rm web python -m app.cli verify-key --certificate-id ID
    ```
 
 5. Update copies B and C (section 5 step 6). Remove version 1 from the secret file and
-   `docker compose up -d --force-recreate web worker` again only after both counts are zero and one
+   `docker compose up -d --force-recreate web worker` again only after all three counts are zero and one
    PFX export succeeded. Destroy the old key copy last, after the next restore drill.
 
 ## 7. Security hardening checklist
@@ -668,14 +669,42 @@ afterwards (the staging in section 12.1/12.2). A discovery always syncs the whol
 rows but connects only to the hosts its scope selects.
 
 Discovery and deployment share two worker slots with scans and are claimable only by a worker that has
-`ansible_ssh_key` (without it the screens show "Discovery and deploy are unavailable: the worker has no
-ansible_ssh_key" and the buttons are disabled). A discovery is read-only: it writes no file on the host
-and only becomes `become` to read root-owned configuration, certificates and keys.
+an SSH key — stored in the interface or mounted as `ansible_ssh_key` (without one the screens show
+"Discovery and deploy are unavailable: the worker has no ansible_ssh_key" and the buttons are disabled).
+A discovery is read-only: it writes no file on the host and only becomes `become` to read root-owned
+configuration, certificates and keys.
 
-### 11.2 Worker credentials (the compose override)
+### 11.2 Worker credentials
 
-The worker reads these from secret files; mount them with `docker-compose.credentials.yml` (section 2.3)
-after provisioning them under `/etc/cert-dashboard/secrets/`:
+The SSH private key, the Ansible Vault password and the inventory Git token can be stored from the
+interface (**Settings → Worker**). A stored value is sealed with the certificate keyring in
+`encrypted_setting` — one AES-256-GCM row per credential, bound to its own setting name through the
+AAD — and it is **write-only**: the screen shows whether it is configured, who set it, when, and, for
+the key, its type and public fingerprint. Every set, replacement and removal writes one `credential.*`
+audit event with that metadata and never the value.
+
+Credentials are resolved **when a job runs**, so a change applies to the next job without restarting the
+worker: the database value wins, then the mounted file of the same name, then absence. An installation
+that only has the files therefore behaves exactly as before, and removing a stored value falls back to
+the file (or to absent).
+
+The worker's `worker.start` audit row records, next to the four effective presence booleans, whether
+each credential was supplied by the *file level* of that resolution (`ssh_key_file_present`,
+`vault_password_file_present`, `inventory_token_file_present`; values are never recorded). The
+interface needs that provenance because the web process mounts none of these files: it combines the
+worker's file report with a **live** read of `encrypted_setting`, so a stored value removed after
+startup is reported absent on the next page load and a mounted file keeps being reported as the
+fallback it is. The effective booleans are not proof of a file (they are true for a database-held value
+too) and no longer used for that.
+
+After upgrading, restart the worker once. A `worker.start` row written by an older release has no
+provenance, and those unknown flags are never read as "mounted": until the new worker writes its first
+row, a file-only installation reports its credentials as not configured and shows the missing-SSH-key
+banner. Nothing is lost in that window — jobs still resolve the mounted files and `discover`/`deploy`
+still run — and the display corrects itself as soon as the worker restarts (a normal deployment does).
+
+The files, mounted with `docker-compose.credentials.yml` (section 2.3) after provisioning them under
+`/etc/cert-dashboard/secrets/`:
 
 | Secret / mount | Purpose |
 | --- | --- |
@@ -683,7 +712,7 @@ after provisioning them under `/etc/cert-dashboard/secrets/`:
 | `known_hosts` → `/etc/ssh/ssh_known_hosts` (`SSH_KNOWN_HOSTS`) | Pinned host keys for the managed servers. A missing file fails every `discover`/`deploy` with `config_invalid` **before** any connection |
 | `ansible_vault_password` (optional) | Vault password for vaulted inventory files. Reaches Ansible as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE` pointing at `app/ansible/vault_client.py`, which prints it and exits non-zero when it is missing |
 | `inventory_git_token` (optional) | HTTPS Git token. Reaches `git` as `CERT_DASHBOARD_GIT_TOKEN` through `app/ansible/git_askpass.py` (user `x-access-token`), with `GIT_TERMINAL_PROMPT=0` and an empty credential helper, so nothing lands in `.git/config` |
-| `smtp_password` (optional) | Relay AUTH password for alerts and the digest (section 10.1) |
+| `smtp_password` (optional) | Relay AUTH password for alerts and the digest (section 10.1). File only: it is not one of the three settings above |
 
 The `ANSIBLE_SSH_ARGS` value in `docker-compose.credentials.yml` **is no longer read**: the runner builds
 the child environment from scratch and sets its own, stricter value

@@ -14,7 +14,7 @@
   {% include "_navigation.html.j2" %}
   {% if user %}<details class="user-menu"><summary>{{ user.display_name }}</summary>
     <div class="user-menu-links">
-      <a href="/account">Account</a>
+      <a href="/account">My account</a>
       <a href="/users">Users</a>
     </div>
   </details>{% endif %}
@@ -23,7 +23,7 @@
 {% if status_banner %}<aside role="status" class="banner banner-warning">{{ icon('warn') }} <strong>Warning:</strong> {{ status_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}
 {% if request is defined and request.state.worker_stale %}<aside role="status" class="banner banner-critical" data-banner="worker">{{ icon('danger') }} <strong>Critical:</strong> Worker is not running (last heartbeat > 5 minutes) <a href="/settings?tab=status">Details</a></aside>{% endif %}
 {% endblock %}
-{% block capability_banner %}{% if capability_banner is defined and capability_banner %}<aside role="alert" class="banner banner-critical" data-banner="capability">{{ icon('danger') }} <strong>Critical:</strong> {{ capability_banner }} <a href="/settings?tab=status">Details</a></aside>{% endif %}{% endblock %}
+{% block capability_banner %}{% if capability_banner is defined and capability_banner %}<aside role="alert" class="banner banner-critical" data-banner="capability">{{ icon('danger') }} <strong>Critical:</strong> {{ capability_banner }} {% if capability_banner == 'Discovery and deploy are unavailable: no SSH key is configured.' %}<a href="/settings?tab=worker">Configure it in Settings → Worker.</a>{% else %}<a href="/settings?tab=status">Details</a>{% endif %}</aside>{% endif %}{% endblock %}
 {% if flash is defined and flash %}<aside role="status" class="notice banner banner-info" data-banner="flash"><p>{{ icon() }} <strong>Notes on the last action:</strong></p><ul>{% for note in flash %}<li>{{ note }}</li>{% endfor %}</ul></aside>{% endif %}
 <main id="main-content" tabindex="-1">{% block content %}{% endblock %}</main>
 {% block scripts %}{% endblock %}

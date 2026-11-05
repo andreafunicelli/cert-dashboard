@@ -1,0 +1,12 @@
+/* Documentation-only contact sheet; inherits the application's type/spacing tokens.
+   Fixed swatches deliberately test BOTH approved palettes regardless of OS theme. */
+.swatch {
+  font-family: var(--font-sans);
+  padding: var(--space-5);
+  margin-block: var(--space-4);
+  border-radius: var(--radius);
+}
+.swatch.dark { background: #171f33; color: #dae2fd; }
+.swatch.light, .swatch.mono { background: #f5f7fc; color: #172033; }
+.asset-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-4); }
+.asset-row img { flex: none; max-width: 100%; object-fit: contain; }

@@ -22,7 +22,7 @@
 
 
   <span><a href="/">Overview</a></span>
-    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/settings">Administration</a></span>
+    <span><a href="/certificates">Certificates</a></span><span><a href="/servers">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/administration">Administration</a></span>
   </nav>
 </div>
 <details class="mobile-navigation">
@@ -52,13 +52,19 @@
       <div class="navigation-pages">
 
 
+  <span><a href="/inventory">Inventory</a></span>
+
+
   <span><a href="/servers">Servers</a></span>
 
 
   <span><a href="/bindings">Bindings</a></span>
 
 
-  <span><a href="/servers#discovery-actions">Discovery</a></span></div>
+  <span><a href="/servers#discovery-actions">Discovery</a></span>
+
+
+  <span><a href="/ssh-keys">SSH keys</a></span></div>
     </section>
 
     <section>
@@ -76,7 +82,10 @@
     </section>
 
     <section class="active-area">
-      <h2>Administration</h2>
+      <h2>
+
+
+  <span><a href="/administration">Administration</a></span></h2>
       <div class="navigation-pages">
 
 
@@ -89,7 +98,7 @@
   <span aria-current="page"><a href="/settings">Settings</a></span>
 
 
-  <span><a href="/account">Account</a></span></div>
+  <span><a href="/account">My account</a></span></div>
     </section>
 
   </nav>
@@ -108,7 +117,7 @@
   <span aria-current="page"><a href="/settings">Settings</a></span>
 
 
-  <span><a href="/account">Account</a></span>
+  <span><a href="/account">My account</a></span>
 </nav>
 
 
@@ -148,6 +157,8 @@
     <li><a href="/settings?tab=status" aria-current="page">Status<span class="field-change" data-settings-tab-draft="status" hidden> (status unsaved draft)</span></a></li>
 
     <li><a href="/settings?tab=maintenance">System and maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (maintenance unsaved draft)</span><span class="field-change" data-settings-tab-draft="general" hidden> (general unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=worker">Worker<span class="field-change" data-settings-tab-draft="worker" hidden> (worker unsaved draft)</span></a></li>
 
   </ul>
 </nav>
