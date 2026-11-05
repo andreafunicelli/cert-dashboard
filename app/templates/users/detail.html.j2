@@ -1,0 +1,138 @@
+{% extends "base.html.j2" %}
+{% from "_operations_ui.html.j2" import page_header %}
+{% from "_management_ui.html.j2" import error_summary, field_attrs, field_error, panel, state_badge %}
+{% block title %}{{ managed.username }} · Users · Cert Dashboard{% endblock %}
+{% block extra_css %}{{ management_head('/static/pages/users.css') }}{% endblock %}
+{% block content %}
+{% call page_header('Manage ' ~ managed.username, 'Identity, sign-in security and the audit history of this administrator.') %}
+  <a href="/users">All users</a>
+{% endcall %}
+<div class="management-page user-detail">
+
+{% call panel('user-detail-panel', 'User ' ~ managed.username, 'Changes here apply immediately; security actions sign the user out everywhere.') %}
+  {{ error_summary(errors) }}
+  {% if action_error %}<div class="error-summary" role="alert"><p>{{ action_error }}</p></div>{% endif %}
+
+  <dl class="detail-grid">
+    <div><dt>Username</dt><dd><code>{{ managed.username }}</code></dd></div>
+    <div><dt>Display name</dt><dd>{{ managed.display_name or "—" }}</dd></div>
+    <div><dt>Email</dt><dd>{{ managed.email }}</dd></div>
+    <div><dt>Sign-in</dt><dd>{{ managed.backend }}</dd></div>
+    <div><dt>State</dt><dd>{{ state_badge(managed.is_active) }}
+      {% if managed.locked_until %}<span class="badge badge-warn">Locked until {{ time_tag(managed.locked_until, tz) }}</span>{% endif %}
+      {% if managed.must_change %}<span class="badge badge-warn">Must change password</span>{% endif %}
+    </dd></div>
+    <div><dt>Two-factor authentication</dt><dd>{{ 'Enabled' if managed.totp_enabled else 'Off' }}</dd></div>
+    <div><dt>Last login</dt><dd>{{ time_tag(managed.last_login_at, tz) }}</dd></div>
+  </dl>
+
+  <h3>Details</h3>
+  <form method="post" action="/users/{{ managed.id }}/edit"
+        hx-post="/users/{{ managed.id }}/edit" hx-target="#user-detail-panel"
+        hx-select="#user-detail-panel" hx-swap="outerHTML">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <label for="field-username">Username (read-only)</label>
+    <input id="field-username" value="{{ managed.username }}" readonly autocomplete="off">
+    <label for="field-email">Email</label>
+    <input id="field-email" name="email" type="email" value="{{ values.email }}" maxlength="254" autocomplete="off" required{{ field_attrs(errors, 'email') }}>
+    {{ field_error(errors, 'email') }}
+    <label for="field-display_name">Display name</label>
+    <input id="field-display_name" name="display_name" value="{{ values.display_name }}" maxlength="200" autocomplete="off"{{ field_attrs(errors, 'display_name') }}>
+    {{ field_error(errors, 'display_name') }}
+    <button type="submit">Save details</button>
+  </form>
+
+  <h3>Security actions</h3>
+  <div class="user-detail-actions">
+  {% if managed.is_active %}
+  <details class="confirmation"><summary>Deactivate user</summary>
+    <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained; you can reactivate it later with a new temporary password.</p>
+    {% if managed.id == current_user_id %}<p class="warning-note">This is your account. You will be signed out immediately.</p>{% endif %}
+    <form method="post" action="/users/{{ managed.id }}/deactivate"
+          hx-post="/users/{{ managed.id }}/deactivate" hx-target="#user-detail-panel"
+          hx-select="#user-detail-panel" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="field-deactivate-current_password">Your current password</label>
+      <input id="field-deactivate-current_password" name="current_password" type="password" autocomplete="current-password" required{{ field_attrs(errors, 'deactivate-current_password') }}>
+      {{ field_error(errors, 'deactivate-current_password') }}
+      <button class="button-destructive" type="submit">Deactivate user</button>
+    </form>
+  </details>
+  {% else %}
+  <details class="confirmation"><summary>Reactivate user</summary>
+    <p>Restores sign-in and issues a new temporary password. The user must change it at next sign-in.</p>
+    <form method="post" action="/users/{{ managed.id }}/reactivate"
+          hx-post="/users/{{ managed.id }}/reactivate" hx-target="#user-detail-panel"
+          hx-select="#user-detail-panel" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <fieldset{% if not managed.local %} disabled{% endif %}>
+        <legend>Reactivate user</legend>
+        <label for="field-reactivate-password">New temporary password (at least 12 characters)</label>
+        <input id="field-reactivate-password" name="password" type="password" autocomplete="new-password" minlength="12" required{{ field_attrs(errors, 'reactivate-password') }}>
+        {{ field_error(errors, 'reactivate-password') }}
+        <label for="field-reactivate-current_password">Your current password</label>
+        <input id="field-reactivate-current_password" name="current_password" type="password" autocomplete="current-password" required{{ field_attrs(errors, 'reactivate-current_password') }}>
+        {{ field_error(errors, 'reactivate-current_password') }}
+        <button class="button-destructive" type="submit"{% if not managed.local %} disabled title="Managed by the directory"{% endif %}>Reactivate user</button>
+      </fieldset>
+      {% if not managed.local %}<p class="hint">Password is managed by the directory.</p>{% endif %}
+    </form>
+  </details>
+  {% endif %}
+
+  <details class="confirmation"><summary>Reset password</summary>
+    <p>Replaces the password, signs this user out everywhere and requires a new password at next sign-in.</p>
+    <form method="post" action="/users/{{ managed.id }}/reset-password"
+          hx-post="/users/{{ managed.id }}/reset-password" hx-target="#user-detail-panel"
+          hx-select="#user-detail-panel" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <fieldset{% if not managed.local %} disabled{% endif %}>
+        <legend>Reset password</legend>
+        <label for="field-reset_password-new_password">Temporary password (at least 12 characters)</label>
+        <input id="field-reset_password-new_password" name="new_password" type="password" autocomplete="new-password" minlength="12" required{{ field_attrs(errors, 'reset_password-new_password') }}>
+        {{ field_error(errors, 'reset_password-new_password') }}
+        <label for="field-reset_password-confirm_password">Repeat temporary password</label>
+        <input id="field-reset_password-confirm_password" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required{{ field_attrs(errors, 'reset_password-confirm_password') }}>
+        {{ field_error(errors, 'reset_password-confirm_password') }}
+        <label for="field-reset_password-current_password">Your current password</label>
+        <input id="field-reset_password-current_password" name="current_password" type="password" autocomplete="current-password" required{{ field_attrs(errors, 'reset_password-current_password') }}>
+        {{ field_error(errors, 'reset_password-current_password') }}
+        <button class="button-destructive" type="submit"{% if not managed.local %} disabled title="Managed by the directory"{% endif %}>Reset password</button>
+      </fieldset>
+      {% if not managed.local %}<p class="hint">Password is managed by the directory.</p>{% endif %}
+    </form>
+  </details>
+
+  <details class="confirmation"><summary>Reset two-factor authentication</summary>
+    <p>Removes the authenticator and recovery codes and signs this user out everywhere. Future sign-ins will require only a password until the user chooses to set up two-factor authentication again.</p>
+    <form method="post" action="/users/{{ managed.id }}/reset-totp"
+          hx-post="/users/{{ managed.id }}/reset-totp" hx-target="#user-detail-panel"
+          hx-select="#user-detail-panel" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label for="field-reset_totp-current_password">Your current password</label>
+      <input id="field-reset_totp-current_password" name="current_password" type="password" autocomplete="current-password" required{{ field_attrs(errors, 'reset_totp-current_password') }}>
+      {{ field_error(errors, 'reset_totp-current_password') }}
+      <button class="button-destructive" type="submit">Reset two-factor authentication</button>
+    </form>
+  </details>
+  </div>
+{% endcall %}
+
+<section class="management-panel user-history" aria-labelledby="history-heading">
+  <header class="panel-heading">
+    <h2 id="history-heading">Recent activity</h2>
+    <p class="panel-description">The latest audit entries for this user. <a href="/audit?target_type=user&amp;target_id={{ managed.id }}">Open the full user audit history</a>.</p>
+  </header>
+  {% if history %}
+  <ol class="history-list">
+    {% for event in history %}
+    <li><strong>{{ event.action }}</strong> by {{ event.actor }} · {{ time_tag(event.created_at, tz) }}</li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p class="hint">No activity recorded yet.</p>
+  {% endif %}
+</section>
+
+</div>
+{% endblock %}
