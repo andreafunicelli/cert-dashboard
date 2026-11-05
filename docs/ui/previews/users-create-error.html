@@ -140,21 +140,29 @@
   <div class="page-actions">
   <details class="user-create" open>
     <summary class="button">Create user</summary>
-    <section class="panel" aria-labelledby="create-heading">
+
+<section class="panel" aria-labelledby="create-heading">
   <h2 id="create-heading">Create user</h2>
   <p>Create a local user with administrator access.</p>
+
+  <p class="form-error" role="alert">A user with this username already exists.</p>
   <form method="post" action="/users">
     <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
-    <label for="new-username">Username</label>
+    <label for="new-username" id="field-username">Username</label>
     <input id="new-username" name="username" value="new-operator" maxlength="150" pattern="[A-Za-z0-9._@\-]+" autocomplete="off" required>
-    <label for="new-email">Email</label>
+
+    <label for="new-email" id="field-email">Email</label>
     <input id="new-email" name="email" type="email" value="operator@example.test" maxlength="254" autocomplete="off" required>
-    <label for="new-display">Display name (optional)</label>
+
+    <label for="new-display" id="field-display_name">Display name (optional)</label>
     <input id="new-display" name="display_name" value="New operator" maxlength="200" autocomplete="off">
-    <label for="new-password">Temporary password (at least 12 characters)</label>
+
+    <label for="new-password" id="field-password">Temporary password (at least 12 characters)</label>
     <input id="new-password" name="password" type="password" autocomplete="new-password" minlength="12" required>
-    <label for="new-confirm">Repeat temporary password</label>
+
+    <label for="new-confirm" id="field-confirm_password">Repeat temporary password</label>
     <input id="new-confirm" name="confirm_password" type="password" autocomplete="new-password" minlength="12" required>
+
     <button type="submit">Create user</button>
   </form>
   <p class="hint">The user must change this password at first sign-in. The password is never shown again.</p>
@@ -165,11 +173,6 @@
 </header>
 <p>Every active user is an administrator. Security actions ask for <strong>your</strong> current password and sign the affected user out immediately.</p>
 
-<p class="form-error" role="alert">A user with this username already exists.</p>
-
-
-
-<h2>User access</h2>
 
 <div class="table-wrap">
 <table class="users">
@@ -177,35 +180,37 @@
     <th scope="col">Username</th>
     <th scope="col">Display name</th>
     <th scope="col">Email</th>
-    <th scope="col">Backend</th>
-    <th scope="col">Active</th>
+    <th scope="col">Sign-in</th>
     <th scope="col">2FA</th>
-    <th scope="col">Must change password</th>
+    <th scope="col">State</th>
     <th scope="col">Last login</th>
-    <th scope="col">Locked until</th>
-    <th scope="col">Actions</th>
+    <th scope="col">Manage</th>
   </tr></thead>
   <tbody>
 
   <tr data-user-id="1">
-    <td>operator <small>(you)</small></td>
+    <td><a href="/users/1">operator</a> <small>(you)</small></td>
     <td>Operator</td>
     <td>operator@example.test</td>
     <td>local</td>
     <td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m5 12 4 4 10-10"/>
 
-</svg> Yes</span></td>
-    <td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+</svg> Enabled</span></td>
+    <td>
+      <span class="badge badge-ok" data-state="active"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m5 12 4 4 10-10"/>
 
-</svg> Enabled</span></td>
-    <td>No</td>
+</svg> Active</span>
+
+
+
+    </td>
     <td><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></td>
-    <td>—</td>
     <td>
-      <details open>
-        <summary>Manage <span class="user-action-name">operator</span></summary>
+      <a href="/users/1">Manage</a>
+      <details class="user-quick-actions">
+        <summary>Quick actions</summary>
 
         <form method="post" action="/users/1/edit">
           <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
@@ -227,7 +232,7 @@
           </fieldset>
 
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/1">Open the user page</a></details>
 
         <details class="confirmation"><summary>Reset two-factor authentication</summary>
         <p>Removes the authenticator and recovery codes and signs this user out everywhere. Future sign-ins will require only a password until the user chooses to set up two-factor authentication again.</p>
@@ -236,40 +241,51 @@
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit">Reset two-factor authentication</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/1">Open the user page</a></details>
 
         <details class="confirmation"><summary>Deactivate user</summary>
-        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is not available here.</p>
+        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is available on the user page.</p>
         <p class="warning-note">This is your account. You will be signed out immediately.</p>
         <form method="post" action="/users/1/deactivate">
           <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit">Deactivate</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/1">Open the user page</a></details>
+
+
+        <p class="hint">Reactivation is available on the user page after deactivation.</p>
+
       </details>
     </td>
   </tr>
 
   <tr data-user-id="2">
-    <td>directory-admin</td>
+    <td><a href="/users/2">directory-admin</a></td>
     <td>Directory-Admin</td>
     <td>directory-admin@example.test</td>
     <td>ldap</td>
-    <td><span class="badge badge-ok"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <path d="m5 12 4 4 10-10"/>
-
-</svg> Yes</span></td>
     <td><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
 
 </svg> Off</span></td>
-    <td>No</td>
-    <td><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></td>
+    <td>
+      <span class="badge badge-ok" data-state="active"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m5 12 4 4 10-10"/>
+
+</svg> Active</span>
+
+      <span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
+
+</svg> Locked until <time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></span>
+
+    </td>
     <td><time datetime="2026-10-19T12:00:00Z">2026-10-19 12:00 UTC</time></td>
     <td>
-      <details open>
-        <summary>Manage <span class="user-action-name">directory-admin</span></summary>
+      <a href="/users/2">Manage</a>
+      <details class="user-quick-actions">
+        <summary>Quick actions</summary>
 
         <form method="post" action="/users/2/edit">
           <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
@@ -291,7 +307,7 @@
           </fieldset>
           <p class="hint">Password is managed by the directory.</p>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/2">Open the user page</a></details>
 
         <details class="confirmation"><summary>Reset two-factor authentication</summary>
         <p>Removes the authenticator and recovery codes and signs this user out everywhere. Future sign-ins will require only a password until the user chooses to set up two-factor authentication again.</p>
@@ -300,43 +316,50 @@
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit">Reset two-factor authentication</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/2">Open the user page</a></details>
 
         <details class="confirmation"><summary>Deactivate user</summary>
-        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is not available here.</p>
+        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is available on the user page.</p>
 
         <form method="post" action="/users/2/deactivate">
           <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit">Deactivate</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/2">Open the user page</a></details>
+
+
+        <p class="hint">Reactivation is available on the user page after deactivation.</p>
+
       </details>
     </td>
   </tr>
 
   <tr data-user-id="3" class="row-inactive">
-    <td>retired-admin</td>
+    <td><a href="/users/3">retired-admin</a></td>
     <td>Retired-Admin</td>
     <td>retired-admin@example.test</td>
     <td>local</td>
-    <td><span class="badge badge-danger"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
-
-</svg> No</span></td>
     <td><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
 
 </svg> Off</span></td>
-    <td><span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <td>
+      <span class="badge badge-danger" data-state="inactive"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="m9 9 6 6m0-6-6 6"/>
+
+</svg> Inactive</span>
+
+      <span class="badge badge-warn"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
   <path d="m12 3 10 18H2Z M12 9v5m0 2v2"/>
 
-</svg> Yes</span></td>
-    <td>—</td>
+</svg> Must change password</span>
+    </td>
     <td>—</td>
     <td>
-      <details open>
-        <summary>Manage <span class="user-action-name">retired-admin</span></summary>
+      <a href="/users/3">Manage</a>
+      <details class="user-quick-actions">
+        <summary>Quick actions</summary>
 
         <form method="post" action="/users/3/edit">
           <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
@@ -358,7 +381,7 @@
           </fieldset>
 
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/3">Open the user page</a></details>
 
         <details class="confirmation"><summary>Reset two-factor authentication</summary>
         <p>Removes the authenticator and recovery codes and signs this user out everywhere. Future sign-ins will require only a password until the user chooses to set up two-factor authentication again.</p>
@@ -367,17 +390,21 @@
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit">Reset two-factor authentication</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/3">Open the user page</a></details>
 
         <details class="confirmation"><summary>Deactivate user</summary>
-        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is not available here.</p>
+        <p>Prevents sign-in and signs this user out everywhere. The account and audit history are retained. Reactivation is available on the user page.</p>
 
         <form method="post" action="/users/3/deactivate">
           <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
           <label>Your current password <input name="current_password" type="password" autocomplete="current-password" required></label>
           <button class="button-destructive" type="submit" disabled title="Already inactive">Deactivate</button>
         </form>
-        <a href="/users">Cancel</a></details>
+        <a href="/users/3">Open the user page</a></details>
+
+
+        <a class="button-secondary" href="/users/3">Reactivate on the user page</a>
+
       </details>
     </td>
   </tr>
