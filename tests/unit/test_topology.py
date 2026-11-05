@@ -316,7 +316,7 @@ def test_integration_container_smoke_runs_only_unit_tests():
 pytestmark_needs_image = pytest.mark.skipif(
     shutil.which("docker") is None
     or subprocess.run(
-        ["docker", "image", "inspect", "cert-dashboard:test"], capture_output=True
+        ["docker", "image", "inspect", "cert-dashboard:test"], check=False, capture_output=True
     ).returncode
     != 0,
     reason="needs the test image built by the integration workflow",
