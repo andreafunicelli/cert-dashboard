@@ -1,10 +1,14 @@
 name: CI
+# Fast gate. This job is the required check on `main`: it must answer in a few minutes,
+# because every factory card waits on it. The long suite lives in `integration.yml`,
+# which runs after merge, nightly, and on pull requests that touch high-risk paths.
 on: [push, pull_request]
 permissions:
   contents: read
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
@@ -36,24 +40,15 @@ jobs:
           assert not fragments, f"tmpfs entries are not absolute mount targets: {fragments}"
           print("rendered tmpfs entries:", entries)
           PY
-      - run: docker compose -f docker-compose.test.yml pull db
-      - run: docker compose -f docker-compose.test.yml --profile targets pull tls-nginx tls-apache
-      - run: docker compose -f docker-compose.test.yml --profile ssh-targets build ssh-nginx-1 ssh-apache
-      - run: docker build --target test -t cert-dashboard:test .
-      - run: docker build -t cert-dashboard:local -t cert-dashboard:ci .
-      - run: uv run pytest -q --cov=app --cov-report=term-missing --cov-report=json --cov-fail-under=70
-      - name: Crypto and renewal coverage gates
+      - run: docker compose -f docker-compose.test.yml config --quiet
+      # Everything that needs no database, no docker target and no SSH fixture: tests/unit plus the
+      # preview and styling contract tests at the root of tests/. Integration lives in the other workflow.
+      - name: DB-free suite with coverage for the security-critical paths
         run: |
+          # The project floor (70%) is measured on the full suite; here only the security-critical
+          # paths are gated, so the global floor is disabled explicitly rather than silently lower.
+          uv run pytest -q --ignore=tests/integration --cov=app --cov-report=json --cov-report= \
+            --cov-fail-under=0
           uv run coverage report --fail-under=85 --include='app/crypto/*'
           uv run coverage report --fail-under=85 --include='app/ansible/parse_*'
-          if [ -f app/services/renewals.py ]; then
-            uv run coverage report --fail-under=85 --include='app/services/renewals.py'
-          fi
-          if [ -f app/services/deploy.py ]; then
-            uv run coverage report --fail-under=85 --include='app/services/deploy.py'
-          fi
       - run: uv run pip-audit
-      - run: docker compose -f docker-compose.test.yml config --quiet
-      - run: docker compose -f docker-compose.test.yml --profile targets config --quiet
-      - run: docker compose -f docker-compose.test.yml --profile ssh-targets config --quiet
-      - run: docker run --rm cert-dashboard:test pytest -q tests/unit -p no:cacheprovider

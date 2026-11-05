@@ -1,3 +1,28 @@
+## Testing
+
+### What gates a merge, and what runs after it
+
+Two workflows split the work, because a 40-minute gate on every card is what kept the factory slow.
+
+`verify` (`.github/workflows/ci.yml`) is the required check on every pull request. It runs ruff, the
+production compose renders, the tmpfs assertion, the DB-free test suite — `tests/unit` plus the preview
+and styling contract tests — with the 85 % coverage gates for `app/crypto/*` and `app/ansible/parse_*`,
+and `pip-audit`. Budget: about two minutes.
+
+`integration` (`.github/workflows/integration.yml`) runs the rest: docker target images, the SSH
+fixtures, the database, the full suite with the 70 % total gate and the 85 % gates for
+`app/services/renewals.py` and `app/services/deploy.py`, and the container-level unit run. It triggers on
+every push to `main`, nightly at 02:15, on demand, and on pull requests that touch authentication,
+crypto, the ansible execution path, jobs, models, migrations, the deploy/certificate/renewal services,
+secrets, compose, the Dockerfile, `pyproject.toml` or `uv.lock`.
+
+**The trade, stated plainly:** PR-time integration is *advisory*. A defect that only the long suite can
+see reaches `main` before it is caught instead of blocking the pull request. The authoritative run is the
+post-merge one; a red result there is a stop-the-line event for the next change touching that area, and
+the nightly re-runs it to catch drift in third-party images. If a change is risky enough that you are not
+comfortable with that, touch a high-risk path or dispatch the workflow manually — the path filter exists
+to make that decision cheap, not to make it for you.
+
 # Development and container setup
 
 Python 3.12 and uv 0.13.1 run the pinned dependencies in `uv.lock`.

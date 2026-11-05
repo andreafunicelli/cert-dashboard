@@ -609,14 +609,15 @@ def test_test_compose_migrates_with_owner_before_container_unit_smoke():
     assert services["app"]["command"] == ["pytest", "-q", "tests/unit", "-p", "no:cacheprovider"]
 
 
-def test_ci_builds_runtime_image_before_real_compose_integration():
+def test_integration_workflow_builds_runtime_image_before_the_full_suite():
+    """The docker builds moved with the long suite; the merge gate no longer builds images at all."""
     from pathlib import Path
 
     import yaml
 
     root = Path(__file__).resolve().parents[2]
-    workflow = yaml.safe_load((root / ".github/workflows/ci.yml").read_text())
-    commands = [step.get("run", "") for step in workflow["jobs"]["verify"]["steps"]]
+    workflow = yaml.safe_load((root / ".github/workflows/integration.yml").read_text())
+    commands = [step.get("run", "") for step in workflow["jobs"]["integration"]["steps"]]
     suite = next(i for i, cmd in enumerate(commands) if cmd.startswith("uv run pytest -q --cov"))
     assert any(
         cmd.startswith("docker build ") and "-t cert-dashboard:local" in cmd for cmd in commands[:suite]
