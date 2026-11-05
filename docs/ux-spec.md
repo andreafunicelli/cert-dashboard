@@ -118,8 +118,8 @@ entry is a link plus a one-line status computed server-side (no async loading). 
 | Operations policy | Deployment, Schedule and scans, Trust anchors → their tabs | one line each from existing settings read models |
 | System | Status → `/settings?tab=status` (`<n> warnings`), System and maintenance → `/settings?tab=maintenance`, Audit → `/audit`, Branding → `/settings?tab=branding` (**added by A2b**: `Default logo`/`Custom logo`) | |
 
-The Settings tabs stay the place where values are edited; the hub never duplicates a form. The first
-Settings section label changes from `Inventory` to **`Inventory repository`** with the help line
+The Settings tabs stay the place where values are edited; the hub never duplicates a form. The Settings
+section `Inventory` is relabelled **`Inventory repository`** with the help line
 *Optional. You can also add hosts directly in Infrastructure → Inventory.* (tab key `inventory` and its
 POST routes unchanged).
 
@@ -301,7 +301,7 @@ unchanged; A1 must not add `hx-boost` to the shell. Full-page navigations everyw
 - [ ] Navigation matches §2.1 for every listed path: main entry `aria-current="location"`, exactly one area
       page `aria-current="page"`, Infrastructure links to `/inventory`, Administration area lists the hub
       first; narrow menu lists every page (extend `tests/test_navigation_queue_previews.py`).
-- [ ] `/inventory`, `/ssh-keys`, `/users`, `/settings?tab=inventory` and `/administration` are reachable
+- [ ] `/inventory`, `/ssh-keys`, `/users`, `/settings` and `/administration` are reachable
       from both desktop and narrow navigation (preview test).
 - [ ] Capability-disabled navigation entries still render `aria-disabled` with their reason (existing test
       stays green).
@@ -311,7 +311,8 @@ unchanged; A1 must not add `hx-boost` to the shell. Full-page navigations everyw
       statement count ≤ 8 for `setup_status`.
 - [ ] `tests/integration/test_administration_hub_http.py`: every §2.3 entry links to its route; status lines
       for no hosts / no repository / no worker / configured states; the repository line never contains the
-      Git token or URL credentials (seed a URL with `user:secret@`, assert `secret` absent); signed-out GET
+      Git token or URL credentials (write a `inventory.repo_url` with `user:secret@` directly into the test
+      database, assert `secret` absent); signed-out GET
       → `/login`.
 - [ ] Settings: section picker markup present with `Section: <label>`; `How drafts work` disclosure holds
       the previous text; label `Inventory repository` with the optional help; status warning uses the
