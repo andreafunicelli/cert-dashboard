@@ -1,20 +1,34 @@
 """Settings → Inventory "Test pull": a ``discover/test_pull`` job run through ``ansible_job`` (Plan 3 Task 5)."""
 
+import json
 import stat
+from datetime import UTC, datetime
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import select
 
+from app.jobs.handlers.ansible_context import ansible_job
 from app.jobs.locks import INVENTORY_LOCK, AdvisoryLocks
-from app.jobs.worker import record_worker_start
+from app.jobs.queue import JobFailure
+from app.jobs.worker import JobContext, record_worker_start
 from app.models import Job, WorkerHeartbeat
 from app.models.enums import JobStatus, JobType
+from app.services.inventory import InventoryRevision
 from tests.integration.conftest import disable_schedules, set_setting
 
 PATH = "/settings/inventory/test-pull"
 HOSTS = {"web01.example.internal": {"ansible_host": "192.0.2.10"}}
 NO_REPO = "No inventory repository is configured"
 NO_SSH_KEY = "Discovery and deploy are unavailable: no SSH key is configured."
+HTTPS_REPO = "HTTPS://git.example.test/inventory.git"
+SSH_REPO = "ssh://git@git.example.test/inventory.git"
+MISSING_HOST_TRUST = (
+    "no trusted SSH host keys: trust them in Infrastructure → SSH keys or mount a known_hosts file"
+)
+STUBBED_REVISION = InventoryRevision(
+    "main:inventory@" + "a" * 40, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 1, tzinfo=UTC), True, None
+)
 
 
 @pytest.fixture(autouse=True)
@@ -149,12 +163,49 @@ def test_a_pull_in_progress_requeues_the_job_without_a_checkout_read(signed_in, 
 
 
 def test_a_missing_known_hosts_file_fails_before_any_connection(signed_in, web_factory, ansible_worker, inventory_repo, tmp_path):
+    """A ``file://`` (here) or ``ssh://`` repository still needs host trust: only HTTPS is exempt (§8.2)."""
     inventory_repo(web_factory, hosts=HOSTS)
     post(signed_in)
     ansible_worker(web_factory, known_hosts_file=tmp_path / "absent").run_queued()
     [job] = jobs_of(web_factory)
     assert (job.status, job.error_class) == (JobStatus.FAILED, "config_invalid")
-    assert job.error_message == "SSH known_hosts file is missing"
+    assert job.error_message == MISSING_HOST_TRUST
+    assert MISSING_HOST_TRUST in signed_in.get("/settings?tab=inventory").text  # the Settings result, verbatim
+
+
+def test_an_https_test_pull_stages_an_empty_known_hosts_file(web_factory, ansible_worker, inventory_repo, tmp_path, monkeypatch):
+    """An HTTPS repository is authenticated by TLS: SSH has no host to verify, so the job stages ``b""``.
+
+    CI has no HTTPS Git server, so only the checkout refresh is replaced; the https-vs-ssh rule, the
+    staging area and the inventory listing run for real (the job-context layer §8.2 names).
+    """
+    inventory_repo(web_factory, hosts=HOSTS)  # ref/path/webserver_var; the URL is replaced below
+    set_setting(web_factory, "inventory.repo_url", HTTPS_REPO)
+    worker = ansible_worker(web_factory, known_hosts_file=tmp_path / "absent")
+    checkout = worker.settings.inventory_root / "repo"
+    (checkout / "inventory").mkdir(parents=True)
+    (checkout / "inventory" / "hosts.yml").write_text(json.dumps({"all": {"hosts": {}}}), encoding="utf-8")
+    monkeypatch.setattr(
+        "app.jobs.handlers.ansible_context._refresh_inventory", lambda *args, **kwargs: STUBBED_REVISION
+    )
+    context = JobContext(uuid4(), "b-w2-worker", web_factory, worker.settings)
+
+    with ansible_job(context, require_repository=True) as job:
+        staged = job.runner.secrets.known_hosts
+        assert staged.is_file() and staged.read_bytes() == b""
+        assert stat.S_IMODE(staged.stat().st_mode) == 0o600
+        assert job.config is not None and job.config.repo_url == HTTPS_REPO
+
+
+def test_an_ssh_test_pull_still_fails_closed_without_host_trust(web_factory, ansible_worker, inventory_repo, tmp_path):
+    inventory_repo(web_factory, hosts=HOSTS)
+    set_setting(web_factory, "inventory.repo_url", SSH_REPO)
+    worker = ansible_worker(web_factory, known_hosts_file=tmp_path / "absent")
+    context = JobContext(uuid4(), "b-w2-worker", web_factory, worker.settings)
+
+    with pytest.raises(JobFailure) as failure, ansible_job(context, require_repository=True):
+        pytest.fail("an ssh repository must not run without host trust")
+    assert (failure.value.error_class, failure.value.message) == ("config_invalid", MISSING_HOST_TRUST)
 
 
 def test_an_inventory_path_outside_the_checkout_is_refused(signed_in, web_factory, ansible_worker, inventory_repo):

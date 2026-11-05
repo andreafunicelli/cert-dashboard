@@ -23,6 +23,14 @@ _LOG = logging.getLogger(__name__)
 
 ERROR_MESSAGE_LIMIT = 2_000
 TIMEOUT_MESSAGE = "Job exceeded its time limit or its worker stopped responding."
+# Fixed, user-facing failure texts written by the codebase itself: no interpolation, no secret, and the
+# exact wording is part of the UX contract (spec §8.2, §8.7). The scrubber is label-based, so one of them
+# would otherwise be mangled; an exact match bypasses it, an edited copy does not.
+_SAFE_FIXED_MESSAGES = frozenset(
+    {
+        "no trusted SSH host keys: trust them in Infrastructure → SSH keys or mount a known_hosts file",
+    }
+)
 WORKER_LOST = "worker_lost"
 SYSTEM_ACTOR = Actor(None, "system")
 ScheduledReason = Literal["manual", "nightly", "daily", "retry"]
@@ -107,9 +115,17 @@ def safe_error_class(value: str | None) -> str:
 
 
 def safe_error_message(value: str | None) -> str | None:
-    """Redact and truncate a failure message before it is persisted."""
+    """Redact and truncate a failure message before it is persisted.
+
+    A fixed, user-facing text this codebase writes itself carries no dynamic value, so an exact match is
+    returned unchanged: the label-based scrubber would otherwise mangle it (``host keys: trust ...`` reads
+    as a ``keys:`` assignment). Anything appended to such a text — a hostname, an excerpt — misses the set
+    and is redacted as before.
+    """
     if value is None:
         return None
+    if value in _SAFE_FIXED_MESSAGES:
+        return value[:ERROR_MESSAGE_LIMIT]
     return str(redact(value))[:ERROR_MESSAGE_LIMIT]
 
 
