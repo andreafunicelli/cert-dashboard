@@ -3,7 +3,7 @@
 import re
 from datetime import timedelta
 
-from app.models import Job, JobHost, Server
+from app.models import Binding, Endpoint, Job, JobHost, ScanResult, Server
 from app.models.enums import JobHostStatus, JobStatus, JobType
 from app.services.servers import SERVER_EXPORT_FIELDS
 from tests.integration.conftest import add_server, set_setting
@@ -165,3 +165,28 @@ def test_unknown_server_is_404_and_values_are_escaped(signed_in, web_factory, se
     for path in paths:
         text = signed_in.get(path).text
         assert hostile not in text and "&lt;script&gt;" in text, path
+
+
+def test_servers_never_configured_empty_state_offers_inventory_and_repository(signed_in, web_factory):
+    # This module shares one database and these tests run last: remove the rows earlier tests seeded.
+    with web_factory.begin() as db:
+        for model in (ScanResult, Endpoint, JobHost, Binding, Server):
+            db.query(model).delete()
+    page = signed_in.get("/servers")
+    assert page.status_code == 200
+    assert 'data-empty-state="never-configured"' in page.text
+    assert "No servers yet" in page.text
+    assert 'href="/inventory">Add hosts</a>' in page.text
+    assert 'href="/settings?tab=inventory">Connect a repository (optional)</a>' in page.text
+    assert "No servers match these filters" not in page.text
+
+
+def test_servers_filtered_empty_state_clears_filters(signed_in, web_factory):
+    with web_factory.begin() as db:
+        add_server(db, "web01.example.internal")
+    page = signed_in.get("/servers?search=no-such-host")
+    assert page.status_code == 200
+    assert 'data-empty-state="filtered"' in page.text
+    assert "No servers match these filters" in page.text
+    assert '<a href="/servers">Clear filters</a>' in page.text
+    assert "No servers yet" not in page.text

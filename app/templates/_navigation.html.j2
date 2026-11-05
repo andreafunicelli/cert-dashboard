@@ -1,39 +1,40 @@
-{# Presentation-only grouping. Original navigation entries remain capability authority. #}
+{# Presentation-only grouping. Original navigation entries remain capability authority.
+   IA (docs/ux-spec.md §2.1): five main entries; the current group shows its pages in the area bar.
+   Narrow screens get the same tree inside the Menu disclosure; every page is reachable there. #}
 {% set path = request.url.path if request is defined else '' %}
-{% set area = 'Certificates' if path.startswith(('/certificates', '/imports', '/renewals')) else 'Infrastructure' if path.startswith(('/servers', '/bindings', '/inventory', '/ssh-keys')) else 'Operations' if path.startswith(('/scans', '/deploy')) else 'Administration' if path.startswith(('/administration', '/users', '/audit', '/settings', '/account')) else '' %}
+{% set area = 'Overview' if path == '/' else 'Certificates' if path.startswith(('/certificates', '/imports', '/renewals')) else 'Infrastructure' if path.startswith(('/inventory', '/servers', '/bindings', '/ssh-keys')) else 'Operations' if path.startswith(('/scans', '/deploy')) else 'Administration' if path.startswith(('/administration', '/users', '/settings', '/audit', '/account')) else '' %}
 {% set groups = [
+  ('Overview', '/', []),
   ('Certificates', '/certificates', [('Certificates', '/certificates'), ('Import', '/certificates/import'), ('Renewals', '/renewals')]),
-  ('Infrastructure', '/servers', [('Inventory', '/inventory'), ('Servers', '/servers'), ('Bindings', '/bindings'), ('Discovery', '/servers#discovery-actions'), ('SSH keys', '/ssh-keys')]),
+  ('Infrastructure', '/inventory', [('Inventory', '/inventory'), ('Servers', '/servers'), ('Bindings', '/bindings'), ('Discovery', '/servers#discovery-actions'), ('SSH keys', '/ssh-keys')]),
   ('Operations', '/scans', [('Scans', '/scans'), ('Deploy', '/deploy'), ('Jobs', '/deploy/jobs')]),
-  ('Administration', '/administration', [('Users', '/users'), ('Audit', '/audit'), ('Settings', '/settings'), ('My account', '/account')])
+  ('Administration', '/administration', [('Administration', '/administration'), ('Users', '/users'), ('Settings', '/settings'), ('Audit', '/audit'), ('My account', '/account')])
 ] %}
 {% macro page_link(label, url) -%}
   {% set base = url.split('#')[0] %}
-  {% set current = '#' not in url and ((base == '/certificates/import' and path.startswith('/imports/')) or path == base or (base != '/' and path.startswith(base + '/') and not (base == '/certificates' and path.startswith('/certificates/import')) and not (base == '/deploy' and path.startswith('/deploy/jobs')))) %}
+  {% set current = '#' not in url and ((base == '/certificates/import' and (path == '/certificates/import' or path.startswith('/imports/'))) or (base != '/certificates/import' and (path == base or (base != '/' and path.startswith(base + '/') and not (base == '/certificates' and path.startswith('/certificates/import')) and not (base == '/deploy' and path.startswith('/deploy/jobs')))))) %}
   {% set entry = navigation | selectattr('url', 'equalto', base) | first %}
   {% if entry is defined and not entry.enabled %}<span aria-disabled="true" title="{{ entry.reason }}">{{ label }}</span>
   {% else %}<span{% if current %} aria-current="page"{% endif %}><a href="{{ url }}">{{ label }}</a></span>{% endif %}
 {%- endmacro %}
 <div class="desktop-navigation">
   <nav aria-label="Main">
-    {{ page_link('Overview', '/') }}
-    {% for label, url, pages in groups %}{% set entry = navigation | selectattr('url', 'equalto', url) | first %}<span{% if area == label %} class="active-area" aria-current="location"{% endif %}{% if entry is defined and not entry.enabled %} aria-disabled="true" title="{{ entry.reason }}">{{ label }}{% else %}><a href="{{ url }}">{{ label }}</a>{% endif %}</span>{% endfor %}
+    {% for label, url, pages in groups %}{% set entry = navigation | selectattr('url', 'equalto', url) | first %}{% if entry is defined and not entry.enabled %}<span aria-disabled="true" title="{{ entry.reason }}">{{ label }}</span>{% else %}<span{% if area == label %} class="active-area" aria-current="location"{% endif %}><a href="{{ url }}">{{ label }}</a></span>{% endif %}{% endfor %}
   </nav>
 </div>
 <details class="mobile-navigation">
-  <summary>Menu{% if area %} · {{ area }}{% elif path == '/' %} · Overview{% endif %}</summary>
+  <summary>Menu{% if area %} · {{ area }}{% endif %}</summary>
   <nav aria-label="All pages">
-    {{ page_link('Overview', '/') }}
     {% for label, url, pages in groups %}
     <section{% if area == label %} class="active-area"{% endif %}>
-      <h2>{% if label == 'Administration' %}{{ page_link(label, url) }}{% else %}{{ label }}{% endif %}</h2>
-      <div class="navigation-pages">{% for label, url in pages %}{{ page_link(label, url) }}{% endfor %}</div>
+      <h2>{% if pages %}{{ label }}{% else %}{{ page_link(label, url) }}{% endif %}</h2>
+      {% if pages %}<div class="navigation-pages">{% for plabel, purl in pages %}{{ page_link(plabel, purl) }}{% endfor %}</div>{% endif %}
     </section>
     {% endfor %}
   </nav>
 </details>
-{% if area %}
+{% if area and area != 'Overview' %}
 <nav class="area-navigation" aria-label="{{ area }} pages">
-  {% for label, url, pages in groups if label == area %}{% for label, url in pages %}{{ page_link(label, url) }}{% endfor %}{% endfor %}
+  {% for label, url, pages in groups if label == area %}{% for plabel, purl in pages %}{{ page_link(plabel, purl) }}{% endfor %}{% endfor %}
 </nav>
 {% endif %}

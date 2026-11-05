@@ -48,7 +48,7 @@ def test_preview_templates_and_form_contracts():
             assert "<form" not in html and "csrf_token" not in html
             assert "python -m app.cli bootstrap-admin" in html
         if name == "shell":
-            assert '<span aria-current="page"><a href="/">Overview</a></span>' in html
+            assert '<span class="active-area" aria-current="location"><a href="/">Overview</a></span>' in html
             for item in context["navigation"]:
                 assert f'<a href="{item["url"]}">{item["label"]}</a>' in html
             for hook in ("worker", "capability", "flash"):
@@ -60,7 +60,7 @@ def test_rendering_escapes_user_values():
     context = fixtures()["login"][1] | {"username": '<img src=x onerror="bad">', "error": "<script>bad</script>"}
     html = template.render(context)
     assert "&lt;img" in html and "&lt;script&gt;" in html
-    assert "<img" not in html and "<script>bad" not in html
+    assert "<img src=x" not in html and "<script>bad" not in html
 
 
 def test_confirmation_demonstrates_inert_post_and_csrf():
@@ -93,6 +93,7 @@ def test_committed_previews_match_renderer(tmp_path):
         generated = (tmp_path / name).read_bytes()
         assert (OUTPUT / name).read_bytes() == generated, name
         assert all(line == line.rstrip() for line in generated.splitlines()), name
+        assert 'srcset="/static/' not in generated.decode(), name
 
 
 def preview(name, **overrides):
@@ -194,3 +195,49 @@ def test_account_branches_preserve_existing_routes_and_one_time_hooks():
     assert "/account/totp/" not in preview("account-required")
     assert 'action="/account/password"' not in preview("account-directory")
     assert 'class="confirmation" open' in preview("account-error")
+
+
+def test_default_brand_is_installed_in_the_shell_and_the_sign_in_panel():
+    html = preview("shell")
+    assert '<a class="brand" href="/" aria-label="Cert Dashboard home">' in html
+    assert '<picture class="brand-lockup"><source srcset="/static/branding/lockup-light.svg" media="(prefers-color-scheme: light)"><img src="/static/branding/lockup.svg" alt="" width="202" height="24"></picture>' in html
+    assert '<picture class="brand-mark"><source srcset="/static/branding/mark-light.svg" media="(prefers-color-scheme: light)"><img src="/static/branding/mark.svg" alt="" width="24" height="24"></picture>' in html
+    assert '<link rel="icon" type="image/svg+xml" href="/static/branding/favicon.svg">' in html
+    assert '<link rel="icon" type="image/png" sizes="32x32" href="/static/branding/favicon-32.png">' in html
+    assert "Cert Dashboard</a>" not in html.split('class="site-header"', 1)[1].split("</header>", 1)[0]
+    assert 'style="' not in html
+    login = preview("login")
+    assert '<picture class="auth-mark"><source srcset="/static/branding/mark-light.svg" media="(prefers-color-scheme: light)"><img src="/static/branding/mark.svg" alt="" width="48" height="48"></picture>' in login
+    assert login.index('class="auth-mark"') < login.index("<h1>Sign in</h1>")
+    assert 'style="' not in login
+
+
+def test_settings_compact_picker_and_draft_disclosure():
+    html = preview("settings-smtp")
+    assert '<details class="settings-sections">' in html
+    assert '<summary>Section: SMTP</summary>' in html
+    assert '<summary>How drafts work</summary>' in html
+    assert "Save each section explicitly; unsaved changes may be lost when you switch sections." in html
+    assert html.count('aria-label="Settings sections"') == 1  # the compact label is distinct
+    assert 'aria-label="Settings sections (compact)"' in html
+    assert html.count("data-settings-tab-draft=") >= 1
+
+
+def test_settings_inventory_is_relabelled_with_the_optional_help():
+    html = preview("settings-inventory")
+    assert '<a href="/settings?tab=inventory" aria-current="page">Inventory repository' in html
+    assert "Optional. You can also add hosts directly in Infrastructure → Inventory." in html
+
+
+def test_overview_setup_checklist_states_and_step_links():
+    collapsed = preview("overview")
+    assert '<details class="setup-checklist" data-setup-done="5">' in collapsed
+    assert "Setup: 5 of 6 steps done" in collapsed
+    assert 'data-setup-step="4" data-done="false"' in collapsed
+    assert 'data-setup-step="1" data-done="true"' in collapsed
+    opened = preview("overview-empty")
+    assert '<details class="setup-checklist" data-setup-done="0" open>' in opened
+    assert "Worker not reporting" in opened
+    assert 'href="/settings?tab=inventory"' in opened  # optional repository, step 2
+    assert 'href="/ssh-keys"' in opened and 'href="/settings?tab=smtp"' in opened
+    assert 'href="/servers#discovery-actions"' in opened

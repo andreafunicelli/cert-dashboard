@@ -1,8 +1,9 @@
 {% extends "base.html.j2" %}
 {% block title %}{{ status }} · Cert Dashboard{% endblock %}
 {% block content %}
+{% set htmx_request = request is defined and request.headers is defined and (request.headers.get('HX-Request', '') | lower) == 'true' %}
 <section class="error" role="alert">
-  <h1>{{ message }}</h1>
+  <h1{% if htmx_request %} tabindex="-1" autofocus{% endif %}>{{ message }}</h1>
   <p class="error-status">{{ icon('danger') }} Error {{ status }}</p>
   <p>Request ID: <code>{{ request_id }}</code></p>
   {% if status == 401 %}<a href="/login">Sign in</a>{% else %}<a href="/">Return to dashboard</a>{% endif %}

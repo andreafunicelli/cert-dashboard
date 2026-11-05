@@ -1,4 +1,4 @@
-"""Administration wayfinding and native user-creation contracts (no database)."""
+"""Administration hub and native user-creation contracts (no database)."""
 import re
 from types import SimpleNamespace
 
@@ -20,20 +20,44 @@ def test_administration_navigation_and_personal_account_name(path):
     assert '<a href="/administration">Administration</a>' in main
     subnav = re.search(r'<nav class="area-navigation".*?</nav>', html, re.DOTALL)[0]
     assert re.findall(r'<a href="([^"]+)">([^<]+)</a>', subnav) == [
-        ('/users', 'Users'), ('/audit', 'Audit'), ('/settings', 'Settings'), ('/account', 'My account')]
+        ('/administration', 'Administration'), ('/users', 'Users'), ('/settings', 'Settings'),
+        ('/audit', 'Audit'), ('/account', 'My account')]
     assert '<a href="/account">My account</a>' in html.split('class="user-menu"')[1]
+    assert '<a href="/administration">Administration</a>' in html.split('class="user-menu"')[1]
     assert '>Account</a>' not in html
 
 
-@pytest.mark.parametrize('count, label', [(0, '0 users can sign in'), (1, '1 user can sign in'), (12, '12 users can sign in')])
-def test_landing_has_live_count_and_direct_creation_link(count, label):
-    html = preview('administration', active_user_count=count)
+HUB_ROUTES = [
+    '/users', '/account', '/inventory', '/settings?tab=inventory', '/settings?tab=worker', '/ssh-keys',
+    '/settings?tab=smtp', '/settings?tab=alerts', '/settings?tab=deployment', '/settings?tab=schedule',
+    '/settings?tab=trust', '/settings?tab=status', '/settings?tab=maintenance', '/audit',
+]
+
+
+def test_hub_lists_every_entry_with_a_server_side_status_and_no_form():
+    html = preview('administration')
     content = html.split('<main', 1)[1]
-    assert label in re.sub(r'<[^>]+>', '', content)
-    assert '<header class="page-header">' in content
-    assert 'href="/users?create=1#create-heading"' in content
-    for path in ['/users', '/audit', '/settings', '/account']:
-        assert f'href="{path}"' in content
+    for href in HUB_ROUTES:
+        assert f'href="{href}"' in content, href
+    assert '<form' not in content and '<script' not in content and 'style="' not in content
+    for group in ['People and access', 'Servers and access', 'Alerts and email',
+                  'Operations policy', 'System']:
+        assert group in content
+    for status in ['1 active users · 0 inactive', '12 active hosts (4 manual, 8 repository)',
+                   'ssh://git@example.test/inventory.git @ main', 'SSH key: configured',
+                   '0 trusted in the dashboard · Mounted known_hosts: absent', 'Configured',
+                   'Thresholds: 60, 30, 14, 7, 1, 0 days', 'Batch 10% · concurrency 5',
+                   'Nightly discovery 01:00', '0 warnings', 'Job retention: 90 days']:
+        assert status in content, status
+
+
+def test_hub_empty_states_offer_the_next_action():
+    html = preview('administration-empty')
+    content = html.split('<main', 1)[1]
+    assert 'No hosts yet' in content and '<a href="/inventory">Add a host</a>' in content
+    assert 'Not configured — optional' in content
+    assert 'SSH key: missing · Vault password: not set · Git token: not set' in content
+    assert 'href="/settings?tab=inventory"' in content
 
 
 @pytest.mark.parametrize('name, is_open', [('users', False), ('users-create', True), ('users-create-error', True)])

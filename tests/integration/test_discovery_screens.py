@@ -179,6 +179,7 @@ def test_dump_summary_requires_sign_in(client, discovered_server):
 def test_missing_ssh_key_banner_and_disabled_actions(signed_in, web_factory, worker_without_ssh_key, discovered_server):
     page = signed_in.get("/servers").text
     assert NO_SSH_KEY in page
+    assert re.search(r'data-banner="capability".*?<a href="/settings\?tab=worker">Configure it in Settings → Worker\.</a>', page, re.DOTALL)
     assert 'disabled title="Discovery and deploy are unavailable' in page
     assert 'action="/servers/discover"' not in page
     detail = signed_in.get(f"/servers/{discovered_server.id}").text
@@ -209,6 +210,7 @@ def test_a_missing_known_hosts_file_is_reported_too(signed_in, web_factory, make
     )
     page = signed_in.get("/servers").text
     assert NO_KNOWN_HOSTS in page and NO_SSH_KEY not in page
+    assert re.search(r'data-banner="capability".*?<a href="/ssh-keys">Trust host keys in Infrastructure → SSH keys\.</a>', page, re.DOTALL)
     assert 'disabled title="Discovery and deploy are unavailable' in page
 
 

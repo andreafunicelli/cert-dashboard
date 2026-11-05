@@ -1,33 +1,56 @@
-"""Database-free coverage for the additive Administration GET and create disclosure context."""
+"""Database-free coverage for the Administration hub and the create disclosure context."""
+
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
 
+from app.web import administration as administration_web
 from app.web import users as users_web
 
 
-def test_administration_get_uses_only_an_aggregate_of_active_users(monkeypatch):
+def test_administration_get_renders_the_hub_context(monkeypatch):
+    app = FastAPI()
+    app.state.templates = SimpleNamespace(env=SimpleNamespace(globals={}))
+    monkeypatch.setattr(administration_web, "install_template_helpers", lambda app: None)
+    administration_web.register_administration_routes(app)
+    route = next(route for route in app.routes if route.path == '/administration')
+    assert route.methods == {'GET'}
+    render = MagicMock(return_value='rendered')
+    monkeypatch.setattr(administration_web, '_render', render)
+    context = {'setup': 'fixture-setup', 'groups': ['fixture-group']}
+    monkeypatch.setattr(administration_web, '_hub_context', lambda request: context)
+    request = SimpleNamespace(app=app)
+    assert route.endpoint(request) == 'rendered'
+    render.assert_called_once_with(request, 'administration.html.j2', **context)
+
+
+def test_users_module_no_longer_owns_the_administration_route(monkeypatch):
     app = FastAPI()
     monkeypatch.setattr(users_web, 'install_template_helpers', lambda app: None)
     users_web.register_user_routes(app)
-    route = next(route for route in app.routes if route.path == '/administration')
-    assert route.methods == {'GET'}
-    db = MagicMock()
-    db.scalar.return_value = 3
-    factory = MagicMock()
-    factory.return_value.__enter__.return_value = db
-    app.state.factory = factory
-    request = SimpleNamespace(app=app)
-    render = MagicMock(return_value='rendered')
-    monkeypatch.setattr(users_web, '_render', render)
-    assert route.endpoint(request) == 'rendered'
-    render.assert_called_once_with(request, 'administration.html.j2', active_user_count=3)
-    query = str(db.scalar.call_args.args[0])
-    assert 'count(*)' in query and '"user".is_active IS true' in query
-    assert 'password' not in query and 'totp' not in query
-    db.execute.assert_not_called()
+    assert '/administration' not in {route.path for route in app.routes}
+
+
+@pytest.mark.parametrize('url, expected', [
+    ('https://git.example.test/team/inventory.git', 'https://git.example.test/team/inventory.git'),
+    ('https://user:secret@git.example.test/team/inventory.git', 'https://git.example.test/team/inventory.git'),
+    ('https://user:secret@git.example.test:8443/team/inventory.git?token=secret#frag',
+     'https://git.example.test:8443/team/inventory.git'),
+])
+def test_repository_status_never_exposes_credentials(url, expected):
+    status = administration_web._redacted_repository(url, 'main')
+    assert status == f'{expected} @ main'
+    assert 'secret' not in status
+
+
+def test_status_fragments_escape_text_once_and_keep_trusted_links():
+    assert str(administration_web._status('a & b')) == 'a &amp; b'
+    link = administration_web._link('Add a host', '/inventory')
+    assert str(administration_web._status('No hosts yet · ', link)) == (
+        'No hosts yet · <a href="/inventory">Add a host</a>'
+    )
 
 
 @pytest.mark.parametrize('query, values, expected', [

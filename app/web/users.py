@@ -10,7 +10,7 @@ delete: deactivation only (spec §9.3), with reactivation issuing a new temporar
 
 from fastapi import FastAPI, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import func, select
+from sqlalchemy import select
 
 from app.auth.local import (
     UserAdminError,
@@ -282,12 +282,6 @@ def _reauthenticated(request: Request, current_password: str, work):
 
 def register_user_routes(app: FastAPI) -> None:
     install_template_helpers(app)
-
-    @app.get("/administration")
-    def administration_page(request: Request):
-        with request.app.state.factory() as db:
-            active_user_count = db.scalar(select(func.count()).select_from(User).where(User.is_active.is_(True)))
-        return _render(request, "administration.html.j2", active_user_count=active_user_count)
 
     @app.get("/users")
     def users_page(request: Request):

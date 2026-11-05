@@ -9,14 +9,25 @@
   {% else %}{% set save_tab = 'general' if tab == 'maintenance' else tab %}<button type="submit" form="settings-form-{{ save_tab }}">{{ 'Save and recheck' if tab == 'trust' else 'Save ' ~ ('General' if tab == 'maintenance' else tab_label) ~ ' settings' }}</button>{% endif %}
   {% call more_actions() %}<a href="/settings?tab=status">System status</a><a href="/audit?target_type=settings">Settings audit history</a><a href="/settings?tab=scanning">Scanning section</a><a href="/settings?tab=general">General section</a>{% endcall %}
 {% endcall %}
-<p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p>
-<nav class="tabs" aria-label="Settings sections">
+<p class="help">Save each section explicitly; unsaved changes may be lost when you switch sections.</p>
+<details class="draft-help"><summary>How drafts work</summary><p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p></details>
+<nav class="tabs settings-sections-desktop" aria-label="Settings sections">
   <ul>
   {% for item in section_tabs | default(tabs) %}
     <li><a href="/settings?tab={{ item.name }}"{% if item.name == (section_tab | default(tab)) %} aria-current="page"{% endif %}>{{ item.label }}{% set draft_tabs = [item.name] + (['scanning'] if item.name == 'schedule' else ['general'] if item.name == 'maintenance' else []) %}{% for draft_tab in draft_tabs %}<span class="field-change" data-settings-tab-draft="{{ draft_tab }}" hidden> ({{ draft_tab }} unsaved draft)</span>{% endfor %}</a></li>
   {% endfor %}
   </ul>
 </nav>
+<details class="settings-sections">
+  <summary>Section: {{ section_label | default(tab_label) }}</summary>
+  <nav class="tabs" aria-label="Settings sections (compact)">
+    <ul>
+    {% for item in section_tabs | default(tabs) %}
+      <li><a href="/settings?tab={{ item.name }}">{{ item.label }}</a></li>
+    {% endfor %}
+    </ul>
+  </nav>
+</details>
 {% block panel %}
 {% from "_ui.html.j2" import icon %}
 {% macro disabled_action(label, reason) %}<p class="action-disabled"><button type="button" disabled aria-disabled="true">{{ label }}</button> <span class="hint">{{ reason }}</span></p>{% endmacro %}
@@ -210,6 +221,7 @@
   </table></div>
   {% else %}<p>No delivery failures.</p>{% endif %}
   {% elif tab == "inventory" %}
+  <p class="help">Optional. You can also add hosts directly in Infrastructure → Inventory.</p>
   <p id="inventory-revision" data-rev="{{ inventory.current_rev or '' }}">
     {% if inventory.current_rev %}Current revision: <code>{{ inventory.current_rev[:12] }}</code>{% if inventory.current_rev_date %}, committed {{ time_tag(when(inventory.current_rev_date), timezone) }}{% if timezone != "UTC" %} / {{ time_tag(when(inventory.current_rev_date), "UTC") }}{% endif %}{% endif %}{% if inventory.current_at %} (newest successful discovery, deploy or test pull, finished {{ time_tag(when(inventory.current_at), timezone) }}{% if timezone != "UTC" %} / {{ time_tag(when(inventory.current_at), "UTC") }}{% endif %}){% endif %}
     {% else %}Current revision: unknown (no discovery, deploy or test pull has succeeded yet).{% endif %}

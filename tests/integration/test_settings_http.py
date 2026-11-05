@@ -550,13 +550,15 @@ def test_inventory_tab_gates_test_pull_on_the_inventory_and_the_worker(signed_in
     from tests.integration.conftest import set_setting
 
     page = signed_in.get("/settings?tab=inventory").text
+    assert "Inventory repository" in page
+    assert "Optional. You can also add hosts directly in Infrastructure → Inventory." in page
     # discover/test_pull is registered (Plan 3 Task 5): the only reason left is the missing repository.
-    assert "Test pull" in page and "No inventory repository is configured" in page
+    assert "Test pull" in page and "No inventory: add a host in Inventory or configure a repository." in page
     assert "discover/test_pull not registered" not in page and 'action="/settings/inventory/test-pull"' not in page
     set_setting(web_factory, "inventory.repo_url", "https://git.example.test/inventory.git")
     try:
         page = signed_in.get("/settings?tab=inventory").text
-        assert 'action="/settings/inventory/test-pull"' in page and "No inventory repository" not in page
+        assert 'action="/settings/inventory/test-pull"' in page and "No inventory" not in page
         assert "No test pull has run yet." in page
     finally:
         set_setting(web_factory, "inventory.repo_url", "")
@@ -1432,3 +1434,15 @@ def test_prune_without_the_exact_confirmation_is_422_and_enqueues_nothing(signed
     assert _jobs(web_factory) == []
     assert _actions(web_factory, "maintenance.prune_requested") == []
     assert _actions(web_factory, "job.enqueue") == []
+
+
+def test_settings_renders_the_compact_section_picker_and_draft_disclosure(signed_in):
+    page = signed_in.get("/settings?tab=inventory").text
+    assert '<details class="settings-sections">' in page
+    assert '<summary>Section: Inventory repository</summary>' in page
+    assert '<summary>How drafts work</summary>' in page
+    assert "Save each section explicitly; unsaved changes may be lost when you switch sections." in page
+    # The desktop list keeps the only "Settings sections" landmark and the draft markers.
+    assert page.count('aria-label="Settings sections"') == 1
+    assert 'aria-label="Settings sections (compact)"' in page
+    assert 'data-settings-tab-draft="inventory"' in page

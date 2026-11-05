@@ -394,3 +394,22 @@ def test_sql_debug_logging_cannot_expose_session_bind_values(signed_in, web_fact
     finally:
         engine.echo = False
     assert token not in caplog.text
+
+
+def test_htmx_csrf_refusal_is_visible_on_a_non_management_page(signed_in):
+    """UX-08: the global htmx-config swaps the styled 403 into #main-content on every page."""
+    from sqlalchemy import func
+
+    from app.models import Endpoint
+
+    response = signed_in.post(
+        "/scans/endpoints",
+        data={"csrf_token": "0" * 64, "host": "fixture-csrf.example.test", "port": "443"},
+        headers={"HX-Request": "true"},
+    )
+    assert response.status_code == 403
+    assert "Your form expired. Reload the page and try again." in response.text
+    assert '<main id="main-content" tabindex="-1">' in response.text
+    assert '<h1 tabindex="-1" autofocus>Your form expired. Reload the page and try again.</h1>' in response.text
+    with signed_in.app.state.factory() as db:
+        assert db.scalar(select(func.count()).select_from(Endpoint)) == 0
