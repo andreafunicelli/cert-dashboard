@@ -45,7 +45,7 @@
   <div><strong>Worker</strong> <span class="badge {{ 'badge-ok' if status.worker == 'ok' else 'badge-warn' }}">{{ icon('ok' if status.worker == 'ok' else 'warn') }} {{ status.worker }}</span></div>
   <div><strong>Last discovery</strong> <span data-last-discovery>{% if status.last_discovery_at %}{{ time_tag(status.last_discovery_at, tz) }}{% else %}never{% endif %}</span></div>
   <div><strong>Last digest</strong> {% if status.last_digest_at %}{{ time_tag(status.last_digest_at, tz) }}{% else %}never{% endif %}</div>
-  <div><strong>Inventory</strong> <span class="mono">{{ setup.host_counts[0] }}</span> active hosts (<span class="mono">{{ setup.host_counts[1] }}</span> manual, <span class="mono">{{ setup.host_counts[2] }}</span> repository){% if status.inventory_rev %}, revision <code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %} · No repository (optional){% endif %}</div>
+  <div><strong>Inventory</strong> <span class="mono">{{ setup.host_counts[0] }}</span> active hosts (<span class="mono">{{ setup.host_counts[1] }}</span> manual, <span class="mono">{{ setup.host_counts[2] }}</span> repository){% if status.inventory_rev %}, revision <code title="{{ status.inventory_rev }}">{{ status.inventory_rev[:12] }}</code>{% if status.inventory_rev_age_hours is not none %} (<span class="mono">{{ status.inventory_rev_age_hours }}</span> h old){% endif %}{% else %} No repository (optional){% endif %}</div>
 </section>
 {% endblock %}
 {% if setup is defined and not setup.complete %}
@@ -55,7 +55,7 @@
     {% for step in setup_steps %}
     <li data-setup-step="{{ loop.index }}" data-done="{{ 'true' if step.done else 'false' }}">
       <span class="badge {{ 'badge-ok' if step.done else 'badge-info' }}">{{ icon('ok' if step.done else 'info') }}{{ 'Done' if step.done else 'To do' }}</span>
-      {% if (step.worker_fact | default(false)) and not setup.worker_reporting %}<span class="hint">Worker not reporting</span>{% endif %}
+      {% if (step.worker_fact | default(false)) and not setup.worker_reporting %}<span class="hint">Worker not reporting</span> · {% endif %}
       <span>{{ step.label }}</span>
       {% if not step.done %} · <a href="{{ step.href }}">{{ step.action }}</a>{% if step.secondary | default(false) %} · <a href="{{ step.secondary[1] }}">{{ step.secondary[0] }}</a>{% endif %}{% endif %}
     </li>
