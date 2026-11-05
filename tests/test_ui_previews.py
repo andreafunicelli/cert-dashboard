@@ -241,3 +241,21 @@ def test_overview_setup_checklist_states_and_step_links():
     assert 'href="/settings?tab=inventory"' in opened  # optional repository, step 2
     assert 'href="/ssh-keys"' in opened and 'href="/settings?tab=smtp"' in opened
     assert 'href="/servers#discovery-actions"' in opened
+
+
+def test_every_shell_page_has_one_global_htmx_config_after_the_viewport():
+    import json
+
+    from app.web.administration import HTMX_CONFIG
+
+    env = environment()
+    for name, (template, context) in fixtures().items():
+        if name.startswith("email-"):
+            continue
+        elements = Elements(env.get_template(template).render(context)).elements
+        metas = [i for i, (tag, attrs) in enumerate(elements)
+                 if tag == "meta" and attrs.get("name") == "htmx-config"]
+        viewport = next(i for i, (tag, attrs) in enumerate(elements)
+                        if tag == "meta" and attrs.get("name") == "viewport")
+        assert metas == [viewport + 1], name
+        assert json.loads(elements[metas[0]][1]["content"]) == HTMX_CONFIG, name

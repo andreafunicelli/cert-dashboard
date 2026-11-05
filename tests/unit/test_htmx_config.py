@@ -4,15 +4,24 @@ htmx reads only the *first* ``<meta name="htmx-config">`` it finds. A1 therefore
 configuration into ``base.html.j2`` (sourced from ``app/web/management.py``) so a CSRF refusal, a
 missing page or a server error is swapped into ``#main-content`` on every page, not only on the
 Slice B management screens.
+
+This file stays inside ``tests/unit`` (the image runs it without ``scripts/``): it renders the shell
+and the error page with a local Jinja environment instead of importing the preview generator. The
+"every page" sweep lives in the repository-level preview tests.
 """
 
 import json
 from html.parser import HTMLParser
+from pathlib import Path
 from types import SimpleNamespace
 
-from app.web.administration import HTMX_CONFIG
+from jinja2 import Environment, FileSystemLoader
+
+from app.web.administration import DEFAULT_BRAND, HTMX_CONFIG, HTMX_CONFIG_JSON
 from app.web.management import _HTMX_CONFIG
-from scripts.render_previews import environment, fixtures
+
+ROOT = Path(__file__).resolve().parents[2]
+TEMPLATES = ROOT / "app/templates"
 
 
 class Head(HTMLParser):
@@ -35,25 +44,48 @@ class Head(HTMLParser):
             self._in_head = False
 
 
-def _pages():
-    env = environment()
-    for name, (template, context) in fixtures().items():
-        if name.startswith("email-"):
-            continue  # mail templates do not extend the shell
-        yield name, env.get_template(template).render(context)
+def _environment() -> Environment:
+    from markupsafe import Markup
+
+    env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=True)
+    env.globals["brand"] = DEFAULT_BRAND
+    env.globals["htmx_config"] = Markup(HTMX_CONFIG_JSON)
+    return env
 
 
-def test_every_shell_page_emits_the_global_config_first_after_the_viewport():
-    for name, html in _pages():
-        tags = Head(html).tags
-        viewport = next(i for i, (tag, attrs) in enumerate(tags)
-                        if tag == "meta" and attrs.get("name") == "viewport")
-        metas = [i for i, (tag, attrs) in enumerate(tags)
-                 if tag == "meta" and attrs.get("name") == "htmx-config"]
-        assert metas == [viewport + 1], name
-        before = tags[: metas[0]]
-        assert not any(tag == "link" and attrs.get("rel") == "stylesheet" for tag, attrs in before), name
-        assert json.loads(tags[metas[0]][1]["content"]) == HTMX_CONFIG, name
+def _shell_context(**overrides):
+    request = SimpleNamespace(
+        url=SimpleNamespace(path="/scans"),
+        state=SimpleNamespace(worker_stale=False),
+        headers={"HX-Request": "false"},
+    )
+    return {
+        "request": request,
+        "navigation": [],
+        "user": SimpleNamespace(display_name="Fixture operator"),
+        "status_banner": "",
+        "capability_banner": "",
+        "flash": [],
+        **overrides,
+    }
+
+
+def test_the_shell_emits_one_global_config_between_viewport_and_stylesheets():
+    source = (TEMPLATES / "base.html.j2").read_text()
+    viewport = source.index('<meta name="viewport"')
+    config = source.index('<meta name="htmx-config"')
+    stylesheet = source.index('<link rel="stylesheet"')
+    extra_css = source.index("{% block extra_css %}")
+    assert viewport < config < stylesheet < extra_css
+    assert source.count('name="htmx-config"') == 1
+
+    tags = Head(_environment().get_template("base.html.j2").render(_shell_context())).tags
+    viewport_index = next(i for i, (tag, attrs) in enumerate(tags)
+                          if tag == "meta" and attrs.get("name") == "viewport")
+    metas = [i for i, (tag, attrs) in enumerate(tags)
+             if tag == "meta" and attrs.get("name") == "htmx-config"]
+    assert metas == [viewport_index + 1]
+    assert json.loads(tags[metas[0]][1]["content"]) == HTMX_CONFIG
 
 
 def test_the_rule_list_extends_the_management_config_with_error_page_swaps():
@@ -73,13 +105,13 @@ def test_the_rule_list_extends_the_management_config_with_error_page_swaps():
 
 
 def test_enhanced_forms_no_longer_emits_a_competing_meta():
-    template = environment().get_template("_inventory_ui.html.j2")
+    template = _environment().get_template("_inventory_ui.html.j2")
     assert "htmx-config" not in str(template.module.enhanced_forms())
 
 
 def test_error_page_focuses_its_heading_only_for_htmx_requests():
-    template = environment().get_template("error.html.j2")
-    context = fixtures()["error-404"][1]
+    template = _environment().get_template("error.html.j2")
+    context = _shell_context(status=404, message="Page not found.", request_id="fixture-request")
 
     def render(header: str) -> str:
         request = SimpleNamespace(
