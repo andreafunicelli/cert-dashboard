@@ -248,8 +248,40 @@ with the pull request that delivered each group of changes.
   and htmx forms, inline 422 field errors, `<details>` confirmation disclosures, empty states and
   source/state badges, plus the management page shell and its navigation entries.
 
+**Slice B management surfaces (PRs #95–#98, #101)**
+
+- `/inventory` creates and edits manual hosts: list with source badges, bookmarkable filters and paging,
+  the optional repository panel, the manual SSH user/port defaults, edit, deactivate/reactivate and
+  delete-with-confirmation. Discovery and deploy use repository hosts ∪ active manual hosts, so no
+  repository is required (PRs #96, #98).
+- `/users` and `/users/{id}` manage local accounts: create with a temporary password, edit email and
+  display name, deactivate/reactivate, reset password and reset 2FA. Deactivation, reactivation, password
+  reset and 2FA reset are re-authenticated with the acting administrator's password; every change is
+  audited (PR #97).
+- `/ssh-keys` shows the worker client key read-only beside a trust store for server host public keys:
+  paste 1–20 verified keys, private keys and host patterns are refused, removal asks for confirmation,
+  and the mounted `known_hosts` file is never edited (PRs #95, #98).
+- An `https://` Test pull no longer needs host trust; `ssh://`, discovery and deploy still fail closed
+  with an actionable `no trusted SSH host keys …` message (PR #101).
+
+**Dashboard UX: shell, hub, branding and confirmations (PRs #102–#105)**
+
+- Five main navigation entries (Overview, Certificates, Infrastructure, Operations, Administration),
+  Infrastructure opening on `/inventory`, an Administration hub with one server-computed status line per
+  entry, a six-step Overview setup checklist, a narrow-screen section picker in Settings, `/servers`
+  empty states and one global HTMX error configuration (PR #102).
+- Settings → Branding replaces the navigation and sign-in mark: standard-library PNG/SVG validation
+  (256 KiB, dimension and aspect limits, safe-SVG profile), a session-bound 30-minute preview,
+  save/discard/reset with a revision compare-and-set, and the public `GET /branding/logo`. The product
+  name and favicon stay fixed (PRs #103, #104).
+- Deactivating an endpoint now requires a native confirmation disclosure; its scan history is kept and
+  activation stays immediate (PR #105).
+
 ### Changed
 
+- `README.md`, `docs/development.md` and `docs/operations.md` now describe the five-area navigation,
+  in-dashboard inventory, users and SSH host keys, the optional Git repository, the Administration hub
+  and Settings → Branding; `docs/screenshots/` was regenerated from the current previews.
 - `README.md` rewritten around the product, the interface and the operator path, with screenshots
   rendered from `docs/ui/previews/` and stored under `docs/screenshots/` (PR #76).
 - `README.md` screenshots are captures of a running instance populated with synthetic data through the

@@ -142,6 +142,10 @@ worker startup (exit code 2). Without it, mails carry relative paths such as `/c
 | Configure or test e-mail | Section 10.1: **Settings → SMTP**, then **Send test email**. The outcome (step names and reply codes) is shown on the same tab |
 | Pause alerts, digest or scanning | Section 10.2: clear *Send the daily digest*, *Run the daily expiry check* or *Run the daily scan* in **Settings → Alerts** / **Settings → Scanning**. Manual **Scan now** keeps working |
 | Check what the endpoints serve | **Scans** (`/scans`): statuses, history, **Scan now**/**Scan all**, expectations (section 10.4) |
+| Add or edit a host | **Infrastructure → Inventory**: create, edit, deactivate/reactivate, delete; manual hosts need no repository (section 11.1) |
+| Create or manage a user | **Administration → Users**: create with a temporary password, edit email/display name, deactivate/reactivate, reset password or 2FA |
+| Trust a server's SSH host key | **Infrastructure → SSH keys**, after comparing the fingerprint with the host through an independent channel (section 11.1) |
+| Replace the logo | **Administration → Settings → Branding**: SVG or PNG up to 256 KiB, preview, save, reset to default |
 
 ## 4. Database backup and restore
 
@@ -578,7 +582,8 @@ certificate the dashboard observes.
   identity tells you which row already holds it. The endpoint is written and audited immediately;
   no job is queued. Setting an expectation or activating/deactivating works the same way, so the
   management forms are synchronous — only **Scan now** and **Scan all** queue worker jobs.
-  Endpoints are deactivated, never deleted, so their history stays.
+  Deactivating an active endpoint asks for confirmation in a native disclosure (the scan history is
+  kept), and **Activate** is immediate. Endpoints are deactivated, never deleted, so their history stays.
 - **History** opens the last 20 results of one endpoint. The detail page explains a mismatch with the
   expected and observed certificate and the three usual actions: renew and deploy the certificate,
   import the served certificate from this endpoint (prefilled `/certificates/import`), or update the
@@ -593,7 +598,7 @@ certificate the dashboard observes.
 Scan history is kept for 90 days (`SCAN_RESULT_RETENTION`, removed by the daily cleanup); the endpoint
 row and its current status are kept indefinitely.
 
-### 10.5 Servers and Bindings before discovery exists
+### 10.5 Servers and Bindings
 
 **Servers** (`/servers`, `/servers/{id}`) and **Bindings** (`/bindings`) are read-only views of the
 `server` and `binding` tables: hostnames, Ansible groups, web server, binding counts, last discovery
@@ -602,12 +607,12 @@ file owners and octal modes, the on-disk fingerprint, the matched certificate an
 `/bindings/help` explains `key_mismatch` and `missing_file` and states that the dashboard does not fix
 them. Both exports omit free-text notes and key material.
 
-This release ships **no discovery job**, so nothing fills those tables: on a fresh installation the
-screens are empty, and *Run discovery* / *Last raw dump summary* are disabled with
-`handler discover/default not registered (Plan 3)`. Servers and bindings arrive with Plan 3's discovery;
-until then endpoints (added by hand on **Scans**, or upserted by a pull import) are how TLS is observed,
-and the Overview's unknown-certificate and key-mismatch counters stay at zero unless rows were loaded
-outside the application.
+On a fresh installation both are empty until a discovery runs. Discovery reads the inventory — manual
+hosts, the optional repository, or the union of both (section 11.1) — so add the hosts in
+**Infrastructure → Inventory** first, then run **Servers → Discover all**. Until then endpoints (added by
+hand on **Scans**, or upserted by a pull import) are how TLS is observed, and the Overview's
+unknown-certificate and key-mismatch counters stay at zero unless rows were loaded outside the
+application.
 
 ### 10.6 Overview slots
 
@@ -632,9 +637,29 @@ runs; deployment writes issued certificates host-atomically, canary first, with 
 config test, an on-target verification and an automatic per-host rollback. `web` only reads the
 database and enqueues jobs: every Ansible, Git and SSH connection is made by `worker`.
 
-### 11.1 The inventory (Settings → Inventory)
+### 11.1 The inventory: dashboard hosts and the optional repository
 
-Four settings, all validated on save and all audited (`settings.update`):
+**Infrastructure → Inventory** is where hosts are created. Two sources share the `server` table:
+
+- **Manual hosts** are rows created on `/inventory`. They are first-class: discovery and deploy use them
+  with no repository configured, by rendering them into a per-job Ansible inventory passed as a second
+  `-i` beside the Git inventory (the repository's own `group_vars`, `host_vars` and vaulted files are
+  never re-rendered). A row carries hostname, optional display name and connection address (hostname or
+  IP, without user or port), web server (empty = auto-detect), Ansible groups and notes. The hostname
+  must be valid and unique across manual and repository rows.
+- **Repository hosts** are listed by the optional Git inventory. Git is authoritative for every hostname
+  it lists: the next discovery adopts a manual row with the same name (id, bindings, history, display
+  name and notes are kept), and a manual host is never deactivated just because Git omits it. Repository
+  rows are read-only in the UI except display name and notes.
+
+Manual hosts authenticate with the connection defaults on the same page: `inventory.manual_ssh_user`
+(empty = the Ansible default user) and `inventory.manual_ssh_port` (22). Deactivating a host stops
+discovery and deploys for it; delete asks for confirmation and is refused while the host has discovery
+or deploy history, so deactivate it instead. The list filters by text, group, source, web server and
+state, and pages at 50 rows by default.
+
+The optional repository is configured in **Administration → Settings → Inventory repository**. Four
+settings, all validated on save and all audited (`settings.update`):
 
 | Field | Meaning |
 | --- | --- |
@@ -643,11 +668,12 @@ Four settings, all validated on save and all audited (`settings.update`):
 | **Path inside the repository** (`inventory.path`) | Where the Ansible inventory lives, relative and without `..`; empty = the root |
 | **Web server variable** (`inventory.webserver_var`) | Inventory variable holding `nginx`/`apache` (default `webserver_type`); absent = auto-detected on the host |
 
-**Test pull** (`Settings → Inventory → Test pull`) runs the whole inventory preparation and
+**Test pull** (`Settings → Inventory repository → Test pull`) runs the whole inventory preparation and
 `ansible-inventory --list` **without touching any server**: it shows the resolved revision, the revision
 date, the host and group counts and how long the pull took. It is the first thing to press after a
 credential change. The button is disabled — with the reason on the tab — while no live worker has
-`ansible_ssh_key` or while the repository URL is empty.
+`ansible_ssh_key` or while the repository URL is empty. An `https://` URL does not need host trust for
+the test pull; `ssh://` and scp-like URLs do (see *Host trust* below).
 
 The worker keeps a read-only checkout under its `inventory_root` (`/srv/inventory` in the image). Every
 `discover`/**Test pull** job refreshes it by fetching into a private ref and only then resetting the
@@ -656,17 +682,27 @@ is skipped, and a pull failure keeps the last good revision while that revision 
 (the job then reports `inventory_warning`). Discovery and deploy results carry `inventory_rev` (40-hex
 commit) and `inventory_rev_date`, which is what the Overview's status strip and the digest show.
 
-**Schedules.** *Settings → Schedule* holds `discovery.nightly_at` (default 03:00 UTC) and
+**Host trust.** Discovery and deploy resolve `known_hosts` from the mounted file **∪** the keys trusted
+in **Infrastructure → SSH keys**. With neither, a job fails `config_invalid` before connecting with
+`no trusted SSH host keys: trust them in Infrastructure → SSH keys or mount a known_hosts file`. To
+trust a key, compare `ssh-keyscan -t ed25519 <host>`'s fingerprint with the host through an independent
+channel, paste the public key on that page, list the hosts it belongs to and tick the verification
+attestation. A paste takes 1–20 keys (ED25519, ECDSA, RSA ≥ 2048 bits); private keys, hashed host names,
+wildcard patterns and CA/revoked markers are refused. Removing a dashboard key never edits the mounted
+file.
+
+**Schedules.** *Settings → Schedule and scans* holds `discovery.nightly_at` (default 03:00 UTC) and
 `discovery.enabled`. The nightly discovery runs the whole inventory at priority 100. On demand:
 
 - **Servers → Discover all** (`POST /servers/discover`, `scope=all`) — the whole inventory, priority 200;
 - **Servers → a server → Discover** (`POST /servers/{id}/discover`) — one host;
 - **Servers → Discover by group** — one inventory group.
 
-A per-host or per-group discovery needs the `server` row, and only a discovery creates one: on a brand-new
-installation the first run is **Discover all** over a one-host inventory, and the remaining hosts are added
-afterwards (the staging in section 12.1/12.2). A discovery always syncs the whole inventory into `server`
-rows but connects only to the hosts its scope selects.
+A per-host or per-group discovery needs the `server` row: create the host in **Infrastructure →
+Inventory** first, or let a **Discover all** sync the repository into rows. On a brand-new installation
+with a repository, the first run is **Discover all** over a one-host inventory, and the remaining hosts
+are added afterwards (the staging in section 12.1/12.2). A discovery always syncs the whole inventory
+into `server` rows but connects only to the hosts its scope selects.
 
 Discovery and deployment share two worker slots with scans and are claimable only by a worker that has
 an SSH key — stored in the interface or mounted as `ansible_ssh_key` (without one the screens show
@@ -709,7 +745,7 @@ The files, mounted with `docker-compose.credentials.yml` (section 2.3) after pro
 | Secret / mount | Purpose |
 | --- | --- |
 | `ansible_ssh_key` | The private key Ansible, `git` and `ssh` use. Passed to the child processes as a `0600` file in `key_staging_dir` (`/run/cert-keys`, tmpfs) and removed in `finally` |
-| `known_hosts` → `/etc/ssh/ssh_known_hosts` (`SSH_KNOWN_HOSTS`) | Pinned host keys for the managed servers. A missing file fails every `discover`/`deploy` with `config_invalid` **before** any connection |
+| `known_hosts` → `/etc/ssh/ssh_known_hosts` (`SSH_KNOWN_HOSTS`) | Pinned host keys for the managed servers. Effective trust is this file ∪ the keys trusted in **Infrastructure → SSH keys**; with neither, every `discover`/`deploy` fails `config_invalid` before any connection with `no trusted SSH host keys: …` (an `https://` Test pull stages an empty file and still runs) |
 | `ansible_vault_password` (optional) | Vault password for vaulted inventory files. Reaches Ansible as `CERT_DASHBOARD_VAULT_PASSWORD` plus `ANSIBLE_VAULT_PASSWORD_FILE` pointing at `app/ansible/vault_client.py`, which prints it and exits non-zero when it is missing |
 | `inventory_git_token` (optional) | HTTPS Git token. Reaches `git` as `CERT_DASHBOARD_GIT_TOKEN` through `app/ansible/git_askpass.py` (user `x-access-token`), with `GIT_TERMINAL_PROMPT=0` and an empty credential helper, so nothing lands in `.git/config` |
 | `smtp_password` (optional) | Relay AUTH password for alerts and the digest (section 10.1). File only: it is not one of the three settings above |
@@ -863,6 +899,10 @@ containerised targets with a fixture CA; it proves the code paths but **does not
 and nothing in this repository claims that the production run below has happened. Record the evidence in
 the table at the end of the section and keep it with the installation.
 
+This drill uses the optional Git repository as the inventory source because it also exercises the
+checkout path. A manual-only installation performs the same steps with the hosts added in
+**Infrastructure → Inventory** and skips the repository commits in steps 6 and 9 (section 11.1).
+
 ### 12.1 Prerequisites on the target hosts
 
 1. **OS packages**: `openssh-server`, the webserver (`nginx` or `apache2` with `a2enmod ssl`), `sudo`,
@@ -923,7 +963,9 @@ the table at the end of the section and keep it with the installation.
    and the same file (`git_environment()` in `app/services/inventory.py` sets `GIT_SSH_COMMAND` with
    `StrictHostKeyChecking=yes`), so pin the Git server too: for
    `ssh://cdeploy@10.0.0.5:2222/srv/inventory.git` the entry is `[10.0.0.5]:2222`, and the bare `10.0.0.5`
-   when it listens on 22. An `https://` repository needs no entry; TLS verifies it. Install the file
+   when it listens on 22. An `https://` repository needs no entry; TLS verifies it. The same verified
+   public keys can be trusted in **Infrastructure → SSH keys** instead of the mounted file; this drill
+   keeps the file so the mount path is exercised too. Install the file
    root-owned `0644`, mount it at `/etc/ssh/ssh_known_hosts` (section 11.2), then prove every lookup and
    one real connection before the first discovery:
 
@@ -998,10 +1040,10 @@ one host.
 | 3 | Log out, log back in with 2FA | browser | the second factor is asked and the dashboard opens |
 | 4 | SMTP | **Settings → SMTP** (host, port, security, from, optional username), **Send test email** | the relay answers and the message arrives; the tab shows the step list and reply codes |
 | 5 | Expiry alert for a certificate 7 days out | issue (or pick) a certificate whose `notAfter` is 7 days away and import it with **Certificates → Import**, format **PEM**, pasting the certificate (public part only); **Settings → Alerts**: at least one recipient, a threshold list containing 7 (default `60,30,14,7,1,0`) and *Run the daily expiry check* ticked; **Settings → Schedule**: set *Expiry check* a few minutes ahead (UTC) | the next scheduler tick (≤ 30 s) enqueues `alert_expiry`; the recipient receives `Certificate <CN> expires in 7 days` and **Settings → Alerts** records the delivery; set the schedule back to 07:00 |
-| 6 | Inventory, **first host only** | **Settings → Inventory**: URL, ref, path, web server variable → save, then **Test pull** | resolved revision, revision date, **hosts 1** and the group count; Test pull creates no `server` row, which is why the repository starts with one host |
+| 6 | Inventory, **first host only** | **Settings → Inventory repository**: URL, ref, path, web server variable → save, then **Test pull** | resolved revision, revision date, **hosts 1** and the group count; Test pull creates no `server` row, which is why the repository starts with one host |
 | 7 | Read-only discovery of **one** host | `touch /tmp/before` on the host, then **Servers → Discover all** (the inventory holds only this host, so the job contacts only it) | the server and its bindings appear; `find /etc /var/backups -newer /tmp/before` on the host prints **nothing** |
 | 8 | Spot-check against reality | on the host, the command of §12.2.3 for the webserver that host runs (nginx **or** Apache, never both roots in one command) | every certificate, chain and key path of the **active** configuration is a path **Bindings** shows for that server and no binding path is missing — included files and chain files included (D1, D3); repeat after step 9 on a second host, and read §12.2.3 before treating an inactive vhost as a finding |
-| 9 | Full inventory (second commit) | add the remaining hosts as in §12.2.1, commit and push, wait **≥ 60 s after the previous pull** (the worker skips a pull inside 60 s of the last one, §11.1), then **Settings → Inventory → Test pull** and **Servers → Discover all** | Test pull reports **hosts 3** and 2 groups and the revision follows the repository (inside the 60 s window it still reports the first revision — wait and press again); every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
+| 9 | Full inventory (second commit) | add the remaining hosts as in §12.2.1, commit and push, wait **≥ 60 s after the previous pull** (the worker skips a pull inside 60 s of the last one, §11.1), then **Settings → Inventory repository → Test pull** and **Servers → Discover all** | Test pull reports **hosts 3** and 2 groups and the revision follows the repository (inside the 60 s window it still reports the first revision — wait and press again); every host `ok`, `bindings_added` > 0 for the new hosts, no `parse_suspected`, no `dump_too_large` |
 | 10 | Import a real certificate + key | **Certificates → Import** with **PFX** and its password — the PFX round trip is **mandatory** for this acceptance; PEM plus key is a routine-operations option and does not replace it (step 12 exports the same material) | the detail page shows the key and the chain; `key.import` is audited without key material |
 | 11 | Rediscover, then check `matched` (D2) | **Servers → the host that serves that certificate → Discover** (or **Discover all**) | its bindings become `matched`, each with `on_disk_key_public_sha256` equal to the key's `public_key_sha256` (DER, section 11.6); the match state is computed *by discovery*, so right after the import the bindings still show the previous state |
 | 12 | Export it again and compare | detail → **Export PFX** (re-enter your password, choose an export password) | the exported PKCS#12 opens and carries the same leaf and public key (`openssl pkcs12 -in export.pfx -nokeys -info`) |

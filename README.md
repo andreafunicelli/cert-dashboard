@@ -5,14 +5,18 @@ over ACME. It imports them, shows what expires next, watches what the registered
 serve, mails the people who need to know, walks a manual-CA renewal from key and CSR to an issued
 certificate, and deploys the result to nginx and Apache hosts with automatic rollback.
 
-It runs as one Compose stack on a single internal Linux host and talks to no external service.
-Private keys and TOTP seeds are stored encrypted under a keyring the operators hold.
+It runs as one Compose stack on a single internal Linux host. Apart from your SMTP relay and an
+optional Git inventory remote, it talks to no external service. Private keys and TOTP seeds are stored
+encrypted under a keyring the operators hold.
+
+Hosts, users and SSH host trust are managed inside the dashboard; a Git inventory repository is an
+optional source, and the logo can be replaced from Settings → Branding without a rebuild.
 
 It is not a CA and signs nothing. There is no ACME/Let's Encrypt flow and no CA API integration, it
 never edits nginx or Apache configuration, it does not check OCSP or CRL, and it has no
 high-availability or multi-tenant mode. Every active user is an administrator: v1 has no RBAC.
 
-![Overview page as a work queue: Needs attention lists expired certificates, certificates expiring in under 7 days and endpoints serving a different certificate, each with a count and a next step; In flight shows renewals awaiting an issued certificate, running scans and running deployments; a System strip shows worker state, last discovery, last digest and inventory revision; Inventory and history is collapsed](docs/screenshots/overview.png)
+![Overview page as a work queue: Needs attention lists expired certificates, certificates expiring in under 7 days, endpoints serving a different certificate and failed or rolled-back deployments, each with a count and a next step; In flight shows renewals awaiting an issued certificate, running scans and running deployments; a System strip shows worker state, last discovery, last digest and inventory revision; the Setup checklist is collapsed at 5 of 6 steps done and Inventory and history is collapsed](docs/screenshots/overview.png)
 
 **What you get**
 
@@ -22,17 +26,26 @@ high-availability or multi-tenant mode. Every active user is an administrator: v
 - TLS observation: scheduled scans that record what an endpoint serves next to what is stored.
 - Manual-CA renewal: a resumable wizard from key and CSR to an issued certificate.
 - Deployment: discovery from an Ansible inventory, canary-first rollout, automatic per-host rollback.
+- In-dashboard management: manual hosts, local users and trusted SSH host keys are created and edited
+  in the UI, and a Git inventory repository stays optional.
+- Replaceable identity: upload an SVG or PNG logo for navigation and sign-in, preview it before saving
+  and reset to the default.
 - Access and audit: local accounts with TOTP MFA, an append-only audit trail, database sessions.
 
-Navigation groups the pages into four areas: **Certificates** (the inventory, import and renewals),
-**Infrastructure** (servers, bindings and discovery), **Operations** (scans, deploy and jobs) and
-**Administration** (users, audit, settings and account). The overview is the landing page.
+Navigation groups the pages into five areas: **Overview**, **Certificates** (inventory, import and
+renewals), **Infrastructure** (inventory hosts, servers, bindings, discovery and SSH keys),
+**Operations** (scans, deploy and jobs) and **Administration** (the hub, users, settings, audit and
+account). The current area's pages appear in the bar below the main navigation; narrow screens use a
+single `Menu · <area>` disclosure with the same tree. The overview is the landing page.
+
+![Narrow viewport: the Overview with the compact header mark and a collapsed Menu · Overview disclosure above the Needs attention table](docs/screenshots/overview-narrow.png)
 
 ## Contents
 
 - [Certificate inventory](#certificate-inventory) · [Expiry awareness](#expiry-awareness) ·
   [TLS observation](#tls-observation) · [Renewal](#renewal)
-- [Deployment](#deployment) · [Access and audit](#access-and-audit)
+- [Deployment](#deployment) · [Managing the dashboard](#managing-the-dashboard) ·
+  [Access and audit](#access-and-audit)
 - [Security model](#security-model) · [Quick start](#quick-start) · [Configuration](#configuration)
 - [Operations](#operations) · [Architecture](#architecture) · [Development](#development)
 - [License and status](#license-and-status)
@@ -56,9 +69,9 @@ a supplied key is encrypted before it is stored.
   JSON; the detail page adds chain status, key presence and public fingerprint, lineage, audit rows,
   the endpoints panel and the deploy panel.
 
-![Certificate list: the grouped navigation with the Certificates sub-navigation, a collapsed Filters disclosure and one primary Import certificate action, then six single-line rows whose status bar and status badge carry the expiry signal (Expired, 3 days, 20 days, Valid) with issuer, expiry date and binding count](docs/screenshots/certificate-list.png)
+![Certificate list: the five-area navigation with the Certificates area bar, a search field, a collapsed Filters disclosure and one primary Import certificate action, then five single-line rows whose status bar and badge carry the expiry signal (20 days, Valid, Expired, Revoked, Unknown) with issuer, expiry date and binding count](docs/screenshots/certificate-list.png)
 
-![Certificate detail: a valid certificate with 198 days left, SANs, subject, issuer, fingerprint and download actions, and the validation block that reports an incomplete chain, names the missing issuer and says the stored status was re-assessed against the enabled trust anchors](docs/screenshots/certificate-detail.png)
+![PFX export: the export form for gateway.ops.example.test, explaining that the bundle is built in memory, that it is sent once and that the export is audited without the password, then asking for the current password and a 12–1,024 character PFX password twice](docs/screenshots/certificate-export.png)
 
 ![Import screen: upload form with optional chain and key, and the pull-from-host-and-port form](docs/screenshots/certificate-import.png)
 
@@ -81,7 +94,7 @@ default), and the smallest threshold it has crossed produces one e-mail per cert
 - Mail leaves the worker only, over STARTTLS, SSL/TLS or plaintext as configured, and AUTH is
   attempted only over TLS. `smtp_password` is a worker-only file secret.
 
-![Alerts settings: threshold days, team recipients, digest and expiry-check switches, recent delivery failures](docs/screenshots/alert-settings.png)
+![Alerts settings: threshold days, recipients, the daily digest and expiry-check switches, and the recent delivery failures list (empty)](docs/screenshots/alert-settings.png)
 
 ## TLS observation
 
@@ -100,7 +113,7 @@ adds endpoints from bindings; you can also add them by hand.
 
 ![Scans page: the endpoint list with one manual endpoint whose last observation is a mismatch, its server, status and observation time, the collapsed Filters disclosure, and the add-endpoint form below the table](docs/screenshots/scan-list.png)
 
-![Scan detail: a mismatch finding with the expected and observed SHA-256 fingerprints, the observed common name, expiry, chain length and TLS version, the Manage endpoint form and the likely actions](docs/screenshots/scan-detail.png)
+![Scan detail: a mismatch finding with the expected and observed SHA-256 fingerprints, the observed common name, expiry, chain length and TLS version, the Manage panel with its Active certificate selector and the collapsed Deactivate monitoring… confirmation, and the likely actions](docs/screenshots/scan-detail.png)
 
 ## Renewal
 
@@ -121,10 +134,11 @@ stopped.
 
 ## Deployment
 
-Settings → Inventory points the worker at a Git repository of Ansible inventory (URL, ref, checkout
-path, `webserver_var`). The worker keeps a read-only checkout and runs Ansible read-only against the
-listed nginx and Apache hosts: it reads configuration, certificates and keys, never writes a file and
-never reloads a service.
+**Infrastructure → Inventory** holds the hosts; a Git repository of Ansible inventory — **Settings →
+Inventory repository**, with URL, ref, checkout path and `webserver_var` — can optionally add more.
+When a repository is configured the worker keeps a read-only checkout of it, and discovery and deploy
+run Ansible read-only against the selected nginx and Apache hosts, repository hosts plus active manual
+hosts: it reads configuration, certificates and keys, never writes a file and never reloads a service.
 
 - Certificate roles are decided by verifying file content: a chain file counts only when it really
   signs the leaf, and an unreadable or incomplete chain is diagnosed instead of guessed. Apache
@@ -154,8 +168,9 @@ never reloads a service.
 
 ## Access and audit
 
-- Local accounts only. The LDAP backend exists as a reserved stub that returns `not_supported`; no
-  directory integration is implemented in v1, and every active user is an administrator.
+- Local accounts only, created and managed in **Administration → Users**. The LDAP backend exists as a
+  reserved stub that returns `not_supported`; no directory integration is implemented in v1, and every
+  active user is an administrator.
 - TOTP two-factor authentication with single-use recovery codes. Ten consecutive failures lock an
   account for 15 minutes, a password change revokes the other sessions, and the last active user
   cannot be deactivated.
@@ -165,10 +180,110 @@ never reloads a service.
   rows share the transaction of the change they describe. The browser filters by actor, action prefix,
   target, time and IP, and exports the newest 5,000 rows as JSON metadata.
 
-![Account page: password change, two-factor authentication offered but not enabled in this capture, and the current session](docs/screenshots/account-mfa.png)
+![Account page: password change, two-factor authentication enabled with eight recovery codes remaining, and the current session](docs/screenshots/account-mfa.png)
 
-*Screenshots are captures of a running instance populated with synthetic data, except the deploy,
-renewal and alert-settings images, which are renders of the same templates with fixture data.*
+*Screenshots are renders of the repository's own Jinja templates with synthetic fixture data
+(`docs/ui/previews`), not captures of a running instance; `docs/ux-audit/live/` keeps the last live
+walkthrough.*
+
+## Managing the dashboard
+
+Every day-to-day object is managed in the UI: hosts, users, SSH host trust, the optional inventory
+repository and the logo. None of it needs a database shell or a file edit.
+
+**Overview** lists what is still missing for a working installation — certificate, hosts, worker SSH
+key, server host trust, SMTP and a first discovery — and links each outstanding step to the screen that
+completes it. The checklist disappears once all six are done.
+
+![Overview with the Setup checklist open: five of six steps done, and step 4 "Trust your servers' SSH host keys" marked To do with a Trust host keys link](docs/screenshots/overview-setup.png)
+
+### Inventory
+
+**Infrastructure → Inventory** lists every host with its source badge (`Manual` or
+`Repository · <ref>:<path>@<sha7>`), connection address, groups, web server (`auto` when unset), state,
+last discovery, binding count and actions. Filters (`q`, group, source, web server, state) are
+bookmarkable and paging defaults to 50 rows.
+
+- **Add a host** with a hostname, optional display name and connection address (a hostname or IP
+  literal, without user or port), web server, groups and notes. The hostname is validated and must be
+  unique across manual and repository rows.
+- Edit, deactivate, reactivate and delete live on the row. Deactivation stops discovery and deploys for
+  that host. Delete asks for confirmation and is refused while the host has discovery or deploy history:
+  deactivate it instead.
+- The page also sets the connection defaults for manual hosts: `inventory.manual_ssh_user` and
+  `inventory.manual_ssh_port` (22 by default). Every manual host uses them.
+- Repository rows are read-only except display name and notes, because the next discovery rewrites the
+  rest from Git.
+
+A repository is optional: with `inventory.repo_url` empty, Inventory, Servers, discovery and deploy all
+work on manual hosts.
+
+### The optional Git repository
+
+**Administration → Settings → Inventory repository** points the worker at a Git repository of Ansible
+inventory: URL (`https://`, `ssh://` or scp-like), ref, path inside the repository and the web-server
+variable. Any Git host works — GitHub, GitLab, Gitea or a plain server. There is no GitHub API, OAuth,
+app installation or repository browser, and no screen redirects outside the dashboard.
+
+**Test pull** resolves the revision and runs `ansible-inventory --list` without touching a server.
+**Import from repository** on Inventory queues discovery of the repository hosts. Discovery and deploy
+use repository hosts ∪ active manual hosts that the repository does not list; Git is authoritative for
+every hostname it lists, and a manual host is never deactivated just because Git omits it. Test pull and
+Import from repository are the only actions that require a repository.
+
+### SSH keys
+
+**Infrastructure → SSH keys** keeps two separate trust problems on one page.
+
+- The **worker client key** — the private key Ansible, Git and SSH use — is managed in
+  **Settings → Worker** and shown here read-only: presence, provenance, type and public fingerprint.
+- The **trust store** for server host keys: paste a host's public key (for example the output of
+  `ssh-keyscan`), name the hosts it belongs to, and tick the attestation that you compared the
+  fingerprint with the server through an independent channel. A paste accepts 1–20 keys and up to 20
+  hosts per line; ED25519, ECDSA and RSA keys of at least 2048 bits are accepted. Private keys, hashed
+  host names, wildcard patterns and CA/revoked markers are refused. Removal asks for confirmation and
+  never edits the mounted `known_hosts` file.
+
+Effective host trust is the mounted `known_hosts` file ∪ the keys trusted in the dashboard. Without
+either, every discovery and deploy fails closed with `no trusted SSH host keys: trust them in
+Infrastructure → SSH keys or mount a known_hosts file`; an `https://` Test pull does not need host keys.
+
+### Users
+
+**Administration → Users** lists every account with sign-in backend, 2FA state, account state and last
+login. **Create user** issues a temporary password that must be changed at first sign-in. The user page
+edits email and display name, deactivates and reactivates, resets the password and resets 2FA.
+Deactivation, reactivation, password reset and 2FA reset ask for your own current password;
+deactivation and both resets sign the affected user out, and every action is audited. Inactive accounts
+stay in the list and in the audit history; there is no hard delete and no role model — every active user
+is an administrator — and the last active user cannot be deactivated.
+
+![Users page: Create user and More actions, the table of accounts with sign-in, 2FA, state and last login, and the note that deactivated users stay in the list](docs/screenshots/users.png)
+
+### Administration hub
+
+**Administration** (`/administration`) is a read-only page that answers what is configured, what is
+missing and where to change it: users, account, inventory hosts, the optional repository, worker
+credentials, SSH host keys, SMTP, alerts, deployment, schedule, trust anchors, status, maintenance,
+branding and audit. Each entry links to the page that owns the value; the hub never duplicates a form.
+
+![Administration hub: People and access, Servers and access, Alerts and email, Operations policy and System, each entry with a server-computed status line](docs/screenshots/administration.png)
+
+On a narrow screen the same tree is one disclosure:
+
+![Narrow viewport: the Menu · Administration disclosure open, listing Overview, Certificates, Infrastructure (Inventory, Servers, Bindings, Discovery, SSH keys), Operations and Administration pages](docs/screenshots/administration-narrow.png)
+
+### Logo
+
+**Administration → Settings → Branding** replaces the mark shown in the navigation and on the sign-in
+page. Upload an SVG or PNG up to 256 KiB. PNG must be 1–2048 px per side with a width-to-height ratio
+between 0.5 and 6; SVG is accepted only in a safe profile — no scripts, embedded images, external
+resources, fonts or `<text>`, so convert lettering to paths. The file is validated, staged as a
+preview on dark and light surfaces at header and sign-in size, and shown in the live shell only after
+**Save logo**; **Discard preview** throws it away and a preview expires after 30 minutes. **Reset to
+default…** removes the custom logo for everyone. The product name and the favicon stay Cert Dashboard.
+
+![Settings → Branding: the default logo state with the current lockup, the SVG/PNG limit and safe-SVG help, the Logo image chooser and Preview logo button](docs/screenshots/branding.png)
 
 ## Security model
 
@@ -183,7 +298,8 @@ renewal and alert-settings images, which are renders of the same templates with 
   optional worker credentials are read-only file mounts, read once at startup, and never appear in the
   database, a compose value, argv, a log or the UI.
 - **Nothing leaves the host.** No telemetry, licence check or external API call. The only outbound
-  traffic is to your SMTP relay, from the worker, and SSH/Ansible to the hosts you configure.
+  traffic is to your SMTP relay and, when configured, your Git inventory remote — both from the worker —
+  and SSH/Ansible to the hosts you configure.
 - **Refusals.** No PEM private-key export. No deploy without a key, valid dates and a trusted chain, or
   an audited override that still cannot bypass key, validity, drift or config-test checks. Trust
   anchors must be self-signed CA roots, observed certificates are never trusted, audit rows are never
@@ -239,9 +355,11 @@ docker compose run --rm web python -m app.cli bootstrap-admin --username admin -
 docker compose up -d web worker
 ```
 
-Then enroll TOTP on the Account page, import the first certificate, and open **Settings → Status**: the
-worker must be `ok`, the keyring SHA-256 must match the fingerprint printed in step 2, and there must
-be no `missing_key_versions` warning. Worker credentials for SMTP, SSH and Git are mounted through
+Then enroll TOTP on the Account page, import the first certificate, add the hosts you deploy to in
+**Infrastructure → Inventory** (or connect the optional repository in **Administration → Settings →
+Inventory repository**), and open **Administration → Settings → Status**: the worker must be `ok`, the
+keyring SHA-256 must match the fingerprint printed in step 2, and there must be no `missing_key_versions`
+warning. Worker credentials for SMTP, SSH and Git are mounted through
 `docker-compose.credentials.yml` (`docs/operations.md` §2.3).
 
 ## Configuration
@@ -262,7 +380,8 @@ and stored in `app_setting`. Times are UTC.
 | `scan.enabled`, `scan.daily_at`, `scan.timeout_seconds` | Settings → Schedule and scans | `on`, `02:00`, `10` | Endpoint scan |
 | `discovery.enabled`, `discovery.nightly_at`, `expiry_check.enabled`, `expiry_check.daily_at`, `digest.daily_at`, `cleanup.enabled`, `cleanup.daily_at` | Settings → Schedule and scans | `on`, `03:00`, `on`, `07:00`, `07:30`, `on`, `04:00` | Daily jobs |
 | `retention.days`, `ui.timezone` | Settings → System and maintenance | `90`, `UTC` | Finished jobs kept; display time zone |
-| `inventory.repo_url`, `inventory.ref`, `inventory.path`, `inventory.webserver_var` | Settings → Inventory | empty, empty, empty, `webserver_type` | Inventory checkout |
+| `inventory.repo_url`, `inventory.ref`, `inventory.path`, `inventory.webserver_var` | Settings → Inventory repository | empty, empty, empty, `webserver_type` | Optional inventory checkout |
+| `inventory.manual_ssh_user`, `inventory.manual_ssh_port` | Infrastructure → Inventory | empty, `22` | SSH user and port for manual hosts |
 | `deploy.batch_percent`, `deploy.concurrency`, `deploy.pause_after_canary`, `deploy.pause_timeout_hours`, `deploy.host_timeout_seconds`, `deploy.backup_retention_days` | Settings → Deployment | `10`, `5`, `on`, `24`, `600`, `30` | Rollout and backup retention |
 | `trust.include_public_bundle` | Settings → Trust anchors | `on` | Also validate against the pinned certifi bundle |
 
@@ -291,7 +410,7 @@ as `settings.update` with the before and after values.
   `"worker": "stale"`, the container turns unhealthy and Settings → Status lists `worker_stale`.
   `/health/live` and `/health/ready` cover the web process and the database.
 
-![Settings status: worker heartbeat and queue counts, SMTP delivery failures, keyring versions and database size, the warnings for settings that are still missing, and the last scheduled job runs](docs/screenshots/settings-status.png)
+![Settings status: worker state and heartbeat, queue counts, one SMTP delivery failure with its last error, the keyring version and file fingerprint, database size, and the last scheduled runs (none recorded)](docs/screenshots/settings-status.png)
 
 ## Architecture
 
@@ -324,11 +443,11 @@ runs `uv run pytest -q --cov=app ... --cov-fail-under=70` with 85 % gates on `ap
 `app/services/renewals.py`, `app/services/deploy.py` and `app/ansible/parse_*`, plus `pip-audit` and
 three compose renders; the application test image runs only `tests/unit`.
 
-The interface has its own documents: `docs/ui/design-system.md` for tokens and rules, and
-`docs/ui/previews/` for 77 rendered previews of every screen, regenerated with
-`python -m scripts.render_previews`. The normative design is
-`docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task history is the three plan files
-in `docs/superpowers/plans/`. The full command set is in
+The interface has its own documents: `docs/ui/design-system.md` for tokens and rules, `docs/ui/branding.md`
+for the default identity and the replaceable-logo contract, and `docs/ui/previews/` for 96 rendered
+previews of every screen, regenerated with `python -m scripts.render_previews`. The normative design is
+`docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task history is the four plan files in
+`docs/superpowers/plans/`. The full command set is in
 [`docs/development.md`](docs/development.md#development-and-container-setup).
 
 ## License and status
@@ -337,5 +456,6 @@ No licence file is present in the repository, so no licence is granted. Add one 
 reusing the code.
 
 Status: the v1 scope of the spec is implemented. Plans 1–3 are merged (inventory and renewal, TLS
-scanning and alerts, discovery and deployment) and the interface redesign merged across PRs #70–#82.
-The limits stated above are the ones a reader will hit.
+scanning and alerts, discovery and deployment), and Plan 4's dashboard work merged across PRs #94–#105:
+in-dashboard inventory, users and SSH host keys, the five-area navigation and Administration hub, and
+the replaceable logo. The limits stated above are the ones a reader will hit.
