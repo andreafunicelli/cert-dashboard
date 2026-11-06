@@ -293,6 +293,8 @@ def _active(request: Request, endpoint_id: int, form) -> Response:
     state = form.get("active")
     if state not in ("true", "false"):
         return _manage_failure(request, endpoint_id, {"active": "Choose activate or deactivate."})  # 404s if unknown
+    if state == "false" and form.get("confirm") != "1":  # deactivation is destructive: only the disclosure confirms it
+        return _manage_failure(request, endpoint_id, {"active": "Confirm the action to continue."})
     try:
         _transact(request, lambda db, now, actor: set_endpoint_active(db, endpoint_id, state == "true", actor))
     except EndpointNotFound:

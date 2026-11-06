@@ -80,6 +80,45 @@ def test_scan_outcomes_and_current_chain_verdict_are_unambiguous():
     assert "Incomplete chain" in summary and "Trusted chain" not in summary
 
 
+def test_scan_detail_deactivation_is_a_native_confirmation():
+    html = rendered("scan-findings")
+    panel = html.split('id="manage-panel"', 1)[1].split("</section>", 1)[0]
+    _, marker, confirmation = panel.partition('<details class="confirmation">')
+    assert marker, "an active endpoint offers deactivation through a native disclosure"
+    confirmation = confirmation.split("</details>", 1)[0]
+    assert "Deactivate monitoring…" in confirmation
+    assert "Scheduled scans of this endpoint stop. Its history is kept and you can activate it again." in confirmation
+    assert "hx-confirm" not in html
+    elements = Elements(confirmation).elements
+    assert [(a["method"], a["action"]) for t, a in elements if t == "form"] == [("post", "/scans/12/active")]
+    form = next(a for t, a in elements if t == "form")
+    assert (form["hx-post"], form["hx-target"], form["hx-swap"]) == ("/scans/12/active", "#manage-panel", "outerHTML")
+    assert [(a["name"], a.get("value")) for t, a in elements if t == "input"] == [
+        ("csrf_token", "preview-only-not-a-valid-token"),
+        ("active", "false"),
+        ("confirm", "1"),
+    ]
+    button, = [a for t, a in elements if t == "button"]
+    assert (button["type"], button["class"], button["hx-disabled-elt"]) == ("submit", "button-destructive", "this")
+    assert "Deactivate gateway.ops.example.test:443" in confirmation
+    assert "Confirm the action to continue." not in panel  # the refusal only appears after an unconfirmed attempt
+
+
+def test_scan_detail_activation_stays_a_single_button():
+    html = rendered("scan-inactive")
+    panel = html.split('id="manage-panel"', 1)[1].split("</section>", 1)[0]
+    assert "Inactive: scheduled scans skip this endpoint." in html
+    assert "confirmation" not in panel and "Deactivate monitoring" not in panel
+    elements = Elements(panel).elements
+    assert [(a["method"], a["action"]) for t, a in elements if t == "form" and a["action"].endswith("/active")] == [
+        ("post", "/scans/12/active")
+    ]
+    assert [(a["name"], a.get("value")) for t, a in elements if t == "input" and a.get("name") in ("active", "confirm")] == [
+        ("active", "true")
+    ]
+    assert "Confirm the action to continue." not in panel
+
+
 def test_renewal_ready_never_presents_cached_trust_as_current():
     source, context = fixtures()["renewal-ready"]
     context = deepcopy(context)
