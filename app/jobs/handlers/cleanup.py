@@ -16,6 +16,7 @@ from sqlalchemy import delete, or_, select
 from app.jobs.worker import JobContext
 from app.models import AppSetting, Job, JobHost, JSONValue, LoginRateLimit, ScanResult, UserSession
 from app.models.enums import JobStatus
+from app.services.branding import purge_branding_drafts
 
 DEFAULT_RETENTION_DAYS = 90
 SCAN_RESULT_RETENTION = timedelta(days=90)
@@ -114,6 +115,7 @@ def cleanup(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[st
         login_counters = db.execute(
             delete(LoginRateLimit).where(LoginRateLimit.window_start < now - LOGIN_COUNTER_RETENTION)
         ).rowcount
+        branding_drafts = purge_branding_drafts(db, now)
     artifacts = prune_artifacts(context.settings.artifacts_root, now - ARTIFACT_RETENTION)
     return {
         "jobs": jobs,
@@ -121,5 +123,6 @@ def cleanup(context: JobContext, payload: Mapping[str, JSONValue]) -> Mapping[st
         "scan_results": scan_results,
         "sessions": sessions,
         "login_counters": login_counters,
+        "branding_drafts": branding_drafts,
         "artifacts": artifacts,
     }

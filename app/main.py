@@ -54,6 +54,7 @@ from app.services.audit import SecretRedactionFilter, record
 from app.services.certificates import missing_master_key_versions
 from app.web.administration import register_administration_routes
 from app.web.audit import register_audit_routes
+from app.web.branding import register_branding_routes
 from app.web.certificates import register_certificate_routes
 from app.web.common import (
     _actor,
@@ -682,7 +683,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.clock = lambda: datetime.now(UTC)
     app.state.status_banner = ""
-    app.state.public_paths = {"/login", "/login/2fa", "/logout", "/health/live", "/health/ready", "/healthz"}
+    app.state.public_paths = {
+        "/login",
+        "/login/2fa",
+        "/logout",
+        "/health/live",
+        "/health/ready",
+        "/healthz",
+        "/branding/logo",
+    }
     app.state.navigation = [
         {"label": label, "url": url, "enabled": enabled, "reason": reason}
         for label, url, enabled, reason in [
@@ -702,6 +711,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(_WebFoundation)
     app.mount("/static", StaticFiles(directory=_ROOT / "static"), name="static")
     _register_auth_routes(app)
+    register_branding_routes(app)
     register_certificate_routes(app)
     register_deploy_routes(app)
     register_inventory_routes(app)
