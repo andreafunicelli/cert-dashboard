@@ -27,35 +27,35 @@ Boxes are ticked only when the work is merged on `main`; each ticked box names i
 - [x] `/ssh-keys` trust store with verification attestation — merged `2613bd8` (PR #95).
 
 ### Task B-INV: inventory management (`t_c95126de`)
-- [ ] `/inventory` CRUD, filters, empty states, optional repository import (`slice-b-contract.md` §4, §9 INV) — PR #96 in review.
+- [x] `/inventory` CRUD, filters, empty states, optional repository import (`slice-b-contract.md` §4, §9 INV) — merged `25d1f8d` (PR #96).
 
 ### Task B-W2: finish host-trust onboarding (`t_214beeb1`, `docs/ux-spec.md` §8.2)
-- [ ] Tests: HTTPS test pull without known_hosts; `ssh://` and discover still fail closed with the new text; deploy screen renders new and old texts and the no-inventory sentence.
-- [ ] Implement in `ansible_context.py`, `test_pull.py`, `deploy_views.py` (`JOB_FAILURE_REASONS`).
-- [ ] Required `verify` green; merged.
+- [x] Tests: HTTPS test pull without known_hosts; `ssh://` and discover still fail closed with the new text; deploy screen renders new and old texts and the no-inventory sentence — merged `4b283da` (PR #101).
+- [x] Implement in `ansible_context.py`, `test_pull.py`, `deploy_views.py` (`JOB_FAILURE_REASONS`) — merged `4b283da` (PR #101).
+- [x] Required `verify` green; merged `4b283da` (PR #101).
 
 ### Task B-R: Slice B review and smoke (`t_9ab63e2d`)
 - [ ] `slice-b-contract.md` §9 R smoke; PR #92 closed as superseded.
 
 ### Task A1: shell, navigation, Overview checklist, Administration hub, HTMX error parity (`t_8439d40d`)
-- [ ] Tests per `docs/ux-spec.md` §5.8 (navigation, setup checklist, hub, narrow settings, `/servers` empty states, banner links, global htmx-config, HTMX 403 on a non-management page, default branding).
-- [ ] Implement §5.1–§5.7; regenerate previews.
-- [ ] Regression criteria §9; required `verify` green; merged.
+- [x] Tests per `docs/ux-spec.md` §5.8 (navigation, setup checklist, hub, narrow settings, `/servers` empty states, banner links, global htmx-config, HTMX 403 on a non-management page, default branding) — merged `35f6d38` (PR #102).
+- [x] Implement §5.1–§5.7; regenerate previews — merged `35f6d38` (PR #102).
+- [x] Regression criteria §9; required `verify` green; merged `35f6d38` (PR #102).
 
 ### Task A2a: branding storage, validation and serving (`t_e8c0f619`, `docs/ux-spec.md` §6)
 - [x] Tests: migration/schema, every validation case, service state machine (409/410/503, cross-session, double save), `/branding/logo` headers and fallback — PR #103.
 - [x] Implement `0004_branding`, `branding_image.py`, `branding.py`, `GET /branding/logo`, cleanup purge — PR #103.
-- [ ] Required `verify` green; merged.
+- [x] Required `verify` green; merged `d260823` (PR #103).
 
 ### Task A2b: Settings → Branding UI and shell integration (`t_860fb51c`, `docs/ux-spec.md` §6)
-- [ ] Tests per §6 A2b (full preview/save/discard/reset flow, every error copy, CSRF before parsing, gates, favicon/name unchanged, hub entry).
-- [ ] Implement routes, `_branding.html.j2`, resolver in header and sign-in; regenerate previews.
-- [ ] Required `verify` green; merged.
+- [x] Tests per §6 A2b (full preview/save/discard/reset flow, every error copy, CSRF before parsing, gates, favicon/name unchanged, hub entry) — merged `80f9635` (PR #104).
+- [x] Implement routes, `_branding.html.j2`, resolver in header and sign-in; regenerate previews — merged `80f9635` (PR #104).
+- [x] Required `verify` green; merged `80f9635` (PR #104).
 
 ### Task A3: endpoint deactivation confirmation (`t_6fab5610`, `docs/ux-spec.md` §7)
 - [x] Tests: deactivate with/without `confirm` (native and htmx), activation unchanged, history kept — `tests/integration/test_endpoints_http.py`, `tests/test_inventory_previews.py` (PR #105).
 - [x] Implement; regenerate the scan-detail previews — PR #105, plus the new `scan-inactive` preview.
-- [ ] Required `verify` green; merged.
+- [x] Required `verify` green; merged `9a4eaad` (PR #105).
 
 ### Task D: documentation and screenshots (`t_4c8f8378`)
 - [ ] README/docs/screenshots refreshed after every task above; tick this plan's remaining boxes.

@@ -32,8 +32,11 @@ Installation, upgrade, backup and rotation procedures for a deployed host live i
 internals a developer touches. The normative design is
 `docs/superpowers/specs/2026-10-19-cert-dashboard-design.md`; the task-by-task history is
 `docs/superpowers/plans/2026-10-19-cert-dashboard-plan-1-core.md`,
-`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md` and
-`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md`. Operator and
+`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-2-tls-scan-and-alerts.md`,
+`docs/superpowers/plans/2026-10-25-cert-dashboard-plan-3-discovery-and-deploy.md` and
+`docs/superpowers/plans/2026-11-05-cert-dashboard-plan-4-ux.md`. `docs/ux-spec.md` is normative for
+Plan 4 (information architecture, sources, Slices A and B), with `docs/slice-b-contract.md` for
+inventory, users and SSH keys and `docs/ui/branding.md` for the replaceable logo. Operator and
 production procedures for discovery and deployment are in
 [`operations.md` §11–§12](operations.md#11-discovery-and-deployment); this page keeps only the
 developer view.
@@ -96,6 +99,11 @@ read-only server discovery, reconciliation into servers/bindings/endpoints,
 canary-first certificate deployment with automatic per-host rollback, the Deploy
 screens and the §10.4 acceptance harness; §11–§12 of
 [`operations.md`](operations.md#11-discovery-and-deployment) are its operator view.
+Plan 4 makes the dashboard self-sufficient: `/inventory` manual hosts that discovery
+and deploy use with no repository, `/users` and `/ssh-keys` management, the five-area
+shell with the Administration hub and the Overview setup checklist, and the replaceable
+logo (`0004_branding`, Settings → Branding, the public `/branding/logo`). `docs/ux-spec.md`
+is its normative spec.
 The test Compose app runs unit smoke checks after its owner-only migrate service
 completes; the full integration suite runs on the Docker-enabled host.
 
@@ -118,22 +126,56 @@ rules and transactions live in `app/services/`.
 
 | Module | Owns | Integration tests |
 | --- | --- | --- |
-| `app/web/overview.py` | `GET /` — expiry buckets, TLS health, recent jobs, renewals in flight, status strip and the setup empty state | `test_inventory_http.py`, `test_overview_slots.py` |
+| `app/web/overview.py` | `GET /` — the Overview work queue (expiry buckets, TLS health, recent jobs, renewals in flight, status strip), the six-step setup checklist and the collapsed counters/history section | `test_inventory_http.py`, `test_overview_slots.py`, `test_overview_setup_http.py` |
 | `app/web/certificates.py` | `/certificates`, `/certificates/export.json`, detail, edit, status and chain forms, `leaf.pem`/`chain.pem`/`fullchain.pem`, `export.pfx`, upload import, pull-import route, `/imports/{job_id}` progress, `POST /certificates/{id}/scan`, the detail page's endpoints panel and the certificate deploy panel (guardrail reason, recent deploys, link to `/deploy?certificate_id=…`) | `test_inventory_http.py`, `test_upload_import.py`, `test_pull_import.py`, `test_downloads.py`, `test_endpoints_http.py`, `test_deploy_start_http.py` |
 | `app/web/renewals.py` | `/renewals` (the renewal list: state filter, age and next action), `/renewals/{id}` wizard: edit, generate CSR, `csr.pem`, submit, issued, finalize (now reachable from `deployed`), cancel | `test_renewal_wizard.py`, `test_renewal_list_http.py`, `test_deploy_start_http.py` |
-| `app/web/scans.py` | `/scans`, `/scans/export.json`, `/scans/{id}`, `/scans/{id}/history`, `POST /scans/run` (`scope=all\|endpoint`), `POST /scans/endpoints`, `POST /scans/{id}/expectation`, `POST /scans/{id}/active` | `test_scans_http.py`, `test_endpoints_http.py`, `test_scan_targets.py` |
+| `app/web/scans.py` | `/scans`, `/scans/export.json`, `/scans/{id}`, `/scans/{id}/history`, `POST /scans/run` (`scope=all\|endpoint`), `POST /scans/endpoints`, `POST /scans/{id}/expectation`, `POST /scans/{id}/active` (deactivation needs `confirm=1`, otherwise a 422 re-renders the panel with nothing changed and no audit row) | `test_scans_http.py`, `test_endpoints_http.py`, `test_scan_targets.py` |
 | `app/web/servers.py` | `/servers`, `/servers/export.json`, `/servers/{id}`, `/servers/{id}/dump`, `/bindings`, `/bindings/export.json`, `/bindings/help`; discovery actions `POST /servers/discover` (`scope=all\|group`) and `POST /servers/{id}/discover`, enqueue-only and CSRF-protected | `test_servers_http.py`, `test_bindings_http.py`, `test_discovery_screens.py`, `test_discovery_jobs.py` |
 | `app/web/inventory.py` | `/inventory` management: list and filters, optional repository source panel, manual connection defaults, create/edit/deactivate/reactivate/delete a manual host and `POST /inventory/import`; manual hosts need no repository | `test_inventory_management_http.py`, `test_management_pages_http.py` |
 | `app/web/ssh_keys.py` | `/ssh-keys`: the worker client-key card (read from Settings → Worker) and the dashboard trust store for host public keys — `POST /ssh-keys/host-keys`, `POST /ssh-keys/host-keys/{key_id}/delete` | `test_ssh_keys_http.py`, `test_management_pages_http.py` |
 | `app/web/deploy.py` | `GET /deploy` (start screen), `GET /deploy/preview` (htmx fragment), `GET /deploy/jobs` (the job list: outcome/type filters, host totals, paging), `POST /deploy` (plan hash + confirmation), `GET /deploy/{job_id}`, `GET /jobs/{job_id}/progress`, `GET /deploy/{job_id}/report.json`, `POST /deploy/{job_id}/continue`, `POST /deploy/{job_id}/cancel`, `POST /deploy/{job_id}/hosts/{server_id}/retry` | `test_deploy_start_http.py`, `test_deploy_job_http.py`, `test_deploy_controls.py`, `test_job_list_http.py` |
 | `app/web/audit.py` | `/audit` browser and `/audit/export.json` | `test_audit_http.py` |
 | `app/web/users.py` | `/users` administration and the `/users/{id}` detail page: create (invite), edit email/display name, password and TOTP resets, deactivation and reactivation (all with the acting administrator's current password where required) | `test_users_http.py`, `test_users_detail_http.py` |
-| `app/web/settings.py` | `/settings` — seven configuration tabs plus trust anchors, status and maintenance; `POST /settings/smtp/test` and `GET /settings/smtp/test/{job_id}` (test-send outcome fragment); `POST /settings/inventory/test-pull` and `GET /settings/inventory/test-pull/{job_id}` (Test pull and its fragment); `POST /settings/trust-anchors/recheck`; the Alerts tab's failure list and the Status tab's SMTP panel | `test_settings_http.py`, `test_smtp_test_send.py`, `test_settings_alerts_status.py`, `test_trust_recheck_job.py`, `test_test_pull.py` |
+| `app/web/administration.py` | `GET /administration` — the read-only hub (five groups, one server-computed status line per entry, no form) and the shell template globals: the single `htmx_config` JSON (Slice B's rule list plus 404/500/503 into `#main-content`) and the default `brand` URLs | `test_administration_hub_http.py`, `test_htmx_config.py` |
+| `app/web/branding.py` | the public `GET /branding/logo` (sanitized asset bytes only, default redirect when none), the `brand` resolver the shell and sign-in read, and Settings → Branding: `POST /settings/branding/preview`, `GET /settings/branding/draft/{token}`, `POST /settings/branding`, `/discard`, `/reset` | `test_branding_http.py`, `test_branding_logo_http.py`, `test_branding_service.py` |
+| `app/web/settings.py` | `/settings` — the section tabs (SMTP, Alerts, Inventory repository, Deployment, Schedule and scans, Trust anchors, Status, System and maintenance, Branding, Worker); `POST /settings/smtp/test` and `GET /settings/smtp/test/{job_id}` (test-send outcome fragment); `POST /settings/inventory/test-pull` and `GET /settings/inventory/test-pull/{job_id}` (Test pull and its fragment); `POST /settings/trust-anchors/recheck`; the Alerts tab's failure list and the Status tab's SMTP panel | `test_settings_http.py`, `test_smtp_test_send.py`, `test_settings_alerts_status.py`, `test_trust_recheck_job.py`, `test_test_pull.py` |
 | `app/web/common.py` | `require_user`/`require_admin`, error rendering, login rate limit, `unsupported_reason` — no routes | every module above |
 | `app/web/management.py` | Slice B management conventions: `done()` (303 or `HX-Redirect` with one signed flash note), `management_head()` (stylesheets and htmx 422/403 handling), shared with `_management_ui.html.j2` | `test_management_ui.py`, `test_management_pages_http.py` |
 
 `_register_auth_routes(app)` in `app/main.py` owns `/login`, `/login/2fa`, `/logout`
 and `/account` (tests: `test_login_account.py`, `test_sessions_http.py`).
+
+### In-dashboard management and branding
+
+These surfaces follow the Slice B conventions in `app/web/management.py`: native form first, `done()`
+for a 303 (or `200` + `HX-Redirect` under htmx) with one signed flash note, and a 422 full page with the
+shared error summary when a form is refused.
+
+- **Manual hosts** (`app/services/managed_hosts.py`): manual rows use the existing `server` table with
+  `inventory_source = 'manual'`, so no migration adds a host table. Hostname and connection-address
+  validation, uniqueness across manual and repository rows, the field rules and the delete rule (only
+  while `has_history()` is false) live in the service; the routes only translate HTTP.
+  `app/services/inventory_sources.py` renders the job's union inventory and `known_hosts`, and
+  `app/jobs/handlers/ansible_context.py` passes the manual inventory as a second `-i` beside the Git
+  inventory.
+- **Host trust** (`app/services/ssh_host_keys.py`): public keys only, strict base64 and key-type checks,
+  a `ssh-keygen`-style SHA-256 fingerprint, an all-or-nothing paste of 1–20 keys, duplicate protection and
+  an explicit `verified` attestation. `ssh_host_key` rows are immutable for `app_role` (migration
+  `0003_ssh_host_key` grants no `UPDATE`). Effective trust is the mounted file ∪ the table.
+- **Setup checklist** (`app/services/setup_status.py`): one frozen `SetupStatus` with six steps and a
+  bounded query count (≤ 8 statements, asserted with `count_statements`), shared by the Overview and the
+  Administration hub.
+- **Branding** (`app/services/branding.py`, `app/services/branding_image.py`, migration `0004_branding`):
+  `branding_asset` is a singleton and `branding_draft` is bound to a session with a 30-minute TTL and a
+  `base_revision` compare-and-set. The PNG and SVG canonicalizers are standard-library only (no image
+  dependency); the public route serves only re-serialized bytes, never a draft.
+
+`docs/ui/previews/` holds 96 rendered previews of every screen, built by
+`uv run python scripts/render_previews.py` from the real templates and its fixtures.
+`tests/test_ui_previews.py` re-renders and compares them, and the per-area preview tests
+(`test_navigation_queue_previews.py`, `test_administration_previews.py`, `test_branding_previews.py`)
+check the markup contracts. Regenerate the previews whenever a shell, settings or Slice A template
+changes: the navigation is part of every page preview.
 
 ## Jobs, scheduler and worker
 

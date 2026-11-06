@@ -46,7 +46,7 @@ a Git repository.
   hostname adopts that row on the next discovery (source becomes the revision; id, bindings, history,
   `display_name` and `notes` are kept; audited `server.update`).
 - Reconciliation never deactivates a manual row for being absent from Git.
-- "GitHub" in the requests means *any* Git repository configured in Settings → Inventory
+- "GitHub" in the requests means *any* Git repository configured in Settings → Inventory repository
   (`inventory.repo_url`). Slice B adds no GitHub API, OAuth or per-entry repository link: a per-row link
   would be a new column with no consumer. The optional repository appears in the Inventory page as a
   source status panel, a "Configure repository" link and an "Import from repository" action (§4).
