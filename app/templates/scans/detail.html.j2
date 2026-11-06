@@ -69,12 +69,25 @@
   {% endif %}
   <h3>Scheduled scans</h3>
   {% if errors.active %}<div class="form-error" data-error="active" role="alert"><p>{{ errors.active }}</p></div>{% endif %}
+  {% if row.is_active %}
+  <details class="confirmation"{% if errors.active %} open{% endif %}>
+    <summary>Deactivate monitoring…</summary>
+    <p>Scheduled scans of this endpoint stop. Its history is kept and you can activate it again.</p>
+    <form method="post" action="/scans/{{ row.id }}/active" hx-post="/scans/{{ row.id }}/active" hx-target="#manage-panel" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="active" value="false">
+      <input type="hidden" name="confirm" value="1">
+      <button class="button-destructive" type="submit" hx-disabled-elt="this">Deactivate {{ hostport(row.host, row.port) }}</button>
+    </form>
+  </details>
+  {% else %}
   <form method="post" action="/scans/{{ row.id }}/active" hx-post="/scans/{{ row.id }}/active" hx-target="#manage-panel" hx-swap="outerHTML">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="active" value="{{ 'false' if row.is_active else 'true' }}">
-    <button type="submit">{{ "Deactivate" if row.is_active else "Activate" }}</button>
+    <input type="hidden" name="active" value="true">
+    <button type="submit">Activate</button>
     <small>Endpoints are never deleted; deactivating keeps the history.</small>
   </form>
+  {% endif %}
 </section>
 {% endblock %}
 

@@ -207,7 +207,7 @@ def test_deactivate_and_reactivate_never_delete_history(signed_in, web_factory, 
             return db.scalar(select(func.count()).select_from(ScanResult).where(ScanResult.endpoint_id == target))
 
     before = history()
-    off = _post(signed_in, f"/scans/{target}/active", active="false")
+    off = _post(signed_in, f"/scans/{target}/active", active="false", confirm="1")
     assert off.status_code == 303 and off.headers["location"] == f"/scans/{target}"
     assert not fetch(web_factory, Endpoint, target).is_active
     assert "(inactive)" in signed_in.get("/scans?active=all").text
@@ -226,6 +226,60 @@ def test_deactivate_and_reactivate_never_delete_history(signed_in, web_factory, 
     for method, path in (("delete", f"/scans/{target}"), ("post", f"/scans/{target}/delete")):
         assert getattr(signed_in, method)(path).status_code in (403, 404, 405)  # no delete route exists
     assert fetch(web_factory, Endpoint, target) is not None
+
+
+def test_deactivate_needs_an_explicit_confirmation_and_activation_does_not(signed_in, web_factory, scan_world):
+    target = scan_world.mismatch_id
+
+    def history():
+        with web_factory() as db:
+            return db.scalar(select(func.count()).select_from(ScanResult).where(ScanResult.endpoint_id == target))
+
+    before = history()
+    # Native post without confirm: refused with the message in the active slot; nothing changes, nothing audited.
+    refused = _post(signed_in, f"/scans/{target}/active", active="false")
+    assert refused.status_code == 422 and "<html" in refused.text
+    assert "Confirm the action to continue." in refused.text and 'data-error="active"' in refused.text
+    assert fetch(web_factory, Endpoint, target).is_active and audits(web_factory, target) == []
+    # Same refusal through htmx: the manage panel comes back as a fragment.
+    swapped = _post(signed_in, f"/scans/{target}/active", headers=HX, active="false")
+    assert swapped.status_code == 422 and 'id="manage-panel"' in swapped.text and "<html" not in swapped.text
+    assert "Confirm the action to continue." in swapped.text
+    assert fetch(web_factory, Endpoint, target).is_active and audits(web_factory, target) == []
+    # Anything but confirm=1 is not a confirmation.
+    assert _post(signed_in, f"/scans/{target}/active", active="false", confirm="yes").status_code == 422
+    assert fetch(web_factory, Endpoint, target).is_active and audits(web_factory, target) == []
+    # confirm=1 keeps the previous behaviour: deactivated, one audit row, history untouched.
+    off = _post(signed_in, f"/scans/{target}/active", active="false", confirm="1")
+    assert off.status_code == 303 and off.headers["location"] == f"/scans/{target}"
+    assert not fetch(web_factory, Endpoint, target).is_active
+    assert history() == before
+    assert [a.details for a in audits(web_factory, target)] == [{"field": "is_active", "from": True, "to": False}]
+    # Activation is not destructive: a single post, no confirmation token.
+    on = _post(signed_in, f"/scans/{target}/active", active="true")
+    assert on.status_code == 303 and fetch(web_factory, Endpoint, target).is_active
+    assert [a.details for a in audits(web_factory, target)][-1] == {"field": "is_active", "from": False, "to": True}
+    # The htmx confirmation path still lets htmx navigate to the endpoint page.
+    confirmed = _post(signed_in, f"/scans/{target}/active", headers=HX, active="false", confirm="1")
+    assert confirmed.status_code == 200 and confirmed.headers["HX-Redirect"] == f"/scans/{target}"
+    assert not fetch(web_factory, Endpoint, target).is_active
+
+
+def test_manage_panel_renders_the_deactivation_disclosure_only_for_active_endpoints(signed_in, scan_world):
+    active = signed_in.get(f"/scans/{scan_world.mismatch_id}").text
+    panel = re.search(r'<section[^>]*id="manage-panel".*?</section>', active, re.DOTALL).group(0)
+    assert '<details class="confirmation">' in panel and "Deactivate monitoring…" in panel
+    assert f"Deactivate {scan_world.hosts['mismatch']}:443" in panel
+    assert 'name="active" value="false"' in panel and 'name="confirm" value="1"' in panel
+    assert 'hx-disabled-elt="this"' in panel and "hx-confirm" not in active
+    # The refusal re-renders the panel with the disclosure already open, so the confirmation stays reachable.
+    refused = _post(signed_in, f"/scans/{scan_world.mismatch_id}/active", active="false")
+    assert 'data-error="active"' in refused.text and '<details class="confirmation" open>' in refused.text
+    # An inactive endpoint keeps a single Activate button and no confirmation at all.
+    inactive = signed_in.get(f"/scans/{scan_world.ids['off']}").text
+    panel = re.search(r'<section[^>]*id="manage-panel".*?</section>', inactive, re.DOTALL).group(0)
+    assert "confirmation" not in panel and "Deactivate monitoring" not in panel
+    assert 'name="active" value="true"' in panel and 'name="confirm"' not in panel
 
 
 def test_invalid_active_value_rerenders_the_manage_form_without_changes(signed_in, web_factory, scan_world):
@@ -333,7 +387,7 @@ def test_every_mutation_requires_csrf_and_is_audited_once(signed_in, web_factory
     forms = [
         ("/scans/endpoints", {"host": "csrf.example.test", "port": "443"}),
         (f"/scans/{target}/expectation", {"certificate_id": str(scan_world.served_certificate_id)}),
-        (f"/scans/{target}/active", {"active": "false"}),
+        (f"/scans/{target}/active", {"active": "false", "confirm": "1"}),
     ]
     for path, fields in forms:
         assert _post(signed_in, path, token=False, **fields).status_code == 403, path

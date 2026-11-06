@@ -197,12 +197,18 @@
 
   <h3>Scheduled scans</h3>
 
-  <form method="post" action="/scans/12/active" hx-post="/scans/12/active" hx-target="#manage-panel" hx-swap="outerHTML">
-    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
-    <input type="hidden" name="active" value="false">
-    <button type="submit">Deactivate</button>
-    <small>Endpoints are never deleted; deactivating keeps the history.</small>
-  </form>
+
+  <details class="confirmation">
+    <summary>Deactivate monitoring…</summary>
+    <p>Scheduled scans of this endpoint stop. Its history is kept and you can activate it again.</p>
+    <form method="post" action="/scans/12/active" hx-post="/scans/12/active" hx-target="#manage-panel" hx-swap="outerHTML">
+      <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+      <input type="hidden" name="active" value="false">
+      <input type="hidden" name="confirm" value="1">
+      <button class="button-destructive" type="submit" hx-disabled-elt="this">Deactivate gateway.ops.example.test:443</button>
+    </form>
+  </details>
+
 </section>
 
 

@@ -505,6 +505,12 @@ def inventory_fixtures():
             ),
         }
         pages[f"scan-{name}"] = ("scans/detail.html.j2", context)
+    clear = pages["scan-clear"][1]
+    inactive_row = ns(**(vars(clear["row"]) | {"is_active": False}))
+    pages["scan-inactive"] = (
+        "scans/detail.html.j2",
+        clear | {"row": inactive_row, "detail": ns(**(vars(clear["detail"]) | {"row": inactive_row}))},
+    )
     pages["scan-list"] = (
         "scans/list.html.j2",
         scan
