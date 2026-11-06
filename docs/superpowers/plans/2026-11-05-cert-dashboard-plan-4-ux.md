@@ -43,8 +43,8 @@ Boxes are ticked only when the work is merged on `main`; each ticked box names i
 - [ ] Regression criteria §9; required `verify` green; merged.
 
 ### Task A2a: branding storage, validation and serving (`t_e8c0f619`, `docs/ux-spec.md` §6)
-- [ ] Tests: migration/schema, every validation case, service state machine (409/410/503, cross-session, double save), `/branding/logo` headers and fallback.
-- [ ] Implement `0004_branding`, `branding_image.py`, `branding.py`, `GET /branding/logo`, cleanup purge.
+- [x] Tests: migration/schema, every validation case, service state machine (409/410/503, cross-session, double save), `/branding/logo` headers and fallback — PR #103.
+- [x] Implement `0004_branding`, `branding_image.py`, `branding.py`, `GET /branding/logo`, cleanup purge — PR #103.
 - [ ] Required `verify` green; merged.
 
 ### Task A2b: Settings → Branding UI and shell integration (`t_860fb51c`, `docs/ux-spec.md` §6)
