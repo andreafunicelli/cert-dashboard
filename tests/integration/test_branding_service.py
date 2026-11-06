@@ -199,6 +199,9 @@ def test_pending_cap_refuses_a_new_preview(db, actor, session_row, now):
                 expires_at=now + timedelta(hours=1),
             )
         )
+        # No ORM relationship exists between the two mappers, so flush the session before the
+        # draft that references it instead of relying on unit-of-work ordering.
+        db.flush()
         db.add(
             BrandingDraft(
                 token_sha256=f"{index:03d}" + "0" * 61,
