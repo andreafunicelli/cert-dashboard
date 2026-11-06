@@ -53,8 +53,8 @@ Boxes are ticked only when the work is merged on `main`; each ticked box names i
 - [ ] Required `verify` green; merged.
 
 ### Task A3: endpoint deactivation confirmation (`t_6fab5610`, `docs/ux-spec.md` §7)
-- [ ] Tests: deactivate with/without `confirm` (native and htmx), activation unchanged, history kept.
-- [ ] Implement; regenerate the scan-detail previews.
+- [x] Tests: deactivate with/without `confirm` (native and htmx), activation unchanged, history kept — `tests/integration/test_endpoints_http.py`, `tests/test_inventory_previews.py` (PR #105).
+- [x] Implement; regenerate the scan-detail previews — PR #105, plus the new `scan-inactive` preview.
 - [ ] Required `verify` green; merged.
 
 ### Task D: documentation and screenshots (`t_4c8f8378`)
