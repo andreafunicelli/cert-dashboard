@@ -43,8 +43,12 @@ COLUMNS = {
     "login_rate_limit": "ip:inet! window_start:timestamptz! attempts:integer!",
     "trust_anchor": "id:bigint! subject:text! sha256_fingerprint:char(64)! pem:text! source:trust_anchor_source! notes:text created_by:bigint",
     "ssh_host_key": "id:bigint! host:text! key_type:text! public_key:text! fingerprint_sha256:text! comment:text created_by:bigint",
+    "branding_asset": "id:smallint! mime:text! content:bytea! width:integer! height:integer! sha256:text! display_filename:text! updated_by:bigint",
+    "branding_draft": "token_sha256:text! session_id:char(64)! content:bytea mime:text width:integer height:integer sha256:text byte_size:integer display_filename:text base_revision:text! expires_at:timestamptz! consumed_at:timestamptz",
 }
 IMMUTABLE = {"audit_log", "scan_result", "trust_anchor", "ssh_host_key"}
+# Tables that carry created_at but deliberately no updated_at (the draft receipt is immutable-as-created).
+CREATED_ONLY = {"branding_draft"}
 ENUMS = {
     "certificate_status": ["active", "superseded", "revoked"],
     "chain_status": ["trusted", "incomplete", "untrusted_root", "unchecked"],
@@ -144,6 +148,8 @@ FK = {
     "worker_heartbeat": {"current_job_id": ("job", "id")},
     "trust_anchor": {"created_by": ("user", "id")},
     "ssh_host_key": {"created_by": ("user", "id")},
+    "branding_asset": {"updated_by": ("user", "id")},
+    "branding_draft": {"session_id": ("user_session", "id")},
 }
 UNIQUE = {
     "certificate": {("sha256_fingerprint",), ("issuer_dn", "serial")},
@@ -186,7 +192,7 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
     for field in (
         COLUMNS[table]
         + " created_at:timestamptz!"
-        + ("" if table in IMMUTABLE else " updated_at:timestamptz!")
+        + ("" if table in IMMUTABLE or table in CREATED_ONLY else " updated_at:timestamptz!")
     ).split():
         name, typ = field.split(":")
         nullable = not typ.endswith("!")
@@ -203,12 +209,17 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
         "worker_heartbeat": ["worker_id"],
         "scheduler_state": ["key"],
         "login_rate_limit": ["ip", "window_start"],
+        "branding_draft": ["token_sha256"],
     }.get(table, ["id"])
     assert inspect(engine).get_pk_constraint(table)["constrained_columns"] == pk
     columns = {c["name"]: c for c in inspect(engine).get_columns(table)}
     for column, value in {
         "created_at": "now()",
-        **({"updated_at": "now()"} if table not in IMMUTABLE else {}),
+        **(
+            {"updated_at": "now()"}
+            if table not in IMMUTABLE and table not in CREATED_ONLY
+            else {}
+        ),
         **DEFAULTS.get(table, {}),
     }.items():
         assert value in columns[column]["default"], (table, column)
@@ -233,6 +244,15 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
             "ck_encrypted_setting_known_name",
         },
         "ssh_host_key": {"ck_ssh_host_key_key_type"},
+        "branding_asset": {
+            "ck_branding_asset_singleton",
+            "ck_branding_asset_mime",
+            "ck_branding_asset_content_size",
+        },
+        "branding_draft": {
+            "ck_branding_draft_mime",
+            "ck_branding_draft_content_size",
+        },
     }
     assert {c["name"] for c in inspect(engine).get_check_constraints(table)} == expected_checks.get(
         table, set()
@@ -242,6 +262,7 @@ def test_all_column_types_nullability_timestamps_and_keys(engine, table):
             ("job_host", "job_id"): "CASCADE",
             ("user_session", "user_id"): "CASCADE",
             ("worker_heartbeat", "current_job_id"): "SET NULL",
+            ("branding_draft", "session_id"): "CASCADE",
         }.get((table, f["constrained_columns"][0]))
         assert f["options"].get("ondelete") == expected_delete
     assert {tuple(x["column_names"]) for x in inspect(engine).get_unique_constraints(table)} == UNIQUE.get(
@@ -858,7 +879,7 @@ def test_app_role_cannot_disable_owner_audit_triggers(db):
     assert "must be owner" in str(exc.value.orig)
 
 
-MUTABLE_TABLES = sorted(set(COLUMNS) - IMMUTABLE)
+MUTABLE_TABLES = sorted(set(COLUMNS) - IMMUTABLE - CREATED_ONLY)
 
 
 def test_updated_at_trigger_matrix_covers_every_catalog_table(engine):
@@ -887,3 +908,92 @@ def test_every_mutable_table_has_enabled_before_update_timestamp_trigger(engine,
             {"table": "public." + table},
         ).all()
     assert ("O", True, True, True, "touch_updated_at") in triggers
+
+
+def test_branding_tables_checks_cascade_partial_index_and_grants(db, engine, now):
+    from datetime import timedelta
+
+    from app.models import BrandingAsset, BrandingDraft, User, UserSession
+
+    asset_owner = User(username="branding-owner", email="branding-owner@example.test")
+    session_owner = User(username="branding-session", email="branding-session@example.test")
+    db.add_all([asset_owner, session_owner])
+    db.flush()
+    values = {
+        "id": 1,
+        "mime": "image/svg+xml",
+        "content": b"<svg/>",
+        "width": 24,
+        "height": 24,
+        "sha256": "a" * 64,
+        "display_filename": "logo.svg",
+        "updated_by": asset_owner.id,
+    }
+    db.add(BrandingAsset(**values))
+    db.flush()
+    for changes in [
+        {"id": 2},
+        {"mime": "image/gif"},
+        {"content": b"x" * 262145},
+    ]:
+        with pytest.raises(IntegrityError), db.begin_nested():
+            db.add(BrandingAsset(**(values | changes)))
+            db.flush()
+
+    session = UserSession(
+        id="s" * 64,
+        user_id=session_owner.id,
+        csrf_token="c" * 64,
+        last_seen_at=now,
+        expires_at=now + timedelta(hours=1),
+    )
+    db.add(session)
+    db.flush()
+    first = BrandingDraft(
+        token_sha256="t" * 64,
+        session_id=session.id,
+        base_revision="default",
+        expires_at=now + timedelta(minutes=30),
+    )
+    db.add(first)
+    db.flush()
+    with pytest.raises(IntegrityError), db.begin_nested():
+        db.add(
+            BrandingDraft(
+                token_sha256="u" * 64,
+                session_id=session.id,
+                base_revision="default",
+                expires_at=now + timedelta(minutes=30),
+            )
+        )
+        db.flush()
+    first.consumed_at = now
+    db.flush()
+    db.add(
+        BrandingDraft(
+            token_sha256="u" * 64,
+            session_id=session.id,
+            base_revision="default",
+            expires_at=now + timedelta(minutes=30),
+        )
+    )
+    db.flush()
+    db.delete(session)
+    db.flush()
+    assert db.scalar(text("SELECT count(*) FROM branding_draft")) == 0
+
+    index = next(
+        item
+        for item in inspect(engine).get_indexes("branding_draft")
+        if item["name"] == "uq_branding_draft_session_open"
+    )
+    assert index["unique"] is True
+    assert "consumed_at IS NULL" in index["dialect_options"]["postgresql_where"]
+    with engine.connect() as conn:
+        for table in ("branding_asset", "branding_draft"):
+            for privilege in ("SELECT", "INSERT", "UPDATE", "DELETE"):
+                assert conn.scalar(
+                    text("SELECT has_table_privilege('app_role', :table, :privilege)"),
+                    {"table": table, "privilege": privilege},
+                ) is True
+

@@ -4,6 +4,7 @@ from app.models.app_setting import AppSetting
 from app.models.audit_log import AuditLog
 from app.models.base import Base, JSONValue
 from app.models.binding import Binding
+from app.models.branding import BrandingAsset, BrandingDraft
 from app.models.certificate import Certificate
 from app.models.encrypted_setting import EncryptedSetting
 from app.models.endpoint import Endpoint
@@ -27,6 +28,8 @@ __all__ = [
     "AuditLog",
     "Base",
     "Binding",
+    "BrandingAsset",
+    "BrandingDraft",
     "Certificate",
     "EncryptedSetting",
     "Endpoint",
