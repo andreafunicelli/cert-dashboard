@@ -131,8 +131,16 @@ def _asset_revision(factory) -> str:
 
 
 def _drafts(factory):
+    """Open (unconsumed) candidates only: a saved draft leaves a 30-minute receipt behind."""
     with factory() as db:
-        return db.scalar(select(func.count()).select_from(BrandingDraft)) or 0
+        return (
+            db.scalar(
+                select(func.count())
+                .select_from(BrandingDraft)
+                .where(BrandingDraft.consumed_at.is_(None))
+            )
+            or 0
+        )
 
 
 def _audits(factory, action):
@@ -229,7 +237,7 @@ def test_save_updates_header_and_sign_in_but_not_favicon_or_product_name(
     assert DEFAULT_LOCKUP not in header
     assert 'href="/static/branding/favicon.svg"' in home
     assert 'href="/static/branding/favicon-32.png"' in home
-    assert "<title>Cert Dashboard</title>" in home
+    assert "<title>Overview · Cert Dashboard</title>" in home
 
     login = _login_page(client).text
     assert f'/branding/logo?v={revision}' in login
