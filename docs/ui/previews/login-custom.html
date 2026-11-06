@@ -1,0 +1,139 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"403","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"404","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"500","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"503","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"[45]..","swap":false,"error":true}]}'>
+  <title>Sign in · Cert Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="../../../app/static/branding/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="../../../app/static/branding/favicon-32.png">
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/branding.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cert Dashboard home">
+    <img class="brand-custom-lockup" src="/branding/logo?v=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" alt="" width="120" height="24"><img class="brand-custom-mark" src="/branding/logo?v=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" alt="" width="24" height="24"><span class="brand-custom-name">Cert Dashboard</span>
+  </a>
+
+
+
+
+
+<div class="desktop-navigation">
+  <nav aria-label="Main">
+    <span><a href="/">Overview</a></span><span><a href="/certificates">Certificates</a></span><span><a href="/inventory">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span><a href="/administration">Administration</a></span>
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu</summary>
+  <nav aria-label="All pages">
+
+    <section>
+      <h2>
+
+
+  <span><a href="/">Overview</a></span></h2>
+
+    </section>
+
+    <section>
+      <h2>Certificates</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/certificates">Certificates</a></span>
+
+
+  <span><a href="/certificates/import">Import</a></span>
+
+
+  <span><a href="/renewals">Renewals</a></span></div>
+    </section>
+
+    <section>
+      <h2>Infrastructure</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/inventory">Inventory</a></span>
+
+
+  <span><a href="/servers">Servers</a></span>
+
+
+  <span><a href="/bindings">Bindings</a></span>
+
+
+  <span><a href="/servers#discovery-actions">Discovery</a></span>
+
+
+  <span><a href="/ssh-keys">SSH keys</a></span></div>
+    </section>
+
+    <section>
+      <h2>Operations</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span><a href="/deploy/jobs">Jobs</a></span></div>
+    </section>
+
+    <section>
+      <h2>Administration</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/administration">Administration</a></span>
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/account">My account</a></span></div>
+    </section>
+
+  </nav>
+</details>
+
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+<section class="panel narrow auth-panel">
+  <div class="auth-mark"><img class="auth-mark-custom" src="/branding/logo?v=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" alt="" width="160" height="48"></div>
+  <h1>Sign in</h1>
+
+  <form method="post" action="/login" autocomplete="on">
+    <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+    <label for="username">Username</label>
+    <input id="username" name="username" value="" maxlength="254" autocomplete="username" required autofocus>
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" autocomplete="current-password" required>
+    <button type="submit">Sign in</button>
+  </form>
+  <p class="hint">There is no password reset. If you cannot sign in, contact another admin.</p>
+</section>
+</main>
+
+</body>
+</html>

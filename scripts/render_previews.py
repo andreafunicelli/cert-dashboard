@@ -20,6 +20,15 @@ from app.web.administration import DEFAULT_BRAND, HTMX_CONFIG_JSON
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "docs/ui/previews"
 
+# A custom saved logo for the shell/sign-in previews; the branding tab fixtures build their own.
+CUSTOM_BRAND = {
+    **DEFAULT_BRAND,
+    "custom": True,
+    "logo": "/branding/logo?v=" + "a" * 64,
+    "width": 120,
+    "height": 40,
+}
+
 
 def environment():
     env = Environment(
@@ -135,6 +144,8 @@ def operator_fixtures():
             {"name": "System", "entries": [
                 {"label": "Status", "href": "/settings?tab=status", "status": "0 warnings"},
                 {"label": "System and maintenance", "href": "/settings?tab=maintenance", "status": "Job retention: 90 days"},
+                {"label": "Branding", "href": "/settings?tab=branding",
+                 "status": "Default logo" if empty else "Custom logo"},
                 {"label": "Audit", "href": "/audit", "status": "Append-only record of actions"},
             ]},
         ]
@@ -222,8 +233,10 @@ def fixtures():
     pages = {
         "login": ("login.html.j2", {}),
         "login-error": ("login.html.j2", {"username": "operator", "error": "Invalid credentials."}),
+        "login-custom": ("login.html.j2", {"brand": CUSTOM_BRAND}),
         "login-2fa": ("login_2fa.html.j2", {}),
         "login-2fa-error": ("login_2fa.html.j2", {"error": "Invalid code."}),
+        "shell-custom": ("shell.html.j2", {"brand": CUSTOM_BRAND}),
         "bootstrap": ("bootstrap.html.j2", {}),
         "shell": (
             "shell.html.j2",
@@ -254,6 +267,8 @@ def fixtures():
     pages.update(infrastructure_fixtures())
     pages.update(worker_fixtures(pages['settings-smtp'][1]))
     pages.update(consistency_fixtures(pages))
+    pages.update(branding_fixtures(pages['settings-branding'][1]))
+    pages.pop('settings-branding', None)  # the tab's states are named settings-branding-*
     return {name: (template, common | context) for name, (template, context) in pages.items()}
 
 
@@ -627,7 +642,8 @@ def operations_fixtures():
                                                            "tz": 'UTC', "request": request})
     tabs = [('smtp', 'SMTP'), ('alerts', 'Alerts'), ('inventory', 'Inventory repository'), ('deployment', 'Deployment'),
             ('scanning', 'Scanning'), ('schedule', 'Schedule'), ('general', 'General'),
-            ('trust', 'Trust anchors'), ('status', 'Status'), ('maintenance', 'Maintenance'), ('worker', 'Worker')]
+            ('trust', 'Trust anchors'), ('status', 'Status'), ('maintenance', 'Maintenance'),
+            ('branding', 'Branding'), ('worker', 'Worker')]
     rows_by_tab = {
         'smtp': [('host', 'Host', 'text', 'smtp.example.test'), ('port', 'Port', 'text', '587'),
                  ('security', 'Security', 'select', 'starttls'), ('from', 'From address', 'text', 'alerts@example.test'),
@@ -790,6 +806,102 @@ def worker_fixtures(base):
             'form': ['SSH private key: this is a public key: paste the private key instead']}}),
         'settings-worker-saved': ('settings.html.j2', context | {'flash': [
             'SSH private key saved. Public SHA-256 fingerprint: ' + '0123456789abcdef' * 4 + '.']}),
+    }
+
+
+def branding_fixtures(base):
+    """Every Settings -> Branding state (docs/ui/branding.md); no upload bytes, no database."""
+    def current(kind="default", **values):
+        return {
+            "kind": kind,
+            "revision": values.get("revision", "default"),
+            "mime": values.get("mime", ""),
+            "width": values.get("width", 0),
+            "height": values.get("height", 0),
+            "filename": values.get("filename", ""),
+            "url": values.get("url", ""),
+        }
+
+    custom = current(
+        "custom",
+        revision="a" * 64,
+        mime="image/svg+xml",
+        width=320,
+        height=80,
+        filename="<b>team-logo</b>.svg",
+        url="/branding/logo?v=" + "a" * 64,
+    )
+    unavailable = current(
+        "unavailable",
+        revision="c" * 64,
+        mime="image/svg+xml",
+        width=24,
+        height=24,
+        filename="broken.svg",
+    )
+    draft = {
+        "token": "fixture-draft-token",
+        "mime": "image/svg+xml",
+        "width": 120,
+        "height": 40,
+        "filename": "candidate-logo.svg",
+        "byte_size": 2048,
+        "kib": 2,
+        "sha256": "b" * 64,
+        "base_revision": "default",
+        "expires_at": datetime(2026, 11, 2, 12, 30, tzinfo=UTC),
+        "url": "/settings/branding/draft/fixture-draft-token",
+    }
+    unchanged = "Your current logo has not changed."
+
+    def page(identity=None, render_draft=None, errors=None, conflict=False):
+        identity = identity or current()
+        branding = {
+            "current": identity,
+            "draft": render_draft,
+            "base_revision": identity["revision"],
+            "max_bytes": 262144,
+        }
+        return (
+            "settings.html.j2",
+            base | {"branding": branding, "errors": errors or {}, "branding_conflict": conflict},
+        )
+
+    return {
+        "settings-branding-default": page(),
+        "settings-branding-custom": page(identity=custom),
+        "settings-branding-preview": page(render_draft=draft),
+        "settings-branding-error": page(
+            errors={
+                "logo": [
+                    "This SVG uses unsupported content. Convert lettering to paths, remove "
+                    "embedded resources, or export a PNG. " + unchanged
+                ]
+            }
+        ),
+        "settings-branding-conflict": page(
+            render_draft=draft,
+            errors={
+                "form": [
+                    (
+                        "Branding changed since you opened this page. Review the current logo and "
+                        "preview your file again before saving. Your current logo has not changed."
+                    )
+                ]
+            },
+            conflict=True,
+        ),
+        "settings-branding-expired": page(
+            errors={
+                "form": [
+                    (
+                        "Logo preview expired. Choose the file again and select Preview logo. "
+                        "Your current logo has not changed."
+                    )
+                ]
+            }
+        ),
+        "settings-branding-unavailable": page(identity=unavailable),
     }
 
 

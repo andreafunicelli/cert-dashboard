@@ -1,0 +1,80 @@
+{% from "_ui.html.j2" import icon %}
+{% set b = branding %}
+<p class="help">Set the logo shown in navigation and on the sign-in page for everyone. The product name and browser icon stay Cert Dashboard. Do not upload confidential images: the saved logo is visible before sign-in.</p>
+{% if errors %}
+<div class="form-error" id="branding-error" role="alert" tabindex="-1" autofocus>
+  {% for messages in errors.values() %}{% for message in messages %}<p>{{ message }}</p>{% endfor %}{% endfor %}
+</div>
+{% endif %}
+
+<h3>Current logo</h3>
+{% if b.current.kind == 'custom' %}
+<p><span class="badge badge-ok">{{ icon('ok') }} Custom logo</span></p>
+<p class="branding-current"><img class="branding-current-image" src="{{ b.current.url }}" alt="" width="{{ b.current.width }}" height="{{ b.current.height }}"></p>
+<p>{{ b.current.filename }} · {{ b.current.width }} × {{ b.current.height }} px · {{ 'SVG' if b.current.mime == 'image/svg+xml' else 'PNG' }}</p>
+{% elif b.current.kind == 'unavailable' %}
+<p><span class="badge badge-warn">{{ icon('warn') }} Default logo</span></p>
+<p class="warning-note">Custom logo is unavailable. The default logo is being shown. Upload a replacement or reset to default.</p>
+<p class="branding-current"><picture class="branding-lockup"><source srcset="{{ brand.lockup_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.lockup }}" alt="" width="202" height="24"></picture></p>
+{% else %}
+<p><span class="badge badge-info">{{ icon() }} Default logo</span></p>
+<p>No custom logo. Cert Dashboard’s default logo is in use.</p>
+<p class="branding-current"><picture class="branding-lockup"><source srcset="{{ brand.lockup_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.lockup }}" alt="" width="202" height="24"></picture></p>
+{% endif %}
+
+<h3 id="branding-choose">Choose a new logo</h3>
+<form method="post" action="/settings/branding/preview" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label for="f-branding-logo">Logo image</label>
+  <input id="f-branding-logo" name="logo" type="file" accept="image/svg+xml,image/png,.svg,.png" aria-describedby="branding-logo-help{% if errors.get('logo') %} branding-logo-error{% endif %}"{% if errors.get('logo') %} aria-invalid="true"{% endif %}>
+  <p class="help" id="branding-logo-help">SVG or PNG, up to 256 KiB. Use a transparent image with a square or wide layout. For SVG, convert lettering to paths. Scripts, embedded images and external resources are not supported.</p>
+  {% if errors.get('logo') %}<p class="form-error" id="branding-logo-error" data-field="logo">{% for message in errors['logo'] %}{{ message }}{% endfor %}</p>{% endif %}
+  <p class="hint">Square art at least 48 × 48px; wide art at least 240 × 48px; no hard minimum beyond validation below.</p>
+  <p class="hint">Selecting a file does not upload or save it. Choose Preview logo to check it before saving. Leaving this page discards the preview after 30 minutes.</p>
+  <button type="submit">Preview logo</button>
+</form>
+
+{% if b.draft %}
+<h3>Preview</h3>
+<p class="notice" role="status">Preview only. Your current logo has not changed.</p>
+<p class="help">Current logo</p>
+<p class="branding-current branding-current-small">{% if b.current.kind == 'custom' %}<img class="branding-current-image" src="{{ b.current.url }}" alt="" width="{{ b.current.width }}" height="{{ b.current.height }}">{% else %}<picture class="branding-lockup"><source srcset="{{ brand.lockup_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.lockup }}" alt="" width="202" height="24"></picture>{% endif %}</p>
+<div class="branding-previews">
+  <div class="branding-surface branding-surface-dark">
+    <p class="branding-surface-header"><img src="{{ b.draft.url }}" alt="" width="{{ b.draft.width }}" height="{{ b.draft.height }}"><span>Cert Dashboard</span></p>
+    <p class="branding-surface-auth"><img src="{{ b.draft.url }}" alt="" width="{{ b.draft.width }}" height="{{ b.draft.height }}"></p>
+  </div>
+  <div class="branding-surface branding-surface-light">
+    <p class="branding-surface-header"><img src="{{ b.draft.url }}" alt="" width="{{ b.draft.width }}" height="{{ b.draft.height }}"><span>Cert Dashboard</span></p>
+    <p class="branding-surface-auth"><img src="{{ b.draft.url }}" alt="" width="{{ b.draft.width }}" height="{{ b.draft.height }}"></p>
+  </div>
+</div>
+<p>{{ b.draft.filename }} · {{ b.draft.width }} × {{ b.draft.height }} px · {{ 'SVG' if b.draft.mime == 'image/svg+xml' else 'PNG' }} · {{ b.draft.kib }} KiB</p>
+{% if not branding_conflict | default(false) %}
+<form method="post" action="/settings/branding">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="draft_token" value="{{ b.draft.token }}">
+  <input type="hidden" name="base_revision" value="{{ b.draft.base_revision }}">
+  <button type="submit">Save logo</button>
+</form>
+{% endif %}
+<form method="post" action="/settings/branding/discard">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="draft_token" value="{{ b.draft.token }}">
+  <button type="submit" class="button-secondary">Discard preview</button>
+</form>
+{% endif %}
+
+{% if b.current.kind != 'default' %}
+<h3>Reset</h3>
+<details class="confirmation branding-reset">
+  <summary>Reset to default…</summary>
+  <p>Reset to default logo? This removes the custom logo for everyone, including the sign-in page. You cannot undo this without uploading it again.</p>
+  <form method="post" action="/settings/branding/reset">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="base_revision" value="{{ b.current.revision }}">
+    <input type="hidden" name="confirm" value="RESET">
+    <div class="actions"><button type="submit" class="button-destructive">Reset logo</button> <a href="/settings?tab=branding">Cancel</a></div>
+  </form>
+</details>
+{% endif %}

@@ -42,6 +42,7 @@ __all__ = [
     "ResetOutcome",
     "SaveOutcome",
     "StagedDraft",
+    "clear_open_draft",
     "current_asset",
     "current_revision",
     "discard_draft",
@@ -162,6 +163,16 @@ def _delete_open_draft(db: Session, session_id: str) -> None:
             BrandingDraft.consumed_at.is_(None),
         )
     )
+
+
+def clear_open_draft(db: Session, session_id: str) -> None:
+    """Drop this session's pending preview.
+
+    A refused upload must not leave an older candidate one click away from being saved (422/413/
+    storage failure). This is transport-level cleanup, not a validation rule; the caller commits.
+    """
+    _delete_open_draft(db, session_id)
+    db.flush()
 
 
 def stage_draft(

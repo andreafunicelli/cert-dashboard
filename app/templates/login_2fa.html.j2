@@ -2,7 +2,7 @@
 {% block title %}Two-factor verification · Cert Dashboard{% endblock %}
 {% block content %}
 <section class="panel narrow auth-panel">
-  <picture class="auth-mark"><source srcset="{{ brand.mark_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.mark }}" alt="" width="48" height="48"></picture>
+  {% if brand.custom %}<div class="auth-mark"><img class="auth-mark-custom" src="{{ brand.logo }}" alt="" width="160" height="48"></div>{% else %}<picture class="auth-mark"><source srcset="{{ brand.mark_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.mark }}" alt="" width="48" height="48"></picture>{% endif %}
   <h1>Two-factor verification</h1>
   <p>Enter the 6-digit code from your authenticator app, or one of your recovery codes.</p>
   {% if error %}<p class="form-error" role="alert">{{ icon('danger') }} {{ error }}</p>{% endif %}

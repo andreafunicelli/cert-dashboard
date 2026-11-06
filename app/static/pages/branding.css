@@ -1,0 +1,29 @@
+/* Replaceable logo: the custom mark slots and the Settings -> Branding panel.
+   Colors come from the shared tokens only; the two preview surfaces use the system canvas so a
+   transparent upload can be inspected against a dark and a light background at the same time. */
+.brand-custom-lockup { width: 120px; height: 24px; object-fit: contain; }
+.brand-custom-mark { display: none; width: 24px; height: 24px; object-fit: contain; }
+.brand-custom-name { white-space: nowrap; }
+.auth-mark img.auth-mark-custom { width: 160px; height: 48px; object-fit: contain; }
+
+.branding-current { display: flex; align-items: center; min-height: var(--control-height); padding: var(--space-2) var(--space-4); background: var(--surface-raised); border: var(--line) solid var(--separator); border-radius: var(--radius); }
+.branding-current-image { display: block; max-width: 160px; max-height: 48px; object-fit: contain; }
+.branding-current .branding-lockup img { width: 202px; height: 24px; }
+.branding-current-small { max-width: var(--field-width); }
+.branding-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); margin-block: var(--space-3); }
+.branding-surface { min-width: 0; padding: var(--space-4); border: var(--line) solid var(--border); border-radius: var(--radius); }
+.branding-surface-dark { color-scheme: dark; color: CanvasText; background: Canvas; }
+.branding-surface-light { color-scheme: light; color: CanvasText; background: Canvas; }
+.branding-surface p { display: flex; align-items: center; gap: var(--space-1); margin-block: var(--space-2); max-width: none; }
+.branding-surface img { display: block; max-width: 120px; max-height: 24px; object-fit: contain; }
+.branding-surface-auth img { max-width: 160px; max-height: 48px; }
+.branding-reset { margin-top: var(--space-4); }
+.branding-reset > summary { color: var(--accent); }
+
+@media (max-width: 719px) {
+  .brand-custom-lockup { display: none; }
+  .brand-custom-mark { display: inline-block; }
+  .brand-custom-name { display: none; }
+  .branding-previews { grid-template-columns: minmax(0, 1fr); }
+  .branding-current-image { max-width: 120px; }
+}

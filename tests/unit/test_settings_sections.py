@@ -96,6 +96,7 @@ def test_canonical_section_tabs_omit_the_legacy_tabs_and_carry_the_group_labels(
         {"name": "trust", "label": "Trust anchors"},
         {"name": "status", "label": "Status"},
         {"name": "maintenance", "label": "System and maintenance"},
+        {"name": "branding", "label": "Branding"},
         {"name": "worker", "label": "Worker"},
     ]
 
@@ -121,6 +122,7 @@ def test_legacy_tabs_keep_every_entry_scanning_and_general_included():
         "trust",
         "status",
         "maintenance",
+        "branding",
         "worker",
     ]
 

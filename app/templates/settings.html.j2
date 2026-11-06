@@ -1,11 +1,12 @@
 {% extends "base.html.j2" %}
 {% block title %}Settings · Cert Dashboard{% endblock %}
-{% block extra_css %}<link rel="stylesheet" href="/static/pages/settings.css">{% if tab == 'smtp' or tab == 'alerts' %}<link rel="stylesheet" href="/static/pages/email.css">{% endif %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
+{% block extra_css %}<link rel="stylesheet" href="/static/pages/settings.css">{% if tab == 'smtp' or tab == 'alerts' %}<link rel="stylesheet" href="/static/pages/email.css">{% endif %}{% if tab == 'branding' %}<link rel="stylesheet" href="/static/pages/branding.css">{% endif %}{% from "_inventory_ui.html.j2" import enhanced_forms %}{{ enhanced_forms() }}{% endblock %}
 {% block content %}
 {% from "_operations_ui.html.j2" import page_header, more_actions %}
 {% call page_header('Settings', 'Configure discovery, scans and delivery; save each configuration section explicitly.') %}
   {% if tab == 'status' %}<a class="button" href="/settings?tab=status">Refresh status</a>
   {% elif tab == 'worker' %}<a class="button button-secondary" href="#worker-ssh">Configure SSH key</a>
+  {% elif tab == 'branding' %}{# Branding owns its own actions: preview, save and reset live in the panel. #}
   {% else %}{% set save_tab = 'general' if tab == 'maintenance' else tab %}<button type="submit" form="settings-form-{{ save_tab }}">{{ 'Save and recheck' if tab == 'trust' else 'Save ' ~ ('General' if tab == 'maintenance' else tab_label) ~ ' settings' }}</button>{% endif %}
   {% call more_actions() %}<a href="/settings?tab=status">System status</a><a href="/audit?target_type=settings">Settings audit history</a><a href="/settings?tab=scanning">Scanning section</a><a href="/settings?tab=general">General section</a>{% endcall %}
 {% endcall %}
@@ -35,9 +36,9 @@
 <section class="panel wide" id="settings-panel" data-tab="{{ tab }}" data-settings-saved="{{ 'true' if draft_saved else 'false' }}" data-settings-errors="{{ 'true' if errors else 'false' }}" aria-labelledby="tab-heading">
   {% from "settings/_form.html.j2" import configuration_form %}
   <h2 id="tab-heading">{{ section_label | default(tab_label) }}</h2>
-  <p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>
+  {% if tab != 'branding' %}<p id="settings-draft-status" role="status" class="help">No unsaved draft restored. Changes are not applied until you save.</p>{% endif %}
   {% if saved %}<p class="notice" role="status">Settings saved.</p>{% endif %}
-  {% if errors.get("form") %}<div class="form-error" data-field="form" role="alert">{% for message in errors["form"] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}
+  {% if tab != 'branding' and errors.get("form") %}<div class="form-error" data-field="form" role="alert">{% for message in errors["form"] %}<p>{{ message }}</p>{% endfor %}</div>{% endif %}
   {% if related_sections | default([]) %}
   <p class="help">Related settings share this tab. Each section has its own Save action; saving one does not apply the other section's draft.</p>
   {% set sections = [{'tab': tab, 'label': tab_label, 'fields': fields, 'values': values, 'errors': errors, 'saved': saved}] + related_sections %}
@@ -51,6 +52,8 @@
   {% endfor %}
   {% elif tab == "worker" %}
   {% include "settings/_worker.html.j2" %}
+  {% elif tab == "branding" %}
+  {% include "settings/_branding.html.j2" %}
   {% elif tab == "trust" %}
   <p data-public-bundle>Public bundle: certifi {{ bundle.version }}, {{ bundle.roots }} roots, include-public-bundle = {{ "true" if bundle.enabled else "false" }}</p>
   <p class="hint">The public roots are read-only, in-memory entries of the pinned certifi bundle; they are never listed or stored as rows.</p>

@@ -30,7 +30,8 @@ def test_administration_navigation_and_personal_account_name(path):
 HUB_ROUTES = [
     '/users', '/account', '/inventory', '/settings?tab=inventory', '/settings?tab=worker', '/ssh-keys',
     '/settings?tab=smtp', '/settings?tab=alerts', '/settings?tab=deployment', '/settings?tab=schedule',
-    '/settings?tab=trust', '/settings?tab=status', '/settings?tab=maintenance', '/audit',
+    '/settings?tab=trust', '/settings?tab=status', '/settings?tab=maintenance', '/settings?tab=branding',
+    '/audit',
 ]
 
 
@@ -47,7 +48,8 @@ def test_hub_lists_every_entry_with_a_server_side_status_and_no_form():
                    'ssh://git@example.test/inventory.git @ main', 'SSH key: configured',
                    '0 trusted in the dashboard · Mounted known_hosts: absent', 'Configured',
                    'Thresholds: 60, 30, 14, 7, 1, 0 days', 'Batch 10% · concurrency 5',
-                   'Nightly discovery 01:00', '0 warnings', 'Job retention: 90 days']:
+                   'Nightly discovery 01:00', '0 warnings', 'Job retention: 90 days',
+                   'Custom logo']:
         assert status in content, status
 
 
