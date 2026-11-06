@@ -35,7 +35,7 @@ Boxes are ticked only when the work is merged on `main`; each ticked box names i
 - [x] Required `verify` green; merged `4b283da` (PR #101).
 
 ### Task B-R: Slice B review and smoke (`t_9ab63e2d`)
-- [ ] `slice-b-contract.md` §9 R smoke; PR #92 closed as superseded.
+- [x] `slice-b-contract.md` §9 R smoke; PR #92 closed as superseded — 93/93 live checks, smoke record https://github.com/andreafunicelli/cert-dashboard/pull/92#issuecomment-6666761060, merged `25d1f8d`.
 
 ### Task A1: shell, navigation, Overview checklist, Administration hub, HTMX error parity (`t_8439d40d`)
 - [x] Tests per `docs/ux-spec.md` §5.8 (navigation, setup checklist, hub, narrow settings, `/servers` empty states, banner links, global htmx-config, HTMX 403 on a non-management page, default branding) — merged `35f6d38` (PR #102).
@@ -58,4 +58,5 @@ Boxes are ticked only when the work is merged on `main`; each ticked box names i
 - [x] Required `verify` green; merged `9a4eaad` (PR #105).
 
 ### Task D: documentation and screenshots (`t_4c8f8378`)
-- [ ] README/docs/screenshots refreshed after every task above; tick this plan's remaining boxes.
+- [x] README/docs/screenshots refreshed after every task above; tick this plan's remaining boxes — merged `e61ec5a` (PR #106).
+- [x] Final human acceptance run of `docs/ux-spec.md` §10 on `e61ec5a`: [docs/ux-acceptance.md](../../ux-acceptance.md) — steps 1–19, every §9 criterion, three P2 findings, no P0/P1.
