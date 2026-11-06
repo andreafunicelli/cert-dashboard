@@ -8,15 +8,15 @@
   <title>{% block title %}Cert Dashboard{% endblock %}</title>
   <link rel="icon" type="image/svg+xml" href="{{ brand.favicon_svg }}">
   <link rel="icon" type="image/png" sizes="32x32" href="{{ brand.favicon_png }}">
-  <link rel="stylesheet" href="/static/app.css">{% block extra_css %}{% endblock %}
+  <link rel="stylesheet" href="/static/app.css">{% if brand.custom %}<link rel="stylesheet" href="/static/pages/branding.css">{% endif %}{% block extra_css %}{% endblock %}
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main-content">Skip to content</a>
 <header class="site-header">
   <a class="brand" href="/" aria-label="Cert Dashboard home">
-    <picture class="brand-lockup"><source srcset="{{ brand.lockup_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.lockup }}" alt="" width="202" height="24"></picture>
-    <picture class="brand-mark"><source srcset="{{ brand.mark_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.mark }}" alt="" width="24" height="24"></picture>
+    {% if brand.custom %}<img class="brand-custom-lockup" src="{{ brand.logo }}" alt="" width="120" height="24"><img class="brand-custom-mark" src="{{ brand.logo }}" alt="" width="24" height="24"><span class="brand-custom-name">Cert Dashboard</span>{% else %}<picture class="brand-lockup"><source srcset="{{ brand.lockup_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.lockup }}" alt="" width="202" height="24"></picture>
+    <picture class="brand-mark"><source srcset="{{ brand.mark_light }}" media="(prefers-color-scheme: light)"><img src="{{ brand.mark }}" alt="" width="24" height="24"></picture>{% endif %}
   </a>
   {% include "_navigation.html.j2" %}
   {% if user %}<details class="user-menu"><summary>{{ user.display_name }}</summary>

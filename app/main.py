@@ -54,7 +54,7 @@ from app.services.audit import SecretRedactionFilter, record
 from app.services.certificates import missing_master_key_versions
 from app.web.administration import register_administration_routes
 from app.web.audit import register_audit_routes
-from app.web.branding import register_branding_routes
+from app.web.branding import brand_context, register_branding_routes
 from app.web.certificates import register_certificate_routes
 from app.web.common import (
     _actor,
@@ -705,7 +705,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ]
     ]
     app.state.templates = Jinja2Templates(
-        env=Environment(loader=FileSystemLoader(str(_ROOT / "templates")), autoescape=True)
+        env=Environment(loader=FileSystemLoader(str(_ROOT / "templates")), autoescape=True),
+        context_processors=[brand_context],
     )
     app.state.templates.env.filters["datetime"] = format_datetime
     app.add_middleware(_WebFoundation)

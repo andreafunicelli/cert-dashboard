@@ -1,0 +1,258 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true,"error":true},{"code":"403","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"404","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"500","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"503","swap":true,"error":true,"target":"#main-content","select":"#main-content","swapOverride":"outerHTML"},{"code":"[45]..","swap":false,"error":true}]}'>
+  <title>Settings · Cert Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="../../../app/static/branding/favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="../../../app/static/branding/favicon-32.png">
+  <link rel="stylesheet" href="../../../app/static/app.css"><link rel="stylesheet" href="../../../app/static/pages/settings.css"><link rel="stylesheet" href="../../../app/static/pages/branding.css">
+  <script src="../../../app/static/htmx.min.js" defer></script>
+</head>
+<body>
+<a class="skip-link" href="#main-content">Skip to content</a>
+<header class="site-header">
+  <a class="brand" href="/" aria-label="Cert Dashboard home">
+    <picture class="brand-lockup"><source srcset="../../../app/static/branding/lockup-light.svg" media="(prefers-color-scheme: light)"><img src="../../../app/static/branding/lockup.svg" alt="" width="202" height="24"></picture>
+    <picture class="brand-mark"><source srcset="../../../app/static/branding/mark-light.svg" media="(prefers-color-scheme: light)"><img src="../../../app/static/branding/mark.svg" alt="" width="24" height="24"></picture>
+  </a>
+
+
+
+
+
+<div class="desktop-navigation">
+  <nav aria-label="Main">
+    <span><a href="/">Overview</a></span><span><a href="/certificates">Certificates</a></span><span><a href="/inventory">Infrastructure</a></span><span><a href="/scans">Operations</a></span><span class="active-area" aria-current="location"><a href="/administration">Administration</a></span>
+  </nav>
+</div>
+<details class="mobile-navigation">
+  <summary>Menu · Administration</summary>
+  <nav aria-label="All pages">
+
+    <section>
+      <h2>
+
+
+  <span><a href="/">Overview</a></span></h2>
+
+    </section>
+
+    <section>
+      <h2>Certificates</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/certificates">Certificates</a></span>
+
+
+  <span><a href="/certificates/import">Import</a></span>
+
+
+  <span><a href="/renewals">Renewals</a></span></div>
+    </section>
+
+    <section>
+      <h2>Infrastructure</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/inventory">Inventory</a></span>
+
+
+  <span><a href="/servers">Servers</a></span>
+
+
+  <span><a href="/bindings">Bindings</a></span>
+
+
+  <span><a href="/servers#discovery-actions">Discovery</a></span>
+
+
+  <span><a href="/ssh-keys">SSH keys</a></span></div>
+    </section>
+
+    <section>
+      <h2>Operations</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/scans">Scans</a></span>
+
+
+  <span><a href="/deploy">Deploy</a></span>
+
+
+  <span><a href="/deploy/jobs">Jobs</a></span></div>
+    </section>
+
+    <section class="active-area">
+      <h2>Administration</h2>
+      <div class="navigation-pages">
+
+
+  <span><a href="/administration">Administration</a></span>
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/account">My account</a></span></div>
+    </section>
+
+  </nav>
+</details>
+
+<nav class="area-navigation" aria-label="Administration pages">
+
+
+
+  <span><a href="/administration">Administration</a></span>
+
+
+  <span><a href="/users">Users</a></span>
+
+
+  <span aria-current="page"><a href="/settings">Settings</a></span>
+
+
+  <span><a href="/audit">Audit</a></span>
+
+
+  <span><a href="/account">My account</a></span>
+</nav>
+
+
+</header>
+
+
+
+
+
+
+<main id="main-content" tabindex="-1">
+
+<header class="page-header">
+  <div><h1>Settings</h1><p class="page-subtitle">Configure discovery, scans and delivery; save each configuration section explicitly.</p></div>
+  <div class="page-actions">
+
+
+  <details class="action-menu"><summary>More actions</summary><div class="action-menu-items"><a href="/settings?tab=status">System status</a><a href="/audit?target_type=settings">Settings audit history</a><a href="/settings?tab=scanning">Scanning section</a><a href="/settings?tab=general">General section</a></div></details>
+</div>
+</header>
+<p class="help">Save each section explicitly; unsaved changes may be lost when you switch sections.</p>
+<details class="draft-help"><summary>How drafts work</summary><p class="help">Save each section explicitly. Without JavaScript, unsaved changes are lost when switching tabs. Saving one section also reloads the tab and loses unsaved edits in other sections without JavaScript. With JavaScript, non-secret configuration drafts stay in this browser tab until saved. Secrets and repository URLs are never retained; save repository URL edits before switching tabs.</p></details>
+<nav class="tabs settings-sections-desktop" aria-label="Settings sections">
+  <ul>
+
+    <li><a href="/settings?tab=smtp">SMTP<span class="field-change" data-settings-tab-draft="smtp" hidden> (smtp unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=alerts">Alerts<span class="field-change" data-settings-tab-draft="alerts" hidden> (alerts unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=inventory">Inventory repository<span class="field-change" data-settings-tab-draft="inventory" hidden> (inventory unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=deployment">Deployment<span class="field-change" data-settings-tab-draft="deployment" hidden> (deployment unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=schedule">Schedule and scans<span class="field-change" data-settings-tab-draft="schedule" hidden> (schedule unsaved draft)</span><span class="field-change" data-settings-tab-draft="scanning" hidden> (scanning unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=trust">Trust anchors<span class="field-change" data-settings-tab-draft="trust" hidden> (trust unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=status">Status<span class="field-change" data-settings-tab-draft="status" hidden> (status unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=maintenance">System and maintenance<span class="field-change" data-settings-tab-draft="maintenance" hidden> (maintenance unsaved draft)</span><span class="field-change" data-settings-tab-draft="general" hidden> (general unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=branding" aria-current="page">Branding<span class="field-change" data-settings-tab-draft="branding" hidden> (branding unsaved draft)</span></a></li>
+
+    <li><a href="/settings?tab=worker">Worker<span class="field-change" data-settings-tab-draft="worker" hidden> (worker unsaved draft)</span></a></li>
+
+  </ul>
+</nav>
+<details class="settings-sections">
+  <summary>Section: Branding</summary>
+  <nav class="tabs" aria-label="Settings sections (compact)">
+    <ul>
+
+      <li><a href="/settings?tab=smtp">SMTP</a></li>
+
+      <li><a href="/settings?tab=alerts">Alerts</a></li>
+
+      <li><a href="/settings?tab=inventory">Inventory repository</a></li>
+
+      <li><a href="/settings?tab=deployment">Deployment</a></li>
+
+      <li><a href="/settings?tab=schedule">Schedule and scans</a></li>
+
+      <li><a href="/settings?tab=trust">Trust anchors</a></li>
+
+      <li><a href="/settings?tab=status">Status</a></li>
+
+      <li><a href="/settings?tab=maintenance">System and maintenance</a></li>
+
+      <li><a href="/settings?tab=branding">Branding</a></li>
+
+      <li><a href="/settings?tab=worker">Worker</a></li>
+
+    </ul>
+  </nav>
+</details>
+
+
+
+
+<section class="panel wide" id="settings-panel" data-tab="branding" data-settings-saved="false" data-settings-errors="true" aria-labelledby="tab-heading">
+
+  <h2 id="tab-heading">Branding</h2>
+
+
+
+
+
+
+<p class="help">Set the logo shown in navigation and on the sign-in page for everyone. The product name and browser icon stay Cert Dashboard. Do not upload confidential images: the saved logo is visible before sign-in.</p>
+
+<div class="form-error" id="branding-error" role="alert" tabindex="-1" autofocus>
+  <p>This SVG uses unsupported content. Convert lettering to paths, remove embedded resources, or export a PNG. Your current logo has not changed.</p>
+</div>
+
+
+<h3>Current logo</h3>
+
+<p><span class="badge badge-info"><svg class="status-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+  <circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10v2"/>
+</svg> Default logo</span></p>
+<p>No custom logo. Cert Dashboard’s default logo is in use.</p>
+<p class="branding-current"><picture class="branding-lockup"><source srcset="../../../app/static/branding/lockup-light.svg" media="(prefers-color-scheme: light)"><img src="../../../app/static/branding/lockup.svg" alt="" width="202" height="24"></picture></p>
+
+
+<h3 id="branding-choose">Choose a new logo</h3>
+<form method="post" action="/settings/branding/preview" enctype="multipart/form-data">
+  <input type="hidden" name="csrf_token" value="preview-only-not-a-valid-token">
+  <label for="f-branding-logo">Logo image</label>
+  <input id="f-branding-logo" name="logo" type="file" accept="image/svg+xml,image/png,.svg,.png" aria-describedby="branding-logo-help branding-logo-error" aria-invalid="true">
+  <p class="help" id="branding-logo-help">SVG or PNG, up to 256 KiB. Use a transparent image with a square or wide layout. For SVG, convert lettering to paths. Scripts, embedded images and external resources are not supported.</p>
+  <p class="form-error" id="branding-logo-error" data-field="logo">This SVG uses unsupported content. Convert lettering to paths, remove embedded resources, or export a PNG. Your current logo has not changed.</p>
+  <p class="hint">Square art at least 48 × 48px; wide art at least 240 × 48px; no hard minimum beyond validation below.</p>
+  <p class="hint">Selecting a file does not upload or save it. Choose Preview logo to check it before saving. Leaving this page discards the preview after 30 minutes.</p>
+  <button type="submit">Preview logo</button>
+</form>
+
+
+
+
+
+</section>
+
+</main>
+
+<script src="../../../app/static/settings.js" defer></script>
+
+</body>
+</html>

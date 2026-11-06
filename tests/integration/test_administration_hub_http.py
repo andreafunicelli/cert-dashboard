@@ -31,7 +31,8 @@ from tests.integration.conftest import add_server, create_login_user, set_settin
 HUB_ROUTES = [
     "/users", "/account", "/inventory", "/settings?tab=inventory", "/settings?tab=worker", "/ssh-keys",
     "/settings?tab=smtp", "/settings?tab=alerts", "/settings?tab=deployment", "/settings?tab=schedule",
-    "/settings?tab=trust", "/settings?tab=status", "/settings?tab=maintenance", "/audit",
+    "/settings?tab=trust", "/settings?tab=status", "/settings?tab=maintenance", "/settings?tab=branding",
+    "/audit",
 ]
 
 
@@ -78,6 +79,7 @@ def test_empty_installations_show_next_actions_and_unknown_worker_facts(signed_i
     assert "SSH key: missing · Vault password: not set · Git token: not set" in content
     assert "0 trusted in the dashboard · Mounted known_hosts: unknown" in content
     assert "Two-factor authentication off" in content
+    assert "Branding" in content and "Default logo" in content
     assert "Not configured" in content  # SMTP
     assert re.search(r"\d+ warnings", content)
 

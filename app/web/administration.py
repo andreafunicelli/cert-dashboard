@@ -12,8 +12,8 @@ This module also owns the two values the shared shell needs:
     server error are announced on every page instead of only on Slice B screens (UX-08).
 
 ``brand``
-    The default logo URLs. A2b replaces this mapping with a resolver that returns the custom asset when
-    one is saved; the templates only ever read the keys.
+    The default logo URLs, re-exported from ``app.web.branding``. A2b's resolver returns the custom
+    asset behind the same keys when one is saved; the templates only ever read the keys.
 
 ``app/web/users.py`` keeps ``/users`` only: the hub handler moved here with the navigation rebuild
 (the single A1 edit to that Slice B file).
@@ -32,6 +32,7 @@ from sqlalchemy import func, select
 
 from app.jobs.worker import worker_capabilities
 from app.models import SshHostKey, TrustAnchor, User
+from app.services.branding import current_asset
 from app.services.settings import get_setting, status_snapshot
 from app.services.setup_status import setup_status
 from app.services.worker_credentials import (
@@ -40,6 +41,7 @@ from app.services.worker_credentials import (
     VAULT_PASSWORD,
     credential_states,
 )
+from app.web.branding import DEFAULT_BRAND, readable_asset
 from app.web.common import _render, install_template_helpers
 from app.web.management import _HTMX_CONFIG
 
@@ -61,16 +63,6 @@ HTMX_CONFIG = {
         for code in ("404", "500", "503")
     ]
     + [_LAST_RULE]
-}
-
-# Default identity (docs/ui/branding.md). Keys never change; A2b swaps the values behind the same keys.
-DEFAULT_BRAND = {
-    "lockup": "/static/branding/lockup.svg",
-    "lockup_light": "/static/branding/lockup-light.svg",
-    "mark": "/static/branding/mark.svg",
-    "mark_light": "/static/branding/mark-light.svg",
-    "favicon_svg": "/static/branding/favicon.svg",
-    "favicon_png": "/static/branding/favicon-32.png",
 }
 
 HTMX_CONFIG_JSON = json.dumps(HTMX_CONFIG, separators=(",", ":"))
@@ -153,6 +145,7 @@ def _hub_context(request: Request) -> dict:
         deploy_canary = get_setting(db, "deploy.pause_after_canary")
         nightly_discovery = get_setting(db, "discovery.nightly_at")
         scan_timeout = get_setting(db, "scan.timeout_seconds")
+        branding_status = "Custom logo" if readable_asset(current_asset(db)) else "Default logo"
 
     if setup.hosts:
         host_status = _status(
@@ -258,6 +251,11 @@ def _hub_context(request: Request) -> dict:
                     "label": "System and maintenance",
                     "href": "/settings?tab=maintenance",
                     "status": f"Job retention: {retention_days} days",
+                },
+                {
+                    "label": "Branding",
+                    "href": "/settings?tab=branding",
+                    "status": branding_status,
                 },
                 {"label": "Audit", "href": "/audit", "status": "Append-only record of actions"},
             ],

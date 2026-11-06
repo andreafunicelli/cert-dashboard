@@ -65,7 +65,7 @@ from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData, UploadFile
@@ -110,6 +110,7 @@ from app.services.worker_credentials import (
     remove_credential,
     set_credential,
 )
+from app.web.branding import apply_draft_cookie, branding_context
 from app.web.common import (
     _render,
     _transact,
@@ -236,6 +237,7 @@ _TAB_LABELS = {
     "trust": "Trust anchors",
     "status": "Status",
     "maintenance": "Maintenance",
+    "branding": "Branding",
     "worker": "Worker",
 }
 _TAB_LINKS = [{"name": name, "label": label} for name, label in _TAB_LABELS.items()]
@@ -253,6 +255,7 @@ _SECTION_LABELS = {
     "trust": "Trust anchors",
     "status": "Status",
     "maintenance": "System and maintenance",
+    "branding": "Branding",
     "worker": "Worker",
 }
 _SECTION_TABS = [{"name": name, "label": label} for name, label in _SECTION_LABELS.items()]
@@ -539,6 +542,7 @@ def _page(
     status: int = 200,
     values: Mapping[str, JSONValue] | None = None,
     errors: Mapping[str, list[str]] | None = None,
+    extra: Mapping[str, object] | None = None,
 ):
     section_tab = _GROUPED_SECTIONS.get(tab, tab)
     context: dict = {
@@ -558,6 +562,9 @@ def _page(
         "values": {},
         "tls_unsafe": False,
     }
+    if tab == "branding":
+        # The branding panel owns its own state (current image, session draft, 409/410/503 screens).
+        context.update(branding_context(request))
     with request.app.state.factory() as db:
         if tab in _TAB_FIELDS:
             context["values"] = _current_values(db, tab) | dict(values or {})
@@ -589,12 +596,21 @@ def _page(
             )
         elif tab == "trust":
             context.update(_trust_context(db))
-        else:  # status and maintenance both render the snapshot (maintenance shows the keyring state)
+        elif tab != "branding":  # status and maintenance render the snapshot (maintenance includes keyring state)
             context.update(_status_context(request, db))
         context["related_sections"] = _related_sections(db, tab)
+    context.update(extra or {})
     if status == 422 and _is_htmx(request):
         return render_block(request, "settings.html.j2", "panel", status, **context)
     return _render(request, "settings.html.j2", status, **context)
+
+
+def render_branding(
+    request: Request, status: int = 200, errors: Mapping[str, list[str]] | None = None, *, conflict: bool = False
+):
+    """Render the Branding tab (also the 409/410/413/422/503 screens) and mirror the draft cookie."""
+    response = _page(request, "branding", status, errors=errors, extra={"branding_conflict": conflict})
+    return apply_draft_cookie(request, response)
 
 
 def _refuse(request: Request, tab: str, form: FormData, errors: dict[str, list[str]]):
@@ -930,10 +946,13 @@ def register_settings_routes(app: FastAPI) -> None:
     install_template_helpers(app)
 
     @app.get("/settings")
-    def settings_page(request: Request, tab: str = "smtp") -> HTMLResponse:
+    def settings_page(request: Request, tab: str = "smtp") -> Response:
         if tab not in _TAB_LABELS:
             raise HTTPException(404)
-        return _page(request, tab)
+        response = _page(request, tab)
+        if tab == "branding":
+            response = apply_draft_cookie(request, response)
+        return response
 
     # Literal paths first: ``/settings/trust`` and ``/settings/trust-anchors`` would otherwise match
     # the generic ``/settings/{tab}`` route below.
